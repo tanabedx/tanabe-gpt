@@ -1,13 +1,14 @@
 {
   "name": "tanabe-gpt",
   "version": "1.0.0",
-  "description": "",
+  "description": "WhatsApp bot with GPT integration",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "test": "DEBUG=false node --no-deprecation test/runTests.js",
+    "test:verbose": "DEBUG=true node --no-deprecation test/runTests.js --verbose",
     "setup": "node test/setupAuth.js",
     "pretest": "node test/setupAuth.js",
-    "test": "node test/botTester.js",
     "test:summary": "node test/runTest.js \"Basic Summary\" \"Summary with Quote\" \"Summary with Link\" \"Summary with Specific Count\" \"Summary with Document\" \"Direct Attachment Summary\" \"Summary Sticker\"",
     "test:news": "node test/runTest.js \"Latest News\" \"Football News\" \"News Search\" \"News Sticker\" \"Link Auto Summary\"",
     "test:chat": "node test/runTest.js \"ChatGPT Basic\" \"ChatGPT with Quote\" \"ChatGPT with Personality and History\"",
@@ -27,12 +28,12 @@
     "dotenv": "^16.4.7",
     "ffmpeg": "^0.0.4",
     "fluent-ffmpeg": "^2.1.3",
-    "openai": "^4.91.1",
+    "openai": "^4.24.1",
     "pdf-parse": "^1.1.1",
     "puppeteer": "^24.6.0",
     "qrcode-terminal": "^0.12.0",
     "rss-parser": "^3.13.0",
     "webp-converter": "^2.3.3",
-    "whatsapp-web.js": "1.27.0"
+    "whatsapp-web.js": "^1.23.0"
   }
 }

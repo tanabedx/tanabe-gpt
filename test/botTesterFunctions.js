@@ -4,6 +4,9 @@
  * This module exports the functions from botTester.js to be used by other scripts.
  */
 
+// Import custom logger first to override console methods
+require('./logger');
+
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
@@ -129,7 +132,9 @@ function startBot() {
     }
     
     try {
-        const bot = spawn('node', ['index.js'], {
+        // Use project root for index.js, not from test directory
+        const indexPath = path.join(__dirname, '..', 'index.js');
+        const bot = spawn('node', [indexPath], {
             // Don't detach the process so we can properly kill it later
             detached: false,
             stdio: 'pipe', // Capture stdout and stderr
@@ -147,10 +152,14 @@ function startBot() {
         
         // Log stdout and stderr
         bot.stdout.on('data', (data) => {
-            console.log(`Bot stdout: ${data}`);
+            // Skip logging bot stdout unless we're in debug mode
+            if (process.env.DEBUG === 'true') {
+                console.log(`Bot stdout: ${data}`);
+            }
         });
         
         bot.stderr.on('data', (data) => {
+            // Always log errors
             console.error(`Bot stderr: ${data}`);
         });
         

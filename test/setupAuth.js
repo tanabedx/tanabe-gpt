@@ -9,6 +9,21 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// Simple logger that respects SILENT and DEBUG environment variables
+const logger = {
+    info: (msg) => {
+        // Always show info messages, even in silent mode
+        console.log(msg);
+    },
+    debug: (msg) => {
+        // Only show debug messages if DEBUG is true and SILENT is false
+        if (process.env.DEBUG === 'true' && process.env.SILENT !== 'true') {
+            console.log(msg);
+        }
+    },
+    error: (msg) => console.error(msg)
+};
+
 // Client IDs
 const MAIN_CLIENT_ID = 'tanabe-gpt-client';
 const TEST_CLIENT_ID = 'test-client';
@@ -25,27 +40,27 @@ const AUTH_DIRS = [
     }
 ];
 
-console.log('Setting up authentication directories...');
-console.log(`Main auth directory: ${AUTH_DIRS[0].path}`);
-console.log(`Test auth directory: ${AUTH_DIRS[1].path}`);
+logger.info('Setting up authentication directories...');
+logger.debug(`Main auth directory: ${AUTH_DIRS[0].path}`);
+logger.debug(`Test auth directory: ${AUTH_DIRS[1].path}`);
 
 // Clean up incorrect directory structures
-console.log('Cleaning up incorrect directory structures...');
+logger.debug('Cleaning up incorrect directory structures...');
 AUTH_DIRS.forEach(dir => {
     const basePath = dir.path;
     const oldSessionPath = path.join(basePath, 'session');
     
     // Remove the incorrect session directory if it exists
     if (fs.existsSync(oldSessionPath)) {
-        console.log(`Removing incorrect session directory: ${oldSessionPath}`);
+        logger.debug(`Removing incorrect session directory: ${oldSessionPath}`);
         try {
             execSync(`rm -rf "${oldSessionPath}"`);
-            console.log(`Successfully removed: ${oldSessionPath}`);
+            logger.debug(`Successfully removed: ${oldSessionPath}`);
         } catch (error) {
-            console.error(`Error removing directory: ${error.message}`);
+            logger.error(`Error removing directory: ${error.message}`);
         }
     } else {
-        console.log(`No incorrect session directory found at: ${oldSessionPath}`);
+        logger.debug(`No incorrect session directory found at: ${oldSessionPath}`);
     }
 });
 
@@ -56,55 +71,55 @@ AUTH_DIRS.forEach(dir => {
     
     // Create base directory
     if (!fs.existsSync(basePath)) {
-        console.log(`Creating directory: ${basePath}`);
+        logger.debug(`Creating directory: ${basePath}`);
         try {
             fs.mkdirSync(basePath, { recursive: true });
-            console.log(`Successfully created: ${basePath}`);
+            logger.debug(`Successfully created: ${basePath}`);
         } catch (error) {
-            console.error(`Error creating directory ${basePath}:`, error);
+            logger.error(`Error creating directory ${basePath}:`, error);
         }
     } else {
-        console.log(`Directory already exists: ${basePath}`);
+        logger.debug(`Directory already exists: ${basePath}`);
     }
     
     // Create session directory with correct naming
     if (!fs.existsSync(sessionPath)) {
-        console.log(`Creating session directory: ${sessionPath}`);
+        logger.debug(`Creating session directory: ${sessionPath}`);
         try {
             fs.mkdirSync(sessionPath, { recursive: true });
-            console.log(`Successfully created: ${sessionPath}`);
+            logger.debug(`Successfully created: ${sessionPath}`);
             
             // Create Default directory inside session directory
             const defaultPath = path.join(sessionPath, 'Default');
             if (!fs.existsSync(defaultPath)) {
-                console.log(`Creating Default directory: ${defaultPath}`);
+                logger.debug(`Creating Default directory: ${defaultPath}`);
                 fs.mkdirSync(defaultPath, { recursive: true });
-                console.log(`Successfully created: ${defaultPath}`);
+                logger.debug(`Successfully created: ${defaultPath}`);
             }
         } catch (error) {
-            console.error(`Error creating session directory ${sessionPath}:`, error);
+            logger.error(`Error creating session directory ${sessionPath}:`, error);
         }
     } else {
-        console.log(`Session directory already exists: ${sessionPath}`);
+        logger.debug(`Session directory already exists: ${sessionPath}`);
         
         // Check if Default directory exists
         const defaultPath = path.join(sessionPath, 'Default');
         if (!fs.existsSync(defaultPath)) {
-            console.log(`Creating missing Default directory: ${defaultPath}`);
+            logger.debug(`Creating missing Default directory: ${defaultPath}`);
             try {
                 fs.mkdirSync(defaultPath, { recursive: true });
-                console.log(`Successfully created: ${defaultPath}`);
+                logger.debug(`Successfully created: ${defaultPath}`);
             } catch (error) {
-                console.error(`Error creating Default directory ${defaultPath}:`, error);
+                logger.error(`Error creating Default directory ${defaultPath}:`, error);
             }
         } else {
-            console.log(`Default directory already exists: ${defaultPath}`);
+            logger.debug(`Default directory already exists: ${defaultPath}`);
         }
     }
     
     // Set permissions
     try {
-        console.log(`Setting permissions for: ${basePath}`);
+        logger.debug(`Setting permissions for: ${basePath}`);
         fs.chmodSync(basePath, 0o755);
         if (fs.existsSync(sessionPath)) {
             fs.chmodSync(sessionPath, 0o755);
@@ -115,11 +130,15 @@ AUTH_DIRS.forEach(dir => {
                 fs.chmodSync(defaultPath, 0o755);
             }
         }
-        console.log(`Successfully set permissions for: ${basePath}`);
+        logger.debug(`Successfully set permissions for: ${basePath}`);
     } catch (error) {
-        console.error(`Error setting permissions for ${basePath}:`, error);
+        logger.error(`Error setting permissions for ${basePath}:`, error);
     }
 });
 
-console.log('Authentication directories setup complete.');
-console.log('You can now run the tests with: npm test'); 
+logger.info('Authentication directories setup complete.');
+
+// Only show this message if we're not already running as part of npm test
+if (!process.env.npm_lifecycle_event || process.env.npm_lifecycle_event !== 'pretest') {
+    logger.info('You can now run the tests with: npm test');
+} 

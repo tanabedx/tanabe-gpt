@@ -481,37 +481,53 @@ async function batchEvaluateFullContent(articles) {
  * @param {boolean} restartRss - Whether to restart RSS monitor
  */
 async function restartMonitors(restartTwitter = true, restartRss = true) {
-    // Clear existing intervals
-    if (restartTwitter && twitterIntervalId !== null) {
-        clearInterval(twitterIntervalId);
-        twitterIntervalId = null;
-        logger.info('Twitter monitor interval cleared for restart');
-    }
-    
-    if (restartRss && rssIntervalId !== null) {
-        clearInterval(rssIntervalId);
-        rssIntervalId = null;
-        logger.info('RSS monitor interval cleared for restart');
-    }
-    
-    // If targetGroup hasn't been initialized yet, full initialization is needed
-    if (!targetGroup) {
-        await initializeNewsMonitor();
-        return;
-    }
-    
-    // Initialize Twitter monitor if enabled and restart requested
-    if (restartTwitter) {
-        if (config.NEWS_MONITOR.TWITTER_ENABLED) {
-            try {
-                // Initial API usage check
-                const usage = await checkTwitterAPIUsage(true);
-                
-                // Check if all keys are over limit
-                if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
-                    logger.warn(message);
-                } else {
+    try {
+        // Clear existing intervals
+        if (restartTwitter && twitterIntervalId !== null) {
+            clearInterval(twitterIntervalId);
+            twitterIntervalId = null;
+            logger.info('Twitter monitor interval cleared for restart');
+        }
+        
+        if (restartRss && rssIntervalId !== null) {
+            clearInterval(rssIntervalId);
+            rssIntervalId = null;
+            logger.info('RSS monitor interval cleared for restart');
+        }
+        
+        // Verify target group is still valid
+        if (!targetGroup) {
+            logger.info('Target group not found, attempting to initialize...');
+            const chats = await global.client.getChats();
+            targetGroup = chats.find(chat => chat.name === config.NEWS_MONITOR.TARGET_GROUP);
+            
+            if (!targetGroup) {
+                logger.error(`Target group "${config.NEWS_MONITOR.TARGET_GROUP}" not found, skipping monitor restart`);
+                return;
+            }
+            logger.info(`Found target group: ${config.NEWS_MONITOR.TARGET_GROUP}`);
+        }
+        
+        // Initialize Twitter monitor if enabled and restart requested
+        if (restartTwitter) {
+            if (config.NEWS_MONITOR.TWITTER_ENABLED) {
+                try {
+                    // Force a fresh API usage check
+                    const usage = await checkTwitterAPIUsage(true);
+                    
+                    // Check if all keys are over limit
+                    if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
+                        const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                        logger.warn(message);
+                        
+                        // Notify admin via WhatsApp
+                        const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
+                        if (adminChat) {
+                            await adminChat.sendMessage(message);
+                        }
+                        return;
+                    }
+                    
                     // Set up Twitter monitoring interval (slower due to API limits)
                     twitterIntervalId = setInterval(async () => {
                         try {
@@ -555,148 +571,161 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                         }
                     }, config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL);
                     
-                    logger.info(`Twitter monitor initialized (using ${usage.currentKey} key)`);
+                    logger.info(`Twitter monitor restarted (using ${usage.currentKey} key)`);
+                } catch (error) {
+                    logger.error('Twitter monitor restart failed:', error.message);
                 }
-            } catch (error) {
-                logger.error('Twitter monitor initialization failed:', error.message);
+            } else {
+                logger.info('Twitter monitor disabled in configuration');
             }
-        } else {
-            logger.info('Twitter monitor disabled in configuration');
         }
-    }
-    
-    // Initialize RSS monitor if enabled and restart requested
-    if (restartRss) {
-        if (config.NEWS_MONITOR.RSS_ENABLED) {
-            if (config.NEWS_MONITOR.FEEDS && config.NEWS_MONITOR.FEEDS.length > 0) {
-                // Set up RSS monitoring interval (hourly batch processing)
-                rssIntervalId = setInterval(async () => {
-                    try {
-                        for (const feed of config.NEWS_MONITOR.FEEDS) {
-                            try {
-                                // Fetch articles from feed
-                                const allArticles = await fetchRssFeedItems(feed);
-                                if (allArticles.length === 0) continue;
+        
+        // Initialize RSS monitor if enabled and restart requested
+        if (restartRss) {
+            if (config.NEWS_MONITOR.RSS_ENABLED) {
+                if (config.NEWS_MONITOR.FEEDS && config.NEWS_MONITOR.FEEDS.length > 0) {
+                    // Set up RSS monitoring interval (hourly batch processing)
+                    rssIntervalId = setInterval(async () => {
+                        try {
+                            // Verify target group is still valid
+                            if (!targetGroup) {
+                                logger.error('Target group not found, attempting to reinitialize...');
+                                const chats = await global.client.getChats();
+                                targetGroup = chats.find(chat => chat.name === config.NEWS_MONITOR.TARGET_GROUP);
+                                if (!targetGroup) {
+                                    logger.error(`Target group "${config.NEWS_MONITOR.TARGET_GROUP}" not found, skipping RSS processing`);
+                                    return;
+                                }
+                            }
 
-                                // Sort articles by publish date (newest first)
-                                allArticles.sort((a, b) => new Date(b.pubDate || b.isoDate) - new Date(a.pubDate || a.isoDate));
-                                
-                                // Filter to articles from the last hour
-                                const articlesFromLastHour = filterArticlesFromLastHour(allArticles);
-                                
-                                if (articlesFromLastHour.length === 0) {
-                                    logger.debug(`No new articles in the last hour for feed: ${feed.name}`);
-                                    continue;
-                                }
-                                
-                                // Filter out already processed articles
-                                const unprocessedArticles = articlesFromLastHour.filter(article => {
-                                    const articleId = article.guid || article.id || article.link;
-                                    return !isArticleCached(feed.id, articleId);
-                                });
-                                
-                                if (unprocessedArticles.length === 0) {
-                                    logger.debug(`No unprocessed articles in the last hour for feed: ${feed.name}`);
-                                    continue;
-                                }
-                                
-                                // Only log at debug level instead of info level
-                                logger.debug(`Processing ${unprocessedArticles.length} new articles from the last hour for feed: ${feed.name}`);
-                                
-                                // Extract all titles for batch evaluation
-                                const titles = unprocessedArticles.map(article => article.title);
-                                
-                                // Batch evaluate titles
-                                const titleRelevanceResults = await batchEvaluateArticleTitles(titles);
-                                
-                                // Find articles with relevant titles
-                                const relevantTitleIndices = titleRelevanceResults
-                                    .map((isRelevant, index) => isRelevant ? index : -1)
-                                    .filter(index => index !== -1);
-                                
-                                if (relevantTitleIndices.length === 0) {
-                                    logger.debug(`No relevant article titles found for feed: ${feed.name}`);
+                            for (const feed of config.NEWS_MONITOR.FEEDS) {
+                                try {
+                                    // Fetch articles from feed
+                                    const allArticles = await fetchRssFeedItems(feed);
+                                    if (allArticles.length === 0) continue;
+
+                                    // Sort articles by publish date (newest first)
+                                    allArticles.sort((a, b) => new Date(b.pubDate || b.isoDate) - new Date(a.pubDate || a.isoDate));
                                     
-                                    // Mark all articles as processed so we don't check them again
+                                    // Filter to articles from the last hour
+                                    const articlesFromLastHour = filterArticlesFromLastHour(allArticles);
+                                    
+                                    if (articlesFromLastHour.length === 0) {
+                                        logger.debug(`No new articles in the last hour for feed: ${feed.name}`);
+                                        continue;
+                                    }
+                                    
+                                    // Filter out already processed articles
+                                    const unprocessedArticles = articlesFromLastHour.filter(article => {
+                                        const articleId = article.guid || article.id || article.link;
+                                        return !isArticleCached(feed.id, articleId);
+                                    });
+                                    
+                                    if (unprocessedArticles.length === 0) {
+                                        logger.debug(`No unprocessed articles in the last hour for feed: ${feed.name}`);
+                                        continue;
+                                    }
+                                    
+                                    // Only log at debug level instead of info level
+                                    logger.debug(`Processing ${unprocessedArticles.length} new articles from the last hour for feed: ${feed.name}`);
+                                    
+                                    // Extract all titles for batch evaluation
+                                    const titles = unprocessedArticles.map(article => article.title);
+                                    
+                                    // Batch evaluate titles
+                                    const titleRelevanceResults = await batchEvaluateArticleTitles(titles);
+                                    
+                                    // Find articles with relevant titles
+                                    const relevantTitleIndices = titleRelevanceResults
+                                        .map((isRelevant, index) => isRelevant ? index : -1)
+                                        .filter(index => index !== -1);
+                                    
+                                    if (relevantTitleIndices.length === 0) {
+                                        logger.debug(`No relevant article titles found for feed: ${feed.name}`);
+                                        
+                                        // Mark all articles as processed so we don't check them again
+                                        unprocessedArticles.forEach(article => {
+                                            const articleId = article.guid || article.id || article.link;
+                                            cacheArticle(feed.id, articleId);
+                                        });
+                                        
+                                        continue;
+                                    }
+                                    
+                                    // Prepare articles with relevant titles for full content evaluation
+                                    const articlesForFullEvaluation = relevantTitleIndices
+                                        .map(index => ({
+                                            article: unprocessedArticles[index],
+                                            title: unprocessedArticles[index].title,
+                                            content: extractArticleContent(unprocessedArticles[index])
+                                        }));
+                                    
+                                    // Batch evaluate full content
+                                    const selectedArticles = await batchEvaluateFullContent(articlesForFullEvaluation);
+                                    
+                                    // Mark all processed articles as cached
                                     unprocessedArticles.forEach(article => {
                                         const articleId = article.guid || article.id || article.link;
                                         cacheArticle(feed.id, articleId);
                                     });
                                     
-                                    continue;
-                                }
-                                
-                                // Prepare articles with relevant titles for full content evaluation
-                                const articlesForFullEvaluation = relevantTitleIndices
-                                    .map(index => ({
-                                        article: unprocessedArticles[index],
-                                        title: unprocessedArticles[index].title,
-                                        content: extractArticleContent(unprocessedArticles[index])
-                                    }));
-                                
-                                // Batch evaluate full content
-                                const selectedArticles = await batchEvaluateFullContent(articlesForFullEvaluation);
-                                
-                                // Mark all processed articles as cached
-                                unprocessedArticles.forEach(article => {
-                                    const articleId = article.guid || article.id || article.link;
-                                    cacheArticle(feed.id, articleId);
-                                });
-                                
-                                // If no articles were selected as relevant, continue to next feed
-                                if (selectedArticles.length === 0) {
-                                    logger.debug(`No articles were selected as relevant for feed: ${feed.name}`);
-                                    continue;
-                                }
-                                
-                                // Process selected articles (maximum of 2)
-                                let articlesSent = 0;
-                                for (const selection of selectedArticles.slice(0, 2)) {
-                                    const articleData = articlesForFullEvaluation[selection.index];
-                                    const article = articleData.article;
-                                    const articleContent = articleData.content;
-                                    
-                                    // Translate title if needed
-                                    let articleTitle = article.title;
-                                    if (feed.language !== 'pt') {
-                                        articleTitle = await translateToPortuguese(article.title, feed.language);
+                                    // If no articles were selected as relevant, continue to next feed
+                                    if (selectedArticles.length === 0) {
+                                        logger.debug(`No articles were selected as relevant for feed: ${feed.name}`);
+                                        continue;
                                     }
                                     
-                                    // Generate summary
-                                    const summary = await generateSummary(article.title, articleContent);
+                                    // Process selected articles (maximum of 2)
+                                    let articlesSent = 0;
+                                    for (const selection of selectedArticles.slice(0, 2)) {
+                                        const articleData = articlesForFullEvaluation[selection.index];
+                                        const article = articleData.article;
+                                        const articleContent = articleData.content;
+                                        
+                                        // Translate title if needed
+                                        let articleTitle = article.title;
+                                        if (feed.language !== 'pt') {
+                                            articleTitle = await translateToPortuguese(article.title, feed.language);
+                                        }
+                                        
+                                        // Generate summary
+                                        const summary = await generateSummary(article.title, articleContent);
+                                        
+                                        // Format message
+                                        const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name} | [Read More](${article.link})`;
+                                        
+                                        // Send to group
+                                        await targetGroup.sendMessage(message);
+                                        articlesSent++;
+                                        
+                                        // Now log that we sent an article - only when actually sent
+                                        logger.info(`Sent article from ${feed.name}: "${article.title.substring(0, 80)}${article.title.length > 80 ? '...' : ''}"`);
+                                    }
                                     
-                                    // Format message
-                                    const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name} | [Read More](${article.link})`;
+                                    if (articlesSent > 0) {
+                                        logger.info(`Sent ${articlesSent} relevant articles from feed: ${feed.name}`);
+                                    }
                                     
-                                    // Send to group
-                                    await targetGroup.sendMessage(message);
-                                    articlesSent++;
-                                    
-                                    // Now log that we sent an article - only when actually sent
-                                    logger.info(`Sent article from ${feed.name}: "${article.title.substring(0, 80)}${article.title.length > 80 ? '...' : ''}"`);
+                                } catch (feedError) {
+                                    logger.error(`Error processing feed ${feed.name}:`, feedError);
+                                    // Continue with next feed
                                 }
-                                
-                                if (articlesSent > 0) {
-                                    logger.info(`Sent ${articlesSent} relevant articles from feed: ${feed.name}`);
-                                }
-                                
-                            } catch (feedError) {
-                                logger.error(`Error processing feed ${feed.name}:`, feedError);
-                                // Continue with next feed
                             }
+                        } catch (rssError) {
+                            logger.error('Error in RSS monitor:', rssError);
                         }
-                    } catch (rssError) {
-                        logger.error('Error in RSS monitor:', rssError);
-                    }
-                }, config.NEWS_MONITOR.RSS_CHECK_INTERVAL);
-                
-                logger.info(`RSS monitor initialized with ${config.NEWS_MONITOR.FEEDS.length} feeds`);
+                    }, config.NEWS_MONITOR.RSS_CHECK_INTERVAL);
+                    
+                    logger.info(`RSS monitor restarted with ${config.NEWS_MONITOR.FEEDS.length} feeds`);
+                } else {
+                    logger.warn('RSS monitor enabled but no feeds configured');
+                }
             } else {
-                logger.warn('RSS monitor enabled but no feeds configured');
+                logger.info('RSS monitor disabled in configuration');
             }
-        } else {
-            logger.info('RSS monitor disabled in configuration');
         }
+    } catch (error) {
+        logger.error('Monitor restart failed:', error.message);
     }
 }
 
@@ -724,6 +753,8 @@ async function initializeNewsMonitor() {
             logger.error(`Target group "${config.NEWS_MONITOR.TARGET_GROUP}" not found, skipping news monitor initialization`);
             return;
         }
+
+        logger.info(`Found target group: ${config.NEWS_MONITOR.TARGET_GROUP}`);
 
         // Initialize Twitter monitor if enabled
         if (config.NEWS_MONITOR.TWITTER_ENABLED) {
@@ -785,7 +816,7 @@ async function initializeNewsMonitor() {
                         }
                     }, config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL);
                     
-                    logger.info(`Twitter monitor initialized (Primary: ${usage.primary.usage}/${usage.primary.limit}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}, using ${usage.currentKey} key)`);
+                    logger.info(`Twitter monitor initialized (using ${usage.currentKey} key)`);
                 }
             } catch (error) {
                 logger.error('Twitter monitor initialization failed:', error.message);
@@ -800,6 +831,17 @@ async function initializeNewsMonitor() {
                 // Set up RSS monitoring interval (hourly batch processing)
                 rssIntervalId = setInterval(async () => {
                     try {
+                        // Verify target group is still valid
+                        if (!targetGroup) {
+                            logger.error('Target group not found, attempting to reinitialize...');
+                            const chats = await global.client.getChats();
+                            targetGroup = chats.find(chat => chat.name === config.NEWS_MONITOR.TARGET_GROUP);
+                            if (!targetGroup) {
+                                logger.error(`Target group "${config.NEWS_MONITOR.TARGET_GROUP}" not found, skipping RSS processing`);
+                                return;
+                            }
+                        }
+
                         for (const feed of config.NEWS_MONITOR.FEEDS) {
                             try {
                                 // Fetch articles from feed

@@ -26,7 +26,7 @@ const SYSTEM = {
         ERROR: true,
         WARN: true,
         INFO: true,
-        DEBUG: false,
+        DEBUG: true,
         SUMMARY: true,
         STARTUP: true,
         SHUTDOWN: true,
