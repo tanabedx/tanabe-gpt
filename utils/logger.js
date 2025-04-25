@@ -35,10 +35,17 @@ let spinnerInterval = null;
 let spinnerPosition = 0;
 let isSpinnerActive = false;
 
+// Function to check if running under systemd
+function isSystemdEnvironment() {
+    return process.env.INVOCATION_ID !== undefined || 
+           process.env.JOURNAL_STREAM !== undefined ||
+           process.env.SYSTEMD_EXEC_PID !== undefined;
+}
+
 // Function to start the spinner
 function startSpinner() {
-    // Don't start spinner in test mode
-    if (process.env.TEST_MODE === 'true') return;
+    // Don't start spinner in test mode or under systemd
+    if (process.env.TEST_MODE === 'true' || isSystemdEnvironment()) return;
     if (spinnerInterval) return;
     isSpinnerActive = true;
     spinnerInterval = setInterval(() => {
@@ -63,8 +70,8 @@ function stopSpinner() {
 
 // Function to temporarily hide spinner for log output
 function hideSpinner() {
-    // Don't hide/show spinner in test mode
-    if (process.env.TEST_MODE === 'true') return;
+    // Don't hide/show spinner in test mode or under systemd
+    if (process.env.TEST_MODE === 'true' || isSystemdEnvironment()) return;
     if (isSpinnerActive) {
         process.stdout.write('\r\x1b[K');
     }
@@ -72,8 +79,8 @@ function hideSpinner() {
 
 // Function to show spinner again after log output
 function showSpinner() {
-    // Don't hide/show spinner in test mode
-    if (process.env.TEST_MODE === 'true') return;
+    // Don't hide/show spinner in test mode or under systemd
+    if (process.env.TEST_MODE === 'true' || isSystemdEnvironment()) return;
     if (isSpinnerActive) {
         process.stdout.write(`${SPINNER_FRAMES[spinnerPosition]} Bot is running...`);
     }
@@ -136,8 +143,8 @@ function formatLogWithTimestamp(level, message, error = null) {
     let formattedMessage = message;
     let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
     
-    // In test mode, don't use colors
-    if (process.env.TEST_MODE === 'true') {
+    // In test mode or systemd environment, don't use colors
+    if (process.env.TEST_MODE === 'true' || isSystemdEnvironment()) {
         return `${prefix} ${message}`;
     }
     

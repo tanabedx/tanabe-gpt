@@ -356,20 +356,6 @@ async function initializeBot() {
             // Continue even if news monitor fails
         }
         
-        // Notify admin of startup
-        try {
-            logger.debug('Notifying admin of startup...');
-            const adminNumber = config.CREDENTIALS.ADMIN_NUMBER;
-            if (adminNumber) {
-                const adminChat = await client.getChatById(`${adminNumber}@c.us`);
-                await adminChat.sendMessage('🤖 Bot has been started successfully!');
-                logger.debug('Admin notified of bot startup');
-            }
-        } catch (error) {
-            logger.error('Failed to notify admin of startup:', error);
-            // Continue even if admin notification fails
-        }
-
         logger.info('Bot initialization completed successfully!');
         return client;
 
@@ -420,7 +406,7 @@ async function main() {
         await initializeBot();
         logger.debug('Bot initialization completed.');
         // Start the spinner after initialization is complete
-        logger.startup('Bot is now running');
+        logger.startup('🤖 Bot has been started successfully!');
                 
     } catch (error) {
         logger.error('Error in main function:', error);

@@ -26,10 +26,10 @@ const SYSTEM = {
         ERROR: true,
         WARN: true,
         INFO: true,
-        DEBUG: true,
+        DEBUG: false,
         SUMMARY: true,
         STARTUP: true,
-        SHUTDOWN: false,
+        SHUTDOWN: true,
         PROMPT: false,
         COMMAND: true
     },
