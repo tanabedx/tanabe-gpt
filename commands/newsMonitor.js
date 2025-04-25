@@ -821,20 +821,20 @@ async function initializeNewsMonitor() {
             const waitTimes = [0, 6 * 60 * 1000, 10 * 60 * 1000]; // 0, 6 mins, 10 mins
 
             while (attempts < maxAttempts) {
-                try {
-                    // Initial API usage check
-                    const usage = await checkTwitterAPIUsage(true);
+            try {
+                // Initial API usage check
+                const usage = await checkTwitterAPIUsage(true);
+                
+                // Check if all keys are over limit
+                if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
+                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                    logger.warn(message);
                     
-                    // Check if all keys are over limit
-                    if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                        const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
-                        logger.warn(message);
-                        
-                        // Notify admin via WhatsApp
-                        const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-                        if (adminChat) {
-                            await adminChat.sendMessage(message);
-                        }
+                    // Notify admin via WhatsApp
+                    const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
+                    if (adminChat) {
+                        await adminChat.sendMessage(message);
+                    }
                         
                         // Disable Twitter monitor in config
                         config.NEWS_MONITOR.TWITTER_ENABLED = false;
@@ -921,11 +921,11 @@ async function initializeNewsMonitor() {
                             logger.error('Error in Twitter monitor interval:', error);
                         }
                     }, config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL);
-
+                    
                     // If we get here, initialization was successful
                     break;
 
-                } catch (error) {
+            } catch (error) {
                     attempts++;
                     
                     if (error.response && error.response.status === 429) {
@@ -949,7 +949,7 @@ async function initializeNewsMonitor() {
                         await new Promise(resolve => setTimeout(resolve, waitTime));
                     } else {
                         // If it's not a rate limit error, log and break
-                        logger.error('Twitter monitor initialization failed:', error.message);
+                logger.error('Twitter monitor initialization failed:', error.message);
                         break;
                     }
                 }
