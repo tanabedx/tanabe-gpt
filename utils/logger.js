@@ -150,12 +150,12 @@ function formatLogWithTimestamp(level, message, error = null) {
     
     switch(level) {
         case LOG_LEVELS.ERROR:
-            prefix = `[${timestamp}] ${COLORS.BOLD}${COLORS.RED}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.BOLD}${COLORS.RED}${message}${COLORS.RESET}`;
+            prefix = `${COLORS.BOLD}${COLORS.RED}[${timestamp}] [${level}]`;
+            formattedMessage = `${message}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.WARN:
-            prefix = `[${timestamp}] ${COLORS.YELLOW}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.YELLOW}${message}${COLORS.RESET}`;
+            prefix = `${COLORS.YELLOW}[${timestamp}] [${level}]`;
+            formattedMessage = `${message}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.INFO:
             prefix = `[${timestamp}] ${COLORS.GREEN}[${level}]${COLORS.RESET}`;
