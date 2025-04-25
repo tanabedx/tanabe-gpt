@@ -143,8 +143,8 @@ function formatLogWithTimestamp(level, message, error = null) {
     let formattedMessage = message;
     let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
     
-    // In test mode or systemd environment, don't use colors
-    if (process.env.TEST_MODE === 'true' || isSystemdEnvironment()) {
+    // In test mode, don't use colors
+    if (process.env.TEST_MODE === 'true') {
         return `${prefix} ${message}`;
     }
     
