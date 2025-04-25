@@ -8,7 +8,8 @@ const LOG_LEVELS = {
     INFO: 'INFO',
     DEBUG: 'DEBUG',
     SUMMARY: 'SUMMARY',
-    PROMPT: 'PROMPT'
+    PROMPT: 'PROMPT',
+    STARTUP: 'STARTUP'
 };
 
 // Log file configuration
@@ -20,7 +21,86 @@ const BACKUP_LOG_FILE = 'tanabe-gpt.old.log';
 const COLORS = {
     RED: '\x1b[31m',
     YELLOW: '\x1b[33m',
+    GREEN: '\x1b[32m',
+    BLUE: '\x1b[34m',
+    PURPLE: '\x1b[35m',
+    GREY: '\x1b[90m',
+    BOLD: '\x1b[1m',
     RESET: '\x1b[0m'
+};
+
+// Spinner configuration
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+let spinnerInterval = null;
+let spinnerPosition = 0;
+let isSpinnerActive = false;
+
+// Function to start the spinner
+function startSpinner() {
+    // Don't start spinner in test mode
+    if (process.env.TEST_MODE === 'true') return;
+    if (spinnerInterval) return;
+    isSpinnerActive = true;
+    spinnerInterval = setInterval(() => {
+        // Clear the spinner line
+        process.stdout.write('\r\x1b[K');
+        // Write the spinner
+        process.stdout.write(`${SPINNER_FRAMES[spinnerPosition]} Bot is running...`);
+        spinnerPosition = (spinnerPosition + 1) % SPINNER_FRAMES.length;
+    }, 100);
+}
+
+// Function to stop the spinner
+function stopSpinner() {
+    if (spinnerInterval) {
+        clearInterval(spinnerInterval);
+        spinnerInterval = null;
+        isSpinnerActive = false;
+        // Clear the spinner line
+        process.stdout.write('\r\x1b[K');
+    }
+}
+
+// Function to temporarily hide spinner for log output
+function hideSpinner() {
+    // Don't hide/show spinner in test mode
+    if (process.env.TEST_MODE === 'true') return;
+    if (isSpinnerActive) {
+        process.stdout.write('\r\x1b[K');
+    }
+}
+
+// Function to show spinner again after log output
+function showSpinner() {
+    // Don't hide/show spinner in test mode
+    if (process.env.TEST_MODE === 'true') return;
+    if (isSpinnerActive) {
+        process.stdout.write(`${SPINNER_FRAMES[spinnerPosition]} Bot is running...`);
+    }
+}
+
+// Override console.log to handle spinner
+const originalConsoleLog = console.log;
+console.log = function(...args) {
+    hideSpinner();
+    originalConsoleLog.apply(console, args);
+    showSpinner();
+};
+
+// Override console.error to handle spinner
+const originalConsoleError = console.error;
+console.error = function(...args) {
+    hideSpinner();
+    originalConsoleError.apply(console, args);
+    showSpinner();
+};
+
+// Override console.warn to handle spinner
+const originalConsoleWarn = console.warn;
+console.warn = function(...args) {
+    hideSpinner();
+    originalConsoleWarn.apply(console, args);
+    showSpinner();
 };
 
 // Function to format error objects
@@ -53,13 +133,63 @@ function formatLogWithTimestamp(level, message, error = null) {
     });
     
     let prefix = `[${timestamp}] [${level}]`;
-    if (level === LOG_LEVELS.ERROR) {
-        prefix = `[${timestamp}] ${COLORS.RED}[${level}]${COLORS.RESET}`;
-    } else if (level === LOG_LEVELS.WARN) {
-        prefix = `[${timestamp}] ${COLORS.YELLOW}[${level}]${COLORS.RESET}`;
+    let formattedMessage = message;
+    let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
+    
+    // In test mode, don't use colors
+    if (process.env.TEST_MODE === 'true') {
+        return `${prefix} ${message}`;
     }
     
-    let logMessage = `${prefix} ${message}`;
+    switch(level) {
+        case LOG_LEVELS.ERROR:
+            prefix = `[${timestamp}] ${COLORS.BOLD}${COLORS.RED}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.BOLD}${COLORS.RED}${message}${COLORS.RESET}`;
+            break;
+        case LOG_LEVELS.WARN:
+            prefix = `[${timestamp}] ${COLORS.YELLOW}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.YELLOW}${message}${COLORS.RESET}`;
+            break;
+        case LOG_LEVELS.INFO:
+            prefix = `[${timestamp}] ${COLORS.GREEN}[${level}]${COLORS.RESET}`;
+            formattedMessage = message; // Regular white text
+            break;
+        case LOG_LEVELS.DEBUG:
+            prefix = `[${timestamp}] ${COLORS.BLUE}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}`;
+            break;
+        case LOG_LEVELS.SUMMARY:
+            prefix = `[${timestamp}] ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}`;
+            break;
+        case LOG_LEVELS.PROMPT:
+            prefix = `[${timestamp}] ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}`;
+            break;
+        case LOG_LEVELS.STARTUP:
+            prefix = `[${timestamp}] ${COLORS.BOLD}${COLORS.GREEN}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.BOLD}${COLORS.GREEN}${message}${COLORS.RESET}`;
+            break;
+    }
+    
+    // Handle multi-line messages
+    if (typeof formattedMessage === 'string') {
+        // Remove empty lines and normalize line endings
+        formattedMessage = formattedMessage.replace(/\r\n/g, '\n')
+            .split('\n')
+            .filter(line => line.trim() !== '') // Remove empty lines
+            .join('\n');
+            
+        if (formattedMessage.includes('\n')) {
+            const lines = formattedMessage.split('\n');
+            formattedMessage = lines.map((line, index) => {
+                if (index === 0) return line;
+                return `${indent}${line}`;
+            }).join('\n');
+        }
+    }
+    
+    let logMessage = `${prefix} ${formattedMessage}`;
     
     if (error) {
         logMessage += `: ${formatError(error)}`;
@@ -140,10 +270,8 @@ async function notifyAdmin(message) {
 // Core logging function
 async function log(level, message, error = null, shouldNotifyAdmin = false) {
     // Check if this log level is enabled in console settings
-    // Only proceed if the log level is explicitly set to true
     if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || 
         config.SYSTEM.CONSOLE_LOG_LEVELS[level] !== true) {
-        // Skip logging for this level
         return;
     }
 
@@ -178,7 +306,6 @@ async function log(level, message, error = null, shouldNotifyAdmin = false) {
     // Check if this log level should be sent to admin
     if (shouldNotifyAdmin && config.SYSTEM?.NOTIFICATION_LEVELS && 
         config.SYSTEM.NOTIFICATION_LEVELS[level] === true) {
-        // Use simplified format for admin notifications
         const adminMessage = formatAdminMessage(level, message, error);
         await notifyAdmin(adminMessage);
     }
@@ -222,13 +349,23 @@ const logger = {
             promptText = 'UNDEFINED PROMPT';
         }
         
-        const promptHeader = formatLogWithTimestamp(LOG_LEVELS.PROMPT, message);
-        console.log(promptHeader);
-        console.log(promptText);
+        // Format the prompt text to remove extra whitespace and normalize line endings
+        promptText = promptText.replace(/\r\n/g, '\n')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line !== '')
+            .join('\n');
+        
+        // Format the prompt header and text together
+        const formattedPrompt = formatLogWithTimestamp(LOG_LEVELS.PROMPT, `${message}\n${promptText}`);
+        
+        // Temporarily disable spinner for prompt output
+        hideSpinner();
+        console.log(formattedPrompt);
+        showSpinner();
         
         // Also write to log file
-        writeToLogFile(promptHeader)
-            .then(() => writeToLogFile(promptText))
+        writeToLogFile(formattedPrompt)
             .catch(err => console.error('Error writing prompt to log file:', err));
         
         if (config.SYSTEM?.NOTIFICATION_LEVELS && 
@@ -240,8 +377,14 @@ const logger = {
     },
     
     // Specific event loggers
-    startup: (message) => log('STARTUP', message, null, true),
-    shutdown: (message) => log('SHUTDOWN', message, null, true),
+    startup: (message) => {
+        log('STARTUP', message, null, true);
+        startSpinner();
+    },
+    shutdown: (message) => {
+        stopSpinner();
+        log('SHUTDOWN', message, null, true);
+    },
     command: (command, user) => log(LOG_LEVELS.INFO, `Command: ${command} by ${user}`, null, true),
     
     // Export notifyAdmin for external use

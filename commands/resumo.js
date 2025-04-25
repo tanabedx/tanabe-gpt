@@ -187,13 +187,92 @@ async function handleSpecificMessageCount(message, limit) {
     const name = contact.name || 'Unknown';
     const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DEFAULT', {
         name,
-        limit,
-        messageTexts: messageTexts.join(' ')
+        messageTexts: messageTexts.join(' '),
+        timeDescription: `as últimas ${limit} mensagens desta conversa`
     });
 
     const result = await runCompletion(prompt, 1);
     return await message.reply(result.trim())
         .catch(error => logger.error('Failed to send message:', error.message));
+}
+
+function parseRelativeTime(input) {
+    const now = Date.now();
+    const inputLower = input.toLowerCase().trim();
+    
+    // Handle "hoje" and "hj" (today)
+    if (inputLower === 'hoje' || inputLower === 'hj') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return { startTime: today.getTime(), timeDescription: 'as mensagens de hoje' };
+    }
+    
+    // Handle "ontem" (yesterday)
+    if (inputLower === 'ontem') {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        yesterday.setHours(0, 0, 0, 0);
+        return { startTime: yesterday.getTime(), timeDescription: 'as mensagens de ontem' };
+    }
+    
+    // Handle time units with abbreviations and without spaces
+    const timeUnits = {
+        'hora': { multiplier: 3600 * 1000, singular: 'hora', plural: 'horas', regex: /(\d+)\s*(?:hora|horas|hr|hrs)/i },
+        'minuto': { multiplier: 60 * 1000, singular: 'minuto', plural: 'minutos', regex: /(\d+)\s*(?:minuto|minutos|min|mins)/i }
+    };
+    
+    // Try to match time expressions with or without spaces
+    for (const [unit, config] of Object.entries(timeUnits)) {
+        const match = inputLower.match(config.regex);
+        if (match) {
+            const number = parseInt(match[1]);
+            const timeDescription = number === 1 ? config.singular : config.plural;
+            return {
+                startTime: now - (number * config.multiplier),
+                timeDescription: `as mensagens das últimas ${number} ${timeDescription}`
+            };
+        }
+    }
+    
+    // If no time expression found, try to parse as a number of messages
+    const numberMatch = inputLower.match(/^\d+$/);
+    if (numberMatch) {
+        return null; // Return null to indicate this should be handled as a message count
+    }
+    
+    return null;
+}
+
+async function handleTimeBasedSummary(message, timeInfo) {
+    const chat = await message.getChat();
+    const messages = await chat.fetchMessages({ limit: 1000 });
+    
+    const filteredMessages = messages.filter(m => 
+        m.timestamp * 1000 > timeInfo.startTime && 
+        !m.fromMe && 
+        m.body.trim() !== ''
+    );
+
+    if (filteredMessages.length === 0) {
+        return await message.reply('Não há mensagens suficientes para gerar um resumo.');
+    }
+
+    const messageTexts = await Promise.all(filteredMessages.map(async msg => {
+        const contact = await msg.getContact();
+        const name = contact.name || 'Unknown';
+        return `>>${name}: ${msg.body}.\n`;
+    }));
+
+    const contact = await message.getContact();
+    const name = contact.name || 'Unknown';
+    const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DEFAULT', {
+        name,
+        messageTexts: messageTexts.join(' '),
+        timeDescription: timeInfo.timeDescription
+    });
+    
+    const result = await runCompletion(prompt, 1);
+    return await message.reply(result.trim());
 }
 
 async function handleResumo(message, command, input) {
@@ -238,26 +317,39 @@ async function handleResumo(message, command, input) {
             }
         }
 
-        // If there's input after #resumo, try to parse it as a number first
+        // If there's input after #resumo, try to parse it
         if (input) {
             const trimmedInput = input.trim();
             if (trimmedInput) {
+                // First try to parse as a relative time
+                const timeInfo = parseRelativeTime(trimmedInput);
+                if (timeInfo !== null) {
+                    logger.debug('Processing time-based summary:', trimmedInput);
+                    return await handleTimeBasedSummary(message, timeInfo);
+                }
+                
+                // Then try to parse as a number
                 const limit = parseInt(trimmedInput);
                 if (!isNaN(limit)) {
                     logger.debug('Processing specific message count:', limit);
                     return await handleSpecificMessageCount(message, limit);
-                } else {
-                    logger.debug('Invalid number format:', trimmedInput);
-                    const errorMessage = await message.reply(command.errorMessages.invalidFormat);
-                    await handleAutoDelete(errorMessage, command, true);
-                    return;
                 }
+                
+                // If neither time expression nor number, show error
+                logger.debug('Invalid input format:', trimmedInput);
+                const errorMessage = await message.reply(command.errorMessages.invalidFormat);
+                await handleAutoDelete(errorMessage, command, true);
+                return;
             }
         }
 
         // Default case: no input and no quoted message - show last 3 hours
         logger.debug('No input or quoted message, showing last 3 hours');
-        return await handleLastThreeHours(message);
+        const threeHoursAgo = Date.now() - (3 * 3600 * 1000);
+        return await handleTimeBasedSummary(message, { 
+            startTime: threeHoursAgo, 
+            timeDescription: 'as mensagens das últimas 3 horas'
+        });
     } catch (error) {
         logger.error('Error in handleResumo:', error);
         const errorMessage = await message.reply(command.errorMessages.error);

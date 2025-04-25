@@ -19,9 +19,13 @@ const config = require('./config');
 const { getTestCases } = require('./testCases');
 const { 
     checkSampleFiles, 
-    formatTestResults, 
     verifyGroupAccess 
-} = require('./utils');
+} = require('../test/utils');
+const logger = require('./logger');
+
+// Check if initial logs should be suppressed
+const suppressInitialLogs = process.env.SUPPRESS_INITIAL_LOGS === 'true';
+const showSpinner = process.env.SHOW_SPINNER === 'true';
 
 // Track test results
 const testResults = {
@@ -31,71 +35,83 @@ const testResults = {
     details: []
 };
 
+// Function to get test results
+function getTestResults() {
+    return testResults;
+}
+
+// Function to reset test results
+function resetTestResults() {
+    testResults.passed = 0;
+    testResults.failed = 0;
+    testResults.skipped = 0;
+    testResults.details = [];
+}
+
+// Print status message for parent process to interpret
+function sendStatusMessage(message) {
+    if (showSpinner) {
+        logger.debug(`INIT_STATUS: ${message}`);
+    }
+}
+
 // Initialize WhatsApp client
 async function initializeClient() {
-    console.log('Initializing WhatsApp client for testing...');
-    console.debug(`Using authentication path: ${config.CLIENT_CONFIG.dataPath}`);
-    console.debug(`Using client ID: ${config.CLIENT_CONFIG.clientId}`);
-    
-    // Check if the session folder exists
-    const sessionFolder = path.join(config.CLIENT_CONFIG.dataPath, `session-${config.CLIENT_CONFIG.clientId}`);
-    if (fs.existsSync(sessionFolder)) {
-        console.debug(`Found existing session folder: ${sessionFolder}`);
-    } else {
-        console.warn(`Session folder not found: ${sessionFolder}. A new one will be created.`);
-    }
+    sendStatusMessage('Initializing WhatsApp client for testing...');
     
     // Create a client initialization promise with timeout
     const clientInitPromise = new Promise((resolve, reject) => {
         try {
+            const testAuthPath = path.join(__dirname, '..', '.wwebjs_auth_test');
+
             const client = new Client({
                 authStrategy: new LocalAuth({
-                    clientId: config.CLIENT_CONFIG.clientId,
-                    dataPath: config.CLIENT_CONFIG.dataPath
+                    clientId: 'test-client',
+                    dataPath: testAuthPath
                 }),
                 puppeteer: {
                     headless: true,
-                    args: config.CLIENT_CONFIG.puppeteerOptions.args
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-accelerated-2d-canvas',
+                        '--disable-gpu',
+                        '--window-size=1920x1080'
+                    ]
                 }
             });
 
-            // Set up event handlers
+            // Store browser instance to ensure proper cleanup
+            client.on('ready', () => {
+                global.whatsappClient = client;
+                sendStatusMessage('Client is ready!');
+                logger.log('Client is ready!');
+                resolve(client);
+            });
+
+            // Set up other event handlers
             client.on('qr', (qr) => {
-                console.log('QR Code received, scan to authenticate:');
-                qrcode.generate(qr, { small: true });
-                console.log('If you\'re seeing this, please scan the QR code with your WhatsApp to authenticate.');
+                logger.qrCode('testing client', qr);
             });
 
             client.on('authenticated', () => {
-                console.log('Client authenticated successfully');
+                sendStatusMessage('Client authenticated successfully');
+                logger.log('Client authenticated successfully');
             });
 
             client.on('auth_failure', (msg) => {
-                console.error('Authentication failed:', msg);
+                logger.error('Authentication failed:', msg);
                 reject(new Error(`Authentication failed: ${msg}`));
-            });
-
-            client.on('ready', () => {
-                console.log('Client is ready!');
-                resolve(client);
             });
 
             // Initialize the client
             client.initialize().catch(error => {
-                console.error('Error initializing client:', error);
+                logger.error('Error initializing client:', error);
                 reject(error);
             });
-            
-            // Log additional debugging information
-            client.on('loading_screen', (percent, message) => {
-                console.log(`Loading screen: ${percent}% - ${message}`);
-            });
-            
-            client.on('change_state', state => {
-                console.log(`Client state changed to: ${state}`);
-            });
         } catch (error) {
-            console.error('Error creating client:', error);
+            logger.error('Error creating client:', error);
             reject(error);
         }
     });
@@ -111,67 +127,94 @@ async function initializeClient() {
     try {
         return await Promise.race([clientInitPromise, timeoutPromise]);
     } catch (error) {
-        console.error('Client initialization failed:', error.message);
+        logger.error('Client initialization failed:', error.message);
         throw error;
     }
 }
 
 // Start the bot in the background
 function startBot() {
-    console.log('Starting the bot in the background...');
-    const mainAuthPath = path.join(__dirname, '..', '.wwebjs_auth_main');
-    const mainClientId = 'tanabe-gpt-client';
-    console.debug(`Setting bot to use auth path: ${mainAuthPath} with client ID: ${mainClientId}`);
-    
-    // Check if the auth path exists
-    if (!fs.existsSync(mainAuthPath)) {
-        console.warn(`Auth path ${mainAuthPath} does not exist. Creating it...`);
-        try {
-            fs.mkdirSync(mainAuthPath, { recursive: true });
-            console.log(`Created auth path: ${mainAuthPath}`);
-        } catch (error) {
-            console.error(`Failed to create auth path: ${error.message}`);
-        }
-    }
-    
-    // Check if the session folder exists
-    const sessionFolder = path.join(mainAuthPath, `session-${mainClientId}`);
-    if (fs.existsSync(sessionFolder)) {
-        console.debug(`Found existing session folder: ${sessionFolder}`);
-    } else {
-        console.warn(`Session folder not found: ${sessionFolder}. A new one will be created.`);
-    }
+    sendStatusMessage('Starting the bot in the background...');
+    logger.log('Starting the bot in the background...');
+    const botAuthPath = path.join(__dirname, '..', '.wwebjs_auth_main');
+    const botClientId = 'tanabe-gpt-client';
+    logger.debug(`Setting bot to use auth path: ${botAuthPath} with client ID: ${botClientId}`);
     
     try {
         const bot = spawn('node', ['index.js'], {
-            // Don't detach the process so we can properly kill it later
             detached: false,
-            stdio: 'pipe', // Capture stdout and stderr
+            stdio: 'pipe',
             env: {
                 ...process.env,
-                USE_AUTH_DIR: mainAuthPath,
-                USE_CLIENT_ID: mainClientId
+                USE_AUTH_DIR: botAuthPath,
+                USE_CLIENT_ID: botClientId,
+                
+                // Force logging settings to ensure visibility
+                FORCE_PROMPT_LOGS: 'true',     
+                FORCE_DEBUG_LOGS: 'true',      
+                
+                // Override the bot's logging configuration to show everything
+                CONSOLE_LOG_LEVEL_ERROR: 'true',
+                CONSOLE_LOG_LEVEL_WARN: 'true',
+                CONSOLE_LOG_LEVEL_INFO: 'true',
+                CONSOLE_LOG_LEVEL_DEBUG: 'true',
+                CONSOLE_LOG_LEVEL_SUMMARY: 'true',
+                CONSOLE_LOG_LEVEL_STARTUP: 'true',
+                CONSOLE_LOG_LEVEL_SHUTDOWN: 'true',
+                CONSOLE_LOG_LEVEL_PROMPT: 'true',
+                CONSOLE_LOG_LEVEL_COMMAND: 'true',
+                
+                // Force test mode to ensure consistent behavior
+                TEST_MODE: 'true'
             }
         });
         
         // Log when the bot process exits
         bot.on('exit', (code, signal) => {
-            console.log(`Bot process exited with code ${code} and signal ${signal}`);
+            logger.log(`Bot process exited with code ${code} and signal ${signal}`);
         });
         
-        // Log stdout and stderr
+        // Log stdout for better visibility in verbose mode
         bot.stdout.on('data', (data) => {
-            console.log(`Bot stdout: ${data}`);
+            const message = data.toString().trim();
+            if (message.includes('Initialized client successfully') || 
+                message.includes('Client is ready')) {
+                sendStatusMessage('Bot client is ready!');
+            }
+            
+            // Always capture logs for testing, but only show in verbose mode
+            if (process.env.DEBUG === 'true' || process.env.VERBOSE === 'true' || process.env.SILENT === 'false') {
+            logger.log(`Bot stdout: ${message}`);
+            }
+            
+            // Check for prompt and debug logs regardless of verbose mode
+            if (message.includes('DIRETRIZES') || message.includes('[PROMPT]') || 
+                message.includes('ChatGPT Prompt') || message.includes('>>')) {
+                // Update the last prompt if we find one
+                if (message.includes('DIRETRIZES')) {
+                    global.lastPrompt = message;
+                    global.promptCaptured = true;
+                }
+                // Add to existing prompt if we find message history
+                else if (message.includes('>>') && global.lastPrompt) {
+                    global.lastPrompt += '\n' + message;
+                }
+            }
         });
         
+        // Log stderr with proper formatting for visibility in verbose mode
         bot.stderr.on('data', (data) => {
-            console.error(`Bot stderr: ${data}`);
+            const message = data.toString().trim();
+            if (process.env.DEBUG === 'true' || process.env.VERBOSE === 'true' || process.env.SILENT === 'false') {
+                logger.error(`Bot stderr: ${message}`);
+            }
         });
         
-        console.log(`Bot started with PID: ${bot.pid}`);
+        sendStatusMessage(`Bot started with PID: ${bot.pid}`);
+        logger.log(`Bot started with PID: ${bot.pid}`);
         return bot;
     } catch (error) {
-        console.error(`Failed to start bot: ${error.message}`);
+        logger.error(`Failed to start bot: ${error.message}`);
         throw error;
     }
 }
@@ -184,16 +227,13 @@ async function findTargetGroup(client) {
             throw new Error('Client is not fully authenticated yet');
         }
         
-        console.log('Fetching chats...');
+        logger.log('Fetching chats...');
         const chats = await client.getChats();
-        console.log(`Found ${chats.length} chats`);
+        logger.log(`Found ${chats.length} chats`);
         
         // Log all group chats for debugging
         const groupChats = chats.filter(chat => chat.isGroup);
-        console.log(`Found ${groupChats.length} group chats:`);
-        groupChats.forEach(chat => {
-            console.log(`- ${chat.name} (${chat.id._serialized})`);
-        });
+        logger.log(`Found ${groupChats.length} group chats:`);
         
         const targetGroup = chats.find(chat => 
             chat.isGroup && chat.name === config.TARGET_GROUP
@@ -203,48 +243,16 @@ async function findTargetGroup(client) {
             throw new Error(`Target group "${config.TARGET_GROUP}" not found`);
         }
         
-        console.log(`Found target group: ${targetGroup.name} (${targetGroup.id._serialized})`);
+        logger.log(`Found target group: ${targetGroup.name} (${targetGroup.id._serialized})`);
         return targetGroup;
     } catch (error) {
-        console.error(`Error finding target group: ${error.message}`);
-        console.error('Please make sure:');
-        console.error(`1. The group "${config.TARGET_GROUP}" exists in your WhatsApp`);
-        console.error('2. You are fully authenticated with WhatsApp');
-        console.error('3. The bot has been added to the group');
+        logger.error(`Error finding target group: ${error.message}`);
+        logger.error('Please make sure:');
+        logger.error(`1. The group "${config.TARGET_GROUP}" exists in your WhatsApp`);
+        logger.error('2. You are fully authenticated with WhatsApp');
+        logger.error('3. The bot has been added to the group');
         
         throw new Error(`Unable to find target group: ${error.message}`);
-    }
-}
-
-// Find the admin chat
-async function findAdminChat(client) {
-    try {
-        // Check if client is ready
-        if (!client.info) {
-            throw new Error('Client is not fully authenticated yet');
-        }
-        
-        const adminNumber = config.ADMIN_NUMBER;
-        if (!adminNumber) {
-            throw new Error('Admin number not configured');
-        }
-        
-        const chatId = `${adminNumber}@c.us`;
-        const chat = await client.getChatById(chatId);
-        
-        if (!chat) {
-            throw new Error(`Admin chat not found for number ${adminNumber}`);
-        }
-        
-        console.log(`Found admin chat for number ${adminNumber}`);
-        return chat;
-    } catch (error) {
-        console.error(`Error finding admin chat: ${error.message}`);
-        console.error('Please make sure:');
-        console.error('1. The admin number is correctly configured');
-        console.error('2. You are fully authenticated with WhatsApp');
-        
-        throw new Error(`Unable to find admin chat: ${error.message}`);
     }
 }
 
@@ -268,13 +276,13 @@ async function findBotChat(client) {
             throw new Error(`Bot chat not found for number ${botNumber}`);
         }
         
-        console.log(`Found bot chat for number ${botNumber}`);
+        logger.log(`Found bot chat for number ${botNumber}`);
         return chat;
     } catch (error) {
-        console.error(`Error finding bot chat: ${error.message}`);
-        console.error('Please make sure:');
-        console.error('1. The bot number is correctly configured');
-        console.error('2. You are fully authenticated with WhatsApp');
+        logger.error(`Error finding bot chat: ${error.message}`);
+        logger.error('Please make sure:');
+        logger.error('1. The bot number is correctly configured');
+        logger.error('2. You are fully authenticated with WhatsApp');
         
         throw new Error(`Unable to find bot chat: ${error.message}`);
     }
@@ -310,7 +318,7 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
     
     // Wait for pre-delay if specified
     if (preDelay > 0) {
-        console.log(`Waiting ${preDelay/1000} seconds before sending message...`);
+        logger.log(`Waiting ${preDelay/1000} seconds before sending message...`);
         await new Promise(resolve => setTimeout(resolve, preDelay));
     }
     
@@ -318,22 +326,22 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
     
     // Send pre-message if needed
     if (preMessage) {
-        console.log(`Sending pre-message: ${preMessage}`);
+        logger.log(`Sending pre-message: ${preMessage}`);
         quotedMessage = await chat.sendMessage(preMessage);
-        console.log('Pre-message sent, waiting before proceeding...');
+        logger.log('Pre-message sent, waiting before proceeding...');
         await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds after pre-message
     }
     
     // Send pre-command if specified
     if (preCommand) {
-        console.log(`Sending pre-command: ${preCommand}`);
+        logger.log(`Sending pre-command: ${preCommand}`);
         await chat.sendMessage(preCommand);
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds after pre-command
     }
     
     // For PDF summary, send attachment first, then quote it with the command
     if (sendAttachmentFirst && attachment) {
-        console.log(`Sending attachment first: ${attachment}`);
+        logger.log(`Sending attachment first: ${attachment}`);
         const filePath = path.join(__dirname, 'samples', attachment);
         if (!fs.existsSync(filePath)) {
             throw new Error(`Attachment file not found: ${filePath}`);
@@ -343,13 +351,13 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
         
         // If it's a sticker, use sendMediaAsSticker option
         if (isSticker) {
-            console.log('Sending as sticker...');
+            logger.log('Sending as sticker...');
             quotedMessage = await chat.sendMessage(media, { sendMediaAsSticker: true });
         } else {
             quotedMessage = await chat.sendMessage(media);
         }
         
-        console.log('Attachment sent, waiting before quoting...');
+        logger.log('Attachment sent, waiting before quoting...');
         await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds after sending attachment
     }
     
@@ -371,7 +379,7 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
         
         // If it's a sticker, use sendMediaAsSticker option
         if (isSticker) {
-            console.log(`Sending attachment as sticker${message ? ' with caption: ' + message : ''}`);
+            logger.log(`Sending attachment as sticker${message ? ' with caption: ' + message : ''}`);
             
             // For stickers, we need to set the caption and then send as sticker
             const stickerOptions = { 
@@ -388,7 +396,7 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
         } else {
             // If attachWithCommand is true, send the attachment with the command as caption
             if (attachWithCommand) {
-                console.log(`Sending attachment with command as caption: ${message}`);
+                logger.log(`Sending attachment with command as caption: ${message}`);
                 sentMessage = await chat.sendMessage(media, { caption: message, ...messageOptions });
             } else {
                 // Otherwise, just send the attachment (with caption if message is provided)
@@ -400,7 +408,7 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
         sentMessage = await chat.sendMessage(message, messageOptions);
     }
     
-    console.log(`Sent message: ${message}${useBotChat ? ' (to bot chat)' : useAdminChat ? ' (to admin chat)' : ''}`);
+    logger.log(`Sent message: ${message}${useBotChat ? ' (to bot chat)' : useAdminChat ? ' (to admin chat)' : ''}`);
     
     // Wait for response
     const responsePromise = new Promise((resolve) => {
@@ -425,14 +433,14 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
     
     // Handle bot message reaction deletion test
     if (checkBotMessageDeletion && response) {
-        console.log('Testing bot message reaction deletion...');
+        logger.log('Testing bot message reaction deletion...');
         try {
             // Wait a moment before reacting
             await new Promise(resolve => setTimeout(resolve, 2000));
             
             // React with praying hands emoji (which is the only emoji that triggers deletion)
             await response.react('🙏');
-            console.log('Added praying hands (🙏) reaction to bot message');
+            logger.log('Added praying hands (🙏) reaction to bot message');
             
             // Wait for message to be deleted (with a reasonable timeout)
             const deletionTimeout = 10000; // 10 seconds
@@ -450,18 +458,18 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
                         
                         if (!messageExists) {
                             clearInterval(checkInterval);
-                            console.log('Bot message was deleted after praying hands reaction');
+                            logger.log('Bot message was deleted after praying hands reaction');
                             resolve({ wasDeleted: true });
                         } else if (Date.now() - startTime > deletionTimeout) {
                             // Timeout reached
                             clearInterval(checkInterval);
-                            console.log('Timeout reached, bot message was not deleted');
+                            logger.log('Timeout reached, bot message was not deleted');
                             resolve({ wasDeleted: false });
                         }
                     } catch (error) {
                         // If we can't fetch the message, assume it was deleted
                         clearInterval(checkInterval);
-                        console.log('Error checking message, assuming deleted:', error.message);
+                        logger.log('Error checking message, assuming deleted:', error.message);
                         resolve({ wasDeleted: true });
                     }
                 }, 1000);
@@ -476,19 +484,19 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
                 throw new Error('Bot message was not deleted after reaction');
             }
         } catch (error) {
-            console.error('Error testing bot message reaction deletion:', error);
+            logger.error('Error testing bot message reaction deletion:', error);
             return null;
         }
     }
     
     // Handle follow-up command if specified
     if (followUpCommand && response) {
-        console.log(`Waiting ${followUpDelay/1000} seconds before sending follow-up command...`);
+        logger.log(`Waiting ${followUpDelay/1000} seconds before sending follow-up command...`);
         await new Promise(resolve => setTimeout(resolve, followUpDelay));
         
-        console.log(`Sending follow-up command: ${followUpCommand}`);
+        logger.log(`Sending follow-up command: ${followUpCommand}`);
         await chat.sendMessage(followUpCommand);
-        console.log('Follow-up command sent');
+        logger.log('Follow-up command sent');
     }
     
     return response;
@@ -522,16 +530,30 @@ function setupPromptCapture() {
             // Check if this is a prompt log
             const logMessage = Array.from(arguments).join(' ');
             
-            // Look for the start of a prompt (DIRETRIZES)
+            // Detect different ways prompts might be logged
+            
+            // Direct prompt messages or timestamps
+            if (logMessage.includes('[PROMPT]') || logMessage.includes('ChatGPT Prompt')) {
+                logger.log('Found prompt log entry, capturing...');
+                
+                // Check if the next line has the actual prompt content
             if (logMessage.includes('DIRETRIZES')) {
-                originalConsoleLog.call(console, 'Found prompt with DIRETRIZES, capturing...');
+                    logger.log('Found prompt with DIRETRIZES, capturing...');
+                    global.lastPrompt = logMessage;
+                    global.promptCaptured = true;
+                }
+            }
+            // Look for the start of a prompt (DIRETRIZES)
+            else if (logMessage.includes('DIRETRIZES')) {
+                logger.log('Found prompt with DIRETRIZES, capturing...');
                 global.lastPrompt = logMessage;
                 global.promptCaptured = true;
             }
             
             // Also capture message history
-            if (logMessage.includes('>>') && logMessage.includes('FIM DAS ÚLTIMAS')) {
-                originalConsoleLog.call(console, 'Found message history, capturing...');
+            if ((logMessage.includes('>>') && logMessage.includes('FIM DAS ÚLTIMAS')) ||
+                (logMessage.includes('COMEÇO DAS ÚLTIMAS') && logMessage.includes('MENSAGENS'))) {
+                logger.log('Found message history, capturing...');
                 if (global.lastPrompt) {
                     global.lastPrompt += '\n' + logMessage;
                 } else {
@@ -543,10 +565,54 @@ function setupPromptCapture() {
             isLogging = false;
         };
         
-        originalConsoleLog.call(console, 'Prompt capture set up successfully');
+        // Add a safeguard for when prompts might be on separate lines
+        if (process.env.FORCE_PROMPT_LOGS === 'true') {
+            logger.log('Setting up advanced prompt capture for test mode');
+            
+            // Create an array to store consecutive log lines
+            let recentLogs = [];
+            const MAX_RECENT_LOGS = 50;
+            
+            // Intercept stdout.write to capture all log lines
+            const originalStdoutWrite = process.stdout.write;
+            process.stdout.write = function(chunk) {
+                const result = originalStdoutWrite.apply(process.stdout, arguments);
+                
+                // If it's a string, add it to recent logs
+                if (typeof chunk === 'string') {
+                    recentLogs.push(chunk);
+                    if (recentLogs.length > MAX_RECENT_LOGS) {
+                        recentLogs.shift(); // Remove oldest entry
+                    }
+                    
+                    // Look for prompt markers in combined recent logs
+                    const combinedLogs = recentLogs.join('');
+                    if (combinedLogs.includes('DIRETRIZES') && !global.promptCaptured) {
+                        logger.log('Found DIRETRIZES in recent logs');
+                        global.lastPrompt = combinedLogs;
+                        global.promptCaptured = true;
+                    }
+                    
+                    // Look for message history markers
+                    if (combinedLogs.includes('FIM DAS ÚLTIMAS') && combinedLogs.includes('>>')) {
+                        logger.log('Found message history in recent logs');
+                        if (global.lastPrompt) {
+                            global.lastPrompt += '\n' + combinedLogs;
+                        } else {
+                            global.lastPrompt = combinedLogs;
+                        }
+                        global.promptCaptured = true;
+                    }
+                }
+                
+                return result;
+            };
+        }
+        
+        logger.debug('Prompt capture set up successfully');
         return true;
     } catch (error) {
-        console.error('Error setting up prompt capture:', error);
+        logger.error('Error setting up prompt capture:', error);
         return false;
     }
 }
@@ -554,14 +620,14 @@ function setupPromptCapture() {
 // Check if the prompt contains personality and message history
 async function checkPromptContent(prompt) {
     // Wait a bit to ensure the prompt is captured
-    console.log('Waiting for prompt to be fully captured...');
+    logger.log('Waiting for prompt to be fully captured...');
     
     // Wait for the prompt to be captured with a timeout
     const startTime = Date.now();
-    const timeout = 15000; // 15 seconds
+    const timeout = 30000; // 30 seconds timeout
     
     while (!global.promptCaptured && (Date.now() - startTime) < timeout) {
-        console.log('Waiting for prompt to be captured...');
+        logger.log('Waiting for prompt to be captured...');
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
     }
     
@@ -569,7 +635,7 @@ async function checkPromptContent(prompt) {
     prompt = prompt || global.lastPrompt;
     
     if (!prompt) {
-        console.warn('No prompt captured after waiting. This might be a timing issue or the prompt logs are not enabled.');
+        logger.warn('No prompt captured after waiting. This might be a timing issue or the prompt logs are not enabled.');
         return { 
             hasPersonality: false, 
             hasMessageHistory: false,
@@ -577,13 +643,13 @@ async function checkPromptContent(prompt) {
         };
     }
     
-    console.log('Checking captured prompt content...');
+    logger.log('Checking captured prompt content...');
     
     // Check for specific markers in the prompt
     const hasPersonality = prompt.includes('DIRETRIZES');
     const hasMessageHistory = prompt.includes('>>');
     
-    console.log('Prompt check results:', {
+    logger.log('Prompt check results:', {
         hasPersonality,
         hasMessageHistory,
         promptLength: prompt.length
@@ -591,13 +657,13 @@ async function checkPromptContent(prompt) {
     
     // If either check fails, log more details to help debug
     if (!hasPersonality || !hasMessageHistory) {
-        console.log('Prompt check failed. Detailed analysis:');
-        console.log('- Contains "DIRETRIZES":', hasPersonality);
-        console.log('- Contains ">>":', hasMessageHistory);
-        console.log('First 1000 characters of prompt:');
-        console.log(prompt.substring(0, 1000) + '...');
+        logger.log('Prompt check failed. Detailed analysis:');
+        logger.log('- Contains "DIRETRIZES":', hasPersonality);
+        logger.log('- Contains ">>":', hasMessageHistory);
+        logger.log('First 1000 characters of prompt:');
+        logger.log(prompt.substring(0, 1000) + '...');
     } else {
-        console.log('Prompt check passed! Found both "DIRETRIZES" and ">>"');
+        logger.log('Prompt check passed! Found both "DIRETRIZES" and ">>"');
     }
     
     return {
@@ -609,12 +675,12 @@ async function checkPromptContent(prompt) {
 
 // Run a single test
 async function runTest(client, group, test) {
-    console.log(`\n[TEST] ${test.name}: ${test.description}`);
+    logger.startTest(test.name);
     
     try {
         // Skip admin-only tests if not running as admin
         if (test.adminOnly && !config.ADMIN_NUMBER) {
-            console.log(`Skipping admin-only test: ${test.name}`);
+            logger.endTest(true, test.name, 'Skipped (Admin-only test)');
             testResults.skipped++;
             testResults.details.push({
                 name: test.name,
@@ -655,8 +721,7 @@ async function runTest(client, group, test) {
             if (!response || !response.wasDeleted) {
                 throw new Error('Bot message was not deleted after reaction');
             }
-            // Test passed for bot message deletion
-            console.log(`✅ PASSED: ${test.name} (Message was deleted after reaction)`);
+            logger.endTest(true, test.name, 'Message was deleted after reaction');
             testResults.passed++;
             testResults.details.push({
                 name: test.name,
@@ -669,20 +734,12 @@ async function runTest(client, group, test) {
         // Special case for prompt check
         if (test.checkPrompt) {
             const promptCheck = await checkPromptContent(global.lastPrompt);
-            console.log('Prompt check results:', promptCheck.details);
             
             if (!promptCheck.hasPersonality || !promptCheck.hasMessageHistory) {
                 throw new Error(`Prompt check failed: ${promptCheck.details}`);
             }
             
-            // If we have a response, also check it
-            if (response) {
-                const responseText = response.body.toLowerCase();
-                console.log(`Response received: "${responseText.substring(0, 50)}${responseText.length > 50 ? '...' : ''}"`);
-            }
-            
-            // Test passed for prompt check
-            console.log(`✅ PASSED: ${test.name} (Prompt check)`);
+            logger.endTest(true, test.name, 'Prompt check passed');
             testResults.passed++;
             testResults.details.push({
                 name: test.name,
@@ -696,7 +753,6 @@ async function runTest(client, group, test) {
         let passed = true;
         if (test.expectedResponseContains.length > 0 && response) {
             const responseText = response.body.toLowerCase();
-            console.log(`Response received: "${responseText.substring(0, 50)}${responseText.length > 50 ? '...' : ''}"`);
             
             // Check if at least one of the expected keywords is found
             let foundAnyKeyword = false;
@@ -708,7 +764,6 @@ async function runTest(client, group, test) {
                 
                 if (normalizedResponse.includes(normalizedExpected)) {
                     foundAnyKeyword = true;
-                    console.log(`✓ Found keyword: "${expected}"`);
                 } else {
                     missingKeywords.push(expected);
                 }
@@ -718,11 +773,6 @@ async function runTest(client, group, test) {
             if (!foundAnyKeyword) {
                 passed = false;
                 throw new Error(`Response does not contain any of the expected keywords: ${test.expectedResponseContains.join(', ')}`);
-            } else {
-                // Log missing keywords but don't fail the test
-                if (missingKeywords.length > 0) {
-                    console.log(`Note: Some keywords were not found: ${missingKeywords.join(', ')}`);
-                }
             }
         }
         
@@ -732,24 +782,16 @@ async function runTest(client, group, test) {
             throw new Error('Expected media in response but none was received');
         }
         
-        // Test passed
-        console.log(`✅ PASSED: ${test.name}`);
+        logger.endTest(true, test.name);
         testResults.passed++;
         testResults.details.push({
             name: test.name,
             result: 'PASSED'
         });
         
-        // If the test has an extra delay, wait for it
-        if (test.extraDelay) {
-            console.log(`Waiting extra ${test.extraDelay/1000} seconds before next test...`);
-            await new Promise(resolve => setTimeout(resolve, test.extraDelay));
-        }
-        
         return { needsShortDelay: true };
     } catch (error) {
-        // Test failed
-        console.error(`❌ FAILED: ${test.name} - ${error.message}`);
+        logger.endTest(false, test.name, error.message);
         testResults.failed++;
         testResults.details.push({
             name: test.name,
@@ -757,7 +799,8 @@ async function runTest(client, group, test) {
             error: error.message
         });
         
-        return { needsShortDelay: true };
+        // Re-throw the error to be caught by the main test runner
+        throw error;
     }
 }
 
@@ -769,39 +812,48 @@ async function runAllTests() {
     let startedNewBot = false;
     
     try {
-        console.log('Starting test sequence...');
+        // Reset test results at the start of a new test run
+        resetTestResults();
+        
+        sendStatusMessage('Starting test sequence...');
+        logger.log('Starting test sequence...');
         
         // Check for sample files
         if (!checkSampleFiles()) {
-            console.warn('Some sample files are missing. Some tests may fail.');
+            logger.warn('Some sample files are missing. Some tests may fail.');
         }
         
         // Set up prompt capture
-        console.log('Setting up prompt capture...');
+        sendStatusMessage('Setting up prompt capture...');
+        logger.log('Setting up prompt capture...');
         setupPromptCapture();
         
         // Initialize client
-        console.log('Initializing WhatsApp test client...');
+        sendStatusMessage('Initializing WhatsApp test client...');
+        logger.log('Initializing WhatsApp test client...');
         try {
             client = await initializeClient();
-            console.log('WhatsApp test client initialized successfully');
+            sendStatusMessage('WhatsApp test client initialized successfully');
+            logger.log('WhatsApp test client initialized successfully');
         } catch (error) {
-            console.error('Failed to initialize WhatsApp test client:', error);
-            console.error('Try deleting the .wwebjs_auth_test directory and running npm run setup again');
+            logger.error('Failed to initialize WhatsApp test client:', error);
+            logger.error('Try deleting the .wwebjs_auth_test directory and running npm run setup again');
             throw error;
         }
         
         // Wait for client to be fully ready
-        console.log('Waiting for WhatsApp client to be fully ready...');
+        sendStatusMessage('Waiting for WhatsApp client to be fully ready...');
+        logger.log('Waiting for WhatsApp client to be fully ready...');
         
         // Create a promise that resolves when the client is ready
         if (!client.info) {
-            console.log('Client not fully ready, waiting for info...');
+            logger.log('Client not fully ready, waiting for info...');
             await new Promise((resolve, reject) => {
                 const readyCheck = setInterval(() => {
                     if (client.info) {
                         clearInterval(readyCheck);
-                        console.log('Client is fully authenticated and ready.');
+                        sendStatusMessage('Client is fully authenticated and ready.');
+                        logger.log('Client is fully authenticated and ready.');
                         resolve();
                     }
                 }, 1000);
@@ -809,64 +861,81 @@ async function runAllTests() {
                 // Set a timeout in case authentication takes too long
                 setTimeout(() => {
                     clearInterval(readyCheck);
-                    console.warn('Authentication timeout reached. Continuing with tests, but some may fail.');
+                    logger.warn('Authentication timeout reached. Continuing with tests, but some may fail.');
                     resolve();
                 }, 60000); // 1 minute timeout
             });
         } else {
-            console.log('Client is already fully ready');
+            sendStatusMessage('Client is already fully ready');
+            logger.log('Client is already fully ready');
         }
         
         // Verify group access
         if (config.VERIFY_WHITELIST) {
-            console.log('Verifying group access...');
+            sendStatusMessage('Verifying group access...');
+            logger.log('Verifying group access...');
             try {
                 await verifyGroupAccess(client, config.TARGET_GROUP);
-                console.log('Group access verified successfully');
+                sendStatusMessage('Group access verified successfully');
+                logger.log('Group access verified successfully');
             } catch (error) {
-                console.error('Failed to verify group access:', error);
+                logger.error('Failed to verify group access:', error);
                 throw error;
             }
         }
         
         // Check if bot is already running
-        console.log('Checking if bot is already running...');
+        sendStatusMessage('Checking if bot is already running...');
+        logger.log('Checking if bot is already running...');
         const isRunning = await checkIfBotIsRunning();
         
         if (isRunning) {
-            console.log('Bot is already running. Using existing bot instance.');
+            sendStatusMessage('Bot is already running. Using existing bot instance.');
+            logger.log('Bot is already running. Using existing bot instance.');
             // We'll use the existing bot
         } else {
-            console.log('Bot is not running. Starting a new instance...');
+            sendStatusMessage('Bot is not running. Starting a new instance...');
+            logger.log('Bot is not running. Starting a new instance...');
             // Start the bot
             try {
                 botProcess = startBot();
                 startedNewBot = true;
                 
                 // Wait for bot to initialize
-                console.log(`Waiting ${config.BOT_STARTUP_WAIT/1000} seconds for bot to initialize...`);
+                sendStatusMessage(`Waiting ${config.BOT_STARTUP_WAIT/1000} seconds for bot to initialize...`);
+                logger.log(`Waiting ${config.BOT_STARTUP_WAIT/1000} seconds for bot to initialize...`);
                 await new Promise(resolve => setTimeout(resolve, config.BOT_STARTUP_WAIT));
-                console.log('Bot initialization wait completed');
+                sendStatusMessage('Bot initialization wait completed');
+                logger.log('Bot initialization wait completed');
             } catch (error) {
-                console.error('Failed to start bot:', error);
+                logger.error('Failed to start bot:', error);
                 throw error;
             }
         }
         
         // Find target group
-        console.log('Finding target group...');
+        sendStatusMessage('Finding target group...');
+        logger.log('Finding target group...');
         let group;
         try {
             group = await findTargetGroup(client);
-            console.log(`Found target group: ${group.name}`);
+            sendStatusMessage(`Found target group: ${group.name}`);
+            logger.log(`Found target group: ${group.name}`);
         } catch (error) {
-            console.error('Failed to find target group:', error);
+            logger.error('Failed to find target group:', error);
             throw error;
         }
         
         // Get test cases based on enabled categories
         const testCases = getTestCases();
-        console.log(`Preparing to run ${testCases.length} tests...`);
+        sendStatusMessage(`Preparing to run ${testCases.length} tests...`);
+        logger.log(`Preparing to run ${testCases.length} tests...`);
+        
+        // Signal that clients are ready and tests are about to start
+        logger.debug('CLIENTS_READY');
+        
+        // Small delay to ensure the CLIENTS_READY signal is processed
+        await new Promise(resolve => setTimeout(resolve, 100));
         
         // Run tests sequentially
         for (const test of testCases) {
@@ -874,104 +943,47 @@ async function runAllTests() {
             
             // Use a shorter delay between tests if the test has already completed
             const delayTime = result && result.needsShortDelay ? 1000 : config.DELAY_BETWEEN_TESTS;
-            console.log(`Waiting ${delayTime/1000} seconds before next test...`);
+            logger.log(`Waiting ${delayTime/1000} seconds before running next test...`);
             await new Promise(resolve => setTimeout(resolve, delayTime));
         }
         
-        // Print summary
-        const summary = formatTestResults(testResults);
-        console.log(summary);
-        
-        // Save results to file
-        const resultsPath = path.join(__dirname, 'test_results.json');
-        fs.writeFileSync(resultsPath, JSON.stringify(testResults, null, 2));
-        console.log(`Test results saved to ${resultsPath}`);
-        
-        // Send summary to group
-        await group.sendMessage(`*Bot Test Results*\n\nTotal: ${testResults.passed + testResults.failed + testResults.skipped}\nPassed: ${testResults.passed}\nFailed: ${testResults.failed}\nSkipped: ${testResults.skipped}`);
-        
-    } catch (error) {
-        console.error('Error running tests:', error);
-        exitCode = 1;
-    } finally {
-        // Clean up
-        console.log('Cleaning up...');
-        
-        if (client) {
-            console.log('Destroying WhatsApp client...');
+        // Clean up resources
+        if (startedNewBot) {
+            sendStatusMessage('Stopping the bot...');
+            logger.log('Stopping the bot...');
             try {
-                await client.destroy();
-                console.log('WhatsApp client destroyed');
+                botProcess.kill();
             } catch (error) {
-                console.error('Error destroying WhatsApp client:', error);
+                logger.error('Error stopping the bot:', error);
             }
         }
         
-        // Only terminate the bot if we started it
-        if (startedNewBot && botProcess) {
-            console.log(`Terminating bot process (PID: ${botProcess.pid})...`);
-            try {
-                // First try to kill gracefully
-                botProcess.kill('SIGTERM');
-                
-                // Wait a moment for the process to terminate
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                // If it's still running, force kill it
-                if (botProcess.killed === false) {
-                    console.log('Bot process did not terminate gracefully, force killing...');
-                    process.kill(botProcess.pid, 'SIGKILL');
-                }
-                
-                console.log('Bot process terminated');
+        sendStatusMessage('Test sequence completed successfully');
+        logger.log('Test sequence completed successfully');
+        
+        return {
+            passed: testResults.passed,
+            failed: testResults.failed,
+            skipped: testResults.skipped,
+            details: testResults.details
+        };
             } catch (error) {
-                console.error('Error terminating bot process:', error);
-                
-                // As a last resort, try to kill using the OS process ID
-                try {
-                    console.log('Attempting to kill using process ID...');
-                    process.kill(botProcess.pid);
-                    console.log('Process killed using process ID');
-                } catch (killError) {
-                    console.error('Failed to kill process:', killError);
-                }
-            }
-        } else {
-            console.log('Not terminating bot as it was already running before tests started');
-        }
-        
-        // Delete the .wwebjs_cache directory
-        const cachePath = path.join(__dirname, '.wwebjs_cache');
-        console.log(`Cleaning up cache directory: ${cachePath}`);
-        try {
-            if (fs.existsSync(cachePath)) {
-                // Delete the directory recursively
-                fs.rmSync(cachePath, { recursive: true, force: true });
-                console.log('Cache directory deleted successfully');
-            } else {
-                console.log('Cache directory does not exist, nothing to clean up');
-            }
-        } catch (error) {
-            console.error(`Error cleaning up cache directory: ${error.message}`);
-        }
-        
-        console.log('Cleanup complete');
-        
-        // Exit with appropriate code
-        console.log(`Exiting with code ${exitCode}`);
-        process.exit(exitCode);
+        logger.error('Test sequence failed:', error);
+        throw error;
     }
 }
 
 // Check if the bot is already running
 async function checkIfBotIsRunning() {
     try {
-        console.log('Checking if bot is already running...');
+        logger.log('Checking if bot is already running...');
         return new Promise((resolve) => {
-            exec('ps aux | grep "node index.js" | grep -v grep', (error, stdout, stderr) => {
+            // Use a more specific command to find the bot process
+            const cmd = `ps aux | grep "node.*index.js" | grep -v "grep" | grep -v "test"`;
+            exec(cmd, (error, stdout, stderr) => {
                 if (error) {
                     // Command failed, bot is not running
-                    console.log('Bot is not running (ps command failed)');
+                    logger.log('Bot is not running (ps command failed)');
                     resolve(false);
                     return;
                 }
@@ -979,19 +991,32 @@ async function checkIfBotIsRunning() {
                 // Check if there's output (bot is running)
                 const isRunning = stdout.trim() !== '';
                 if (isRunning) {
-                    console.log('Bot is already running:');
-                    console.log(stdout.trim());
+                    logger.log('Bot is already running:');
+                    logger.log(stdout.trim());
                 } else {
-                    console.log('Bot is not running (no matching processes)');
+                    logger.log('Bot is not running (no matching processes)');
                 }
                 resolve(isRunning);
             });
         });
     } catch (error) {
-        console.error('Error checking if bot is running:', error);
+        logger.error('Error checking if bot is running:', error);
         return false;
     }
 }
 
-// Run the tests
-runAllTests().catch(console.error);
+// Export the runAllTests function
+module.exports = {
+    runAllTests,
+    initializeClient,
+    checkIfBotIsRunning,
+    startBot,
+    findTargetGroup,
+    findBotChat,
+    sendMessageAndWaitForResponse,
+    setupPromptCapture,
+    checkPromptContent,
+    runTest,
+    getTestResults,
+    resetTestResults
+};

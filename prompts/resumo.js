@@ -2,20 +2,13 @@
 
 const RESUMO = {
     DEFAULT: `
-{name} está pedindo para que você resuma as últimas {limit} mensagens desta conversa de grupo:
+{name} está pedindo para que você resuma {timeDescription}:
 
 INÍCIO DAS MENSAGENS:
 {messageTexts}
 FIM DAS MENSAGENS.
 
-{groupPersonality}
-        `,
-    HOUR_SUMMARY: `
-{name} está pedindo para que você resuma as mensagens da últimas 3 horas nesta conversa de grupo:
-
-INÍCIO DAS MENSAGENS:
-{messageTexts}
-FIM DAS MENSAGENS.
+Deixe claro quantas mensagens ou o período de tempo de mensagens que foram resumidas.
 
 {groupPersonality}
         `,

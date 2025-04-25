@@ -20,6 +20,17 @@ const logger = require('./utils/logger');
 const path = require('path');
 const fs = require('fs');
 
+// Check if testing environment variables are set and force debug/prompt logging
+if (process.env.FORCE_DEBUG_LOGS === 'true' && config.SYSTEM?.CONSOLE_LOG_LEVELS) {
+    console.log('Test mode: Forcing DEBUG logs to be enabled');
+    config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG = true;
+}
+
+if (process.env.FORCE_PROMPT_LOGS === 'true' && config.SYSTEM?.CONSOLE_LOG_LEVELS) {
+    console.log('Test mode: Forcing PROMPT logs to be enabled');
+    config.SYSTEM.CONSOLE_LOG_LEVELS.PROMPT = true;
+}
+
 // Add global error handlers
 process.on('uncaughtException', (error) => {
     logger.error('Uncaught Exception:', error);
@@ -408,6 +419,9 @@ async function main() {
         // Initialize the bot
         await initializeBot();
         logger.debug('Bot initialization completed.');
+        // Start the spinner after initialization is complete
+        logger.startup('Bot is now running');
+                
     } catch (error) {
         logger.error('Error in main function:', error);
         
@@ -421,17 +435,7 @@ async function main() {
         } else if (error.message && error.message.includes('timeout')) {
             logger.error('Timeout error detected. Try the following:');
             logger.error('1. Check your internet connection');
-            logger.error('2. Delete the .wwebjs_auth directory: rm -rf .wwebjs_auth');
-            logger.error('3. Restart the bot: node index.js');
-        } else if (error.message && error.message.includes('disconnected')) {
-            logger.error('WhatsApp disconnected. Try the following:');
-            logger.error('1. Check your internet connection');
-            logger.error('2. Make sure WhatsApp is running on your phone');
-            logger.error('3. Restart the bot: node index.js');
         }
-        
-        // Keep the process alive to see the error
-        logger.error('Press Ctrl+C to exit.');
     }
 }
 

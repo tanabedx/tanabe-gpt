@@ -29,8 +29,8 @@ const SYSTEM = {
         DEBUG: true,
         SUMMARY: true,
         STARTUP: true,
-        SHUTDOWN: true,
-        PROMPT: true,
+        SHUTDOWN: false,
+        PROMPT: false,
         COMMAND: true
     },
     NOTIFICATION_LEVELS: {

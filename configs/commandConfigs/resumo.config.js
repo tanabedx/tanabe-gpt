@@ -23,7 +23,7 @@ const RESUMO_CONFIG = {
         deleteTimeout: 60000,
     },
     errorMessages: {
-        invalidFormat: 'Por favor, forneça um número válido após #resumo.',
+        invalidFormat: 'Formato inválido. Use #resumo [número] para resumir X mensagens, ou use expressões de tempo como "hoje", "ontem", "1 hora", "30 minutos", etc.',
         noMessages: 'Não há mensagens suficientes para gerar um resumo.',
         notAllowed: 'Você não tem permissão para usar este comando.',
         linkError: 'Não consegui acessar o link para gerar um resumo.',

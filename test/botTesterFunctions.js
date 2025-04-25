@@ -154,7 +154,7 @@ function startBot() {
         bot.stdout.on('data', (data) => {
             // Skip logging bot stdout unless we're in debug mode
             if (process.env.DEBUG === 'true') {
-                console.log(`Bot stdout: ${data}`);
+            console.log(`Bot stdout: ${data}`);
             }
         });
         
@@ -529,7 +529,7 @@ function setupPromptCapture() {
             isLogging = false;
         };
         
-        originalConsoleLog.call(console, 'Prompt capture set up successfully');
+        require('./logger').debug('Prompt capture set up successfully');
         return true;
     } catch (error) {
         console.error('Error setting up prompt capture:', error);

@@ -196,14 +196,29 @@ class CommandManager {
                 }
                 
                 // Then check for prefix with additional content (case insensitive)
-                if (trimmedBody.toLowerCase().startsWith(prefix.toLowerCase() + ' ')) {
-                    const input = trimmedBody.slice(prefix.length).trim();
-                    logger.debug('Found command with input', {
-                        command: commandName,
-                        prefix,
-                        input
-                    });
-                    return { command: { ...command, name: commandName }, input };
+                if (trimmedBody.toLowerCase().startsWith(prefix.toLowerCase() + ' ') || 
+                    trimmedBody.toLowerCase().startsWith(prefix.toLowerCase())) {
+                    
+                    // Special handling for RESUMO command
+                    if (commandName === 'RESUMO') {
+                        const input = trimmedBody.slice(prefix.length).trim();
+                        logger.debug('Processing RESUMO command', {
+                            input,
+                            commandName
+                        });
+                        return { command: { ...command, name: commandName }, input };
+                    }
+                    
+                    // For other commands, check if they start with the prefix followed by a space
+                    if (trimmedBody.toLowerCase().startsWith(prefix.toLowerCase() + ' ')) {
+                        const input = trimmedBody.slice(prefix.length).trim();
+                        logger.debug('Found command with input', {
+                            command: commandName,
+                            prefix,
+                            input
+                        });
+                        return { command: { ...command, name: commandName }, input };
+                    }
                 }
             }
         }
