@@ -18,9 +18,6 @@ const parser = new Parser({
     }
 });
 
-// Get group names from environment variables
-const GROUP_LF = process.env.GROUP_LF;
-
 // Cache for Twitter API usage data
 let twitterApiUsageCache = {
     primary: null,
@@ -161,6 +158,28 @@ async function checkTwitterAPIUsage(forceCheck = false) {
             fallback2_usage: `${fallback2Usage.usage}/${fallback2Usage.limit}`
         });
         
+        // Check if all keys are over limit
+        if (primaryUsage.usage >= 100 && fallbackUsage.usage >= 100 && fallback2Usage.usage >= 100) {
+            const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${primaryUsage.usage}/${primaryUsage.limit}\nFallback: ${fallbackUsage.usage}/${fallbackUsage.limit}\nFallback2: ${fallback2Usage.usage}/${fallback2Usage.limit}`;
+            logger.warn(message);
+            
+            // Notify admin via WhatsApp
+            const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
+            if (adminChat) {
+                await adminChat.sendMessage(message);
+            }
+            
+            // Disable Twitter monitor in config
+            config.NEWS_MONITOR.TWITTER_ENABLED = false;
+            logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+            return {
+                primary: primaryUsage,
+                fallback: fallbackUsage,
+                fallback2: fallback2Usage,
+                currentKey
+            };
+        }
+        
         return {
             primary: primaryUsage,
             fallback: fallbackUsage,
@@ -195,45 +214,6 @@ function getCurrentTwitterApiKey() {
             fallback: twitterApiUsageCache.fallback,
             fallback2: twitterApiUsageCache.fallback2
         }
-    };
-}
-
-/**
- * Evaluate article title only (first stage of two-stage evaluation)
- * @param {string} title - Article title
- * @param {boolean} includeJustification - Whether to request and return justification
- * @returns {Promise<object>} - Result with relevance and justification if requested
- */
-async function evaluateArticleTitle(title, includeJustification = false) {
-    let prompt = config.NEWS_MONITOR.PROMPTS.EVALUATE_ARTICLE_TITLE
-        .replace('{title}', title);
-    
-    // If justification is requested, modify the prompt to ask for it
-    if (includeJustification) {
-        prompt = prompt.replace('Retorne apenas a palavra "irrelevant"', 
-            'Retorne a palavra "irrelevant" seguida por um delimitador "::" e depois uma breve justificativa');
-        prompt = prompt.replace('Retorne a palavra "relevant"', 
-            'Retorne a palavra "relevant" seguida por um delimitador "::" e depois uma breve justificativa');
-    }
-
-    // Remove duplicate logging - openaiUtils already logs the prompt
-    const result = await runCompletion(prompt, 0.3);
-    
-    // Parse result for relevance and justification
-    let relevance, justification;
-    if (includeJustification && result.includes('::')) {
-        [relevance, justification] = result.split('::').map(s => s.trim());
-        relevance = relevance.toLowerCase();
-    } else {
-        relevance = result.trim().toLowerCase();
-        justification = null;
-    }
-    
-    const isPotentiallyRelevant = relevance === 'relevant';
-    
-    return {
-        isRelevant: isPotentiallyRelevant,
-        justification: justification
     };
 }
 
@@ -525,7 +505,11 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                         if (adminChat) {
                             await adminChat.sendMessage(message);
                         }
-                        return;
+                        
+                        // Disable Twitter monitor in config
+                        config.NEWS_MONITOR.TWITTER_ENABLED = false;
+                        logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                        return; // Exit initialization
                     }
                     
                     // Set up Twitter monitoring interval (slower due to API limits)
@@ -534,6 +518,42 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                             // Check API usage before processing (will use cache if check was recent)
                             const usage = await checkTwitterAPIUsage();
                             logger.debug(`Twitter monitor check (Primary: ${usage.primary.usage}/${usage.primary.limit}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}, using ${usage.currentKey} key)`);
+                            
+                            // Check if current key is over limit and switch if needed
+                            if (usage[usage.currentKey].usage >= 100) {
+                                logger.warn(`Current Twitter API key (${usage.currentKey}) has reached its limit, attempting to switch keys...`);
+                                
+                                // Try to switch to a key with available usage
+                                if (usage.primary.usage < 100) {
+                                    twitterApiUsageCache.currentKey = 'primary';
+                                    logger.info('Switched to primary Twitter API key');
+                                } else if (usage.fallback.usage < 100) {
+                                    twitterApiUsageCache.currentKey = 'fallback';
+                                    logger.info('Switched to fallback Twitter API key');
+                                } else if (usage.fallback2.usage < 100) {
+                                    twitterApiUsageCache.currentKey = 'fallback2';
+                                    logger.info('Switched to fallback2 Twitter API key');
+                                } else {
+                                    // All keys are over limit, disable Twitter monitor
+                                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                                    logger.warn(message);
+                                    
+                                    // Notify admin via WhatsApp
+                                    const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
+                                    if (adminChat) {
+                                        await adminChat.sendMessage(message);
+                                    }
+                                    
+                                    // Disable Twitter monitor in config
+                                    config.NEWS_MONITOR.TWITTER_ENABLED = false;
+                                    logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                                    
+                                    // Clear the interval
+                                    clearInterval(twitterIntervalId);
+                                    twitterIntervalId = null;
+                                    return;
+                                }
+                            }
                             
                             for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
                                 try {
@@ -554,20 +574,58 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     );
                                     
                                     if (evalResult.isRelevant) {
-                                        const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nFonte: @${account.username}`;
+                                        const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
                                         await targetGroup.sendMessage(message);
                                         logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
                                     }
 
                                     // Update last tweet ID in memory
                                     account.lastTweetId = latestTweet.id;
-                                } catch (tweetError) {
-                                    logger.error(`Error processing Twitter account ${account.username}:`, tweetError);
-                                    // Continue with next account
+                                } catch (error) {
+                                    if (error.response && error.response.status === 429) {
+                                        // If we hit a rate limit, try switching keys
+                                        logger.warn(`Rate limit hit for account ${account.username}, attempting to switch API keys...`);
+                                        
+                                        // Force a fresh API usage check
+                                        const newUsage = await checkTwitterAPIUsage(true);
+                                        
+                                        // Try to switch to a key with available usage
+                                        if (newUsage.primary.usage < 100) {
+                                            twitterApiUsageCache.currentKey = 'primary';
+                                            logger.info('Switched to primary Twitter API key');
+                                        } else if (newUsage.fallback.usage < 100) {
+                                            twitterApiUsageCache.currentKey = 'fallback';
+                                            logger.info('Switched to fallback Twitter API key');
+                                        } else if (newUsage.fallback2.usage < 100) {
+                                            twitterApiUsageCache.currentKey = 'fallback2';
+                                            logger.info('Switched to fallback2 Twitter API key');
+                                        } else {
+                                            // All keys are over limit, disable Twitter monitor
+                                            const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${newUsage.primary.usage}/${newUsage.primary.limit}\nFallback: ${newUsage.fallback.usage}/${newUsage.fallback.limit}\nFallback2: ${newUsage.fallback2.usage}/${newUsage.fallback2.limit}`;
+                                            logger.warn(message);
+                                            
+                                            // Notify admin via WhatsApp
+                                            const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
+                                            if (adminChat) {
+                                                await adminChat.sendMessage(message);
+                                            }
+                                            
+                                            // Disable Twitter monitor in config
+                                            config.NEWS_MONITOR.TWITTER_ENABLED = false;
+                                            logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                                            
+                                            // Clear the interval
+                                            clearInterval(twitterIntervalId);
+                                            twitterIntervalId = null;
+                                            return;
+                                        }
+                                    } else {
+                                        logger.error(`Error processing tweets for account ${account.username}:`, error);
+                                    }
                                 }
                             }
-                        } catch (twitterError) {
-                            logger.error('Error in Twitter monitor:', twitterError);
+                        } catch (error) {
+                            logger.error('Error in Twitter monitor interval:', error);
                         }
                     }, config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL);
                     
@@ -758,27 +816,76 @@ async function initializeNewsMonitor() {
 
         // Initialize Twitter monitor if enabled
         if (config.NEWS_MONITOR.TWITTER_ENABLED) {
-            try {
-                // Initial API usage check
-                const usage = await checkTwitterAPIUsage(true);
-                
-                // Check if all keys are over limit
-                if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
-                    logger.warn(message);
+            let attempts = 0;
+            const maxAttempts = 3;
+            const waitTimes = [0, 6 * 60 * 1000, 10 * 60 * 1000]; // 0, 6 mins, 10 mins
+
+            while (attempts < maxAttempts) {
+                try {
+                    // Initial API usage check
+                    const usage = await checkTwitterAPIUsage(true);
                     
-                    // Notify admin via WhatsApp
-                    const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-                    if (adminChat) {
-                        await adminChat.sendMessage(message);
+                    // Check if all keys are over limit
+                    if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
+                        const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                        logger.warn(message);
+                        
+                        // Notify admin via WhatsApp
+                        const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
+                        if (adminChat) {
+                            await adminChat.sendMessage(message);
+                        }
+                        
+                        // Disable Twitter monitor in config
+                        config.NEWS_MONITOR.TWITTER_ENABLED = false;
+                        logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                        break; // Exit retry loop if all keys are over limit
                     }
-                } else {
+
+                    logger.info(`Twitter monitor initialized (Primary: ${usage.primary.usage}/${usage.primary.limit}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}, using ${usage.currentKey} key)`);
+
                     // Set up Twitter monitoring interval (slower due to API limits)
                     twitterIntervalId = setInterval(async () => {
                         try {
                             // Check API usage before processing (will use cache if check was recent)
                             const usage = await checkTwitterAPIUsage();
                             logger.debug(`Twitter monitor check (Primary: ${usage.primary.usage}/${usage.primary.limit}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}, using ${usage.currentKey} key)`);
+                            
+                            // Check if current key is over limit and switch if needed
+                            if (usage[usage.currentKey].usage >= 100) {
+                                logger.warn(`Current Twitter API key (${usage.currentKey}) has reached its limit, attempting to switch keys...`);
+                                
+                                // Try to switch to a key with available usage
+                                if (usage.primary.usage < 100) {
+                                    twitterApiUsageCache.currentKey = 'primary';
+                                    logger.info('Switched to primary Twitter API key');
+                                } else if (usage.fallback.usage < 100) {
+                                    twitterApiUsageCache.currentKey = 'fallback';
+                                    logger.info('Switched to fallback Twitter API key');
+                                } else if (usage.fallback2.usage < 100) {
+                                    twitterApiUsageCache.currentKey = 'fallback2';
+                                    logger.info('Switched to fallback2 Twitter API key');
+                                } else {
+                                    // All keys are over limit, disable Twitter monitor
+                                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                                    logger.warn(message);
+                                    
+                                    // Notify admin via WhatsApp
+                                    const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
+                                    if (adminChat) {
+                                        await adminChat.sendMessage(message);
+                                    }
+                                    
+                                    // Disable Twitter monitor in config
+                                    config.NEWS_MONITOR.TWITTER_ENABLED = false;
+                                    logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                                    
+                                    // Clear the interval
+                                    clearInterval(twitterIntervalId);
+                                    twitterIntervalId = null;
+                                    return;
+                                }
+                            }
                             
                             for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
                                 try {
@@ -799,27 +906,53 @@ async function initializeNewsMonitor() {
                                     );
                                     
                                     if (evalResult.isRelevant) {
-                                        const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nFonte: @${account.username}`;
+                                        const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
                                         await targetGroup.sendMessage(message);
                                         logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
                                     }
 
                                     // Update last tweet ID in memory
                                     account.lastTweetId = latestTweet.id;
-                                } catch (tweetError) {
-                                    logger.error(`Error processing Twitter account ${account.username}:`, tweetError);
-                                    // Continue with next account
+                                } catch (error) {
+                                    logger.error(`Error processing tweets for account ${account.username}:`, error);
                                 }
                             }
-                        } catch (twitterError) {
-                            logger.error('Error in Twitter monitor:', twitterError);
+                        } catch (error) {
+                            logger.error('Error in Twitter monitor interval:', error);
                         }
                     }, config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL);
+
+                    // If we get here, initialization was successful
+                    break;
+
+                } catch (error) {
+                    attempts++;
                     
-                    logger.info(`Twitter monitor initialized (using ${usage.currentKey} key)`);
+                    if (error.response && error.response.status === 429) {
+                        if (attempts === maxAttempts) {
+                            logger.error('Twitter monitor initialization failed after 3 attempts due to rate limiting');
+                            break;
+                        }
+                        
+                        const waitTime = waitTimes[attempts];
+                        // Only notify admin on the last attempt
+                        const isLastAttempt = attempts === maxAttempts - 1;
+                        
+                        if (isLastAttempt) {
+                            // Use error to ensure admin notification
+                            logger.error(`Twitter API rate limit reached (final attempt ${attempts+1}/${maxAttempts}). Waiting ${waitTime/60000} minutes before final retry...`);
+                        } else {
+                            // Use warn for intermediate attempts
+                            logger.warn(`Twitter API rate limit reached (attempt ${attempts+1}/${maxAttempts}). Waiting ${waitTime/60000} minutes before retry...`);
+                        }
+                        
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                    } else {
+                        // If it's not a rate limit error, log and break
+                        logger.error('Twitter monitor initialization failed:', error.message);
+                        break;
+                    }
                 }
-            } catch (error) {
-                logger.error('Twitter monitor initialization failed:', error.message);
             }
         } else {
             logger.info('Twitter monitor disabled in configuration');

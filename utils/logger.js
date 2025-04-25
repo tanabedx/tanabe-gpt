@@ -145,17 +145,17 @@ function formatLogWithTimestamp(level, message, error = null) {
     
     // In test mode, don't use colors
     if (process.env.TEST_MODE === 'true') {
-        return `${prefix} ${message}`;
+        return `${prefix} ${message}${error ? `: ${formatError(error)}` : ''}`;
     }
     
     switch(level) {
         case LOG_LEVELS.ERROR:
             prefix = `${COLORS.BOLD}${COLORS.RED}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.WARN:
             prefix = `${COLORS.YELLOW}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.INFO:
             prefix = `[${timestamp}] ${COLORS.GREEN}[${level}]${COLORS.RESET}`;
@@ -197,10 +197,6 @@ function formatLogWithTimestamp(level, message, error = null) {
     }
     
     let logMessage = `${prefix} ${formattedMessage}`;
-    
-    if (error) {
-        logMessage += `: ${formatError(error)}`;
-    }
     
     return logMessage;
 }

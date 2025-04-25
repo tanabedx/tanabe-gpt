@@ -35,7 +35,7 @@ const SYSTEM = {
     },
     NOTIFICATION_LEVELS: {
         ERROR: true,
-        WARN: true,
+        WARN: false,
         INFO: false,
         DEBUG: false,
         SUMMARY: true,
