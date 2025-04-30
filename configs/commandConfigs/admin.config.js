@@ -115,31 +115,11 @@ const CONFIG_CONFIG = {
     }
 };
 
-// Check Relevance command
-const CHECK_RELEVANCE_CONFIG = {
-    prefixes: ['!checkrelevance'],
-    description: 'Verifica por que artigos não estão sendo considerados relevantes (apenas admin)',
-    permissions: {
-        allowedIn: 'all',
-        adminOnly: true
-    },
-    autoDelete: {
-        errorMessages: true,
-        commandMessages: false,
-        deleteTimeout: 60000,
-    },
-    errorMessages: {
-        notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao verificar relevância de artigos.'
-    }
-};
-
 module.exports = {
     CACHE_CLEAR_CONFIG,
     TWITTER_DEBUG_CONFIG,
     RSS_DEBUG_CONFIG,
     NEWS_STATUS_CONFIG,
     FORCE_SUMMARY_CONFIG,
-    CONFIG_CONFIG,
-    CHECK_RELEVANCE_CONFIG
+    CONFIG_CONFIG
 }; 

@@ -326,17 +326,28 @@ const logger = {
             return;
         }
         
+        // Format the log message for console output
+        let formattedMessage;
         if (obj) {
             // If an object is provided, log both the message and the object
-            log(LOG_LEVELS.DEBUG, message);
-            log(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`);
+            formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message);
+            console.log(formattedMessage);
+            console.log(formatLogWithTimestamp(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`));
         } else if (typeof message === 'object') {
             // If message is an object, stringify it
-            log(LOG_LEVELS.DEBUG, JSON.stringify(message, null, 2));
+            formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, JSON.stringify(message, null, 2));
+            console.log(formattedMessage);
         } else {
             // Otherwise just log the message
-            log(LOG_LEVELS.DEBUG, message);
+            formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message);
+            console.log(formattedMessage);
         }
+        
+        // Write to log file in the background (don't wait for it to complete)
+        // This ensures chronological order in console while still writing to file
+        writeToLogFile(formattedMessage).catch(err => 
+            console.error('Error writing log to file:', err)
+        );
     },
     summary: (message) => log(LOG_LEVELS.SUMMARY, message, null, true),
     prompt: (message, promptText) => {

@@ -2,6 +2,70 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { runCompletion } = require('./openaiUtils');
 const logger = require('./logger');
+const config = require('../configs');
+
+// Get the excluded states from config or use empty array if not configured
+const EXCLUDED_STATES = config.NEWS_MONITOR?.CONTENT_FILTERING?.EXCLUDED_STATES || [];
+const INCLUDED_SPECIAL_URLS = config.NEWS_MONITOR?.CONTENT_FILTERING?.INCLUDED_SPECIAL_URLS || [];
+
+/**
+ * Check if an article URL is for local news based on the URL pattern
+ * @param {string} url - The article URL to check
+ * @returns {boolean} - True if it's a local news article that should be excluded
+ */
+function isLocalNews(url) {
+    try {
+        // Skip if URL is missing
+        if (!url) return false;
+        
+        // Check if URL is in the special inclusion list
+        for (const specialUrl of INCLUDED_SPECIAL_URLS) {
+            if (url.includes(specialUrl)) {
+                return false; // Don't exclude this URL
+            }
+        }
+        
+        // Parse the URL to extract path segments
+        const urlObj = new URL(url);
+        
+        // Only process G1 URLs
+        if (!urlObj.hostname.includes('g1.globo.com')) return false;
+        
+        // Split the path into segments
+        const pathSegments = urlObj.pathname.split('/').filter(segment => segment.length > 0);
+        
+        // Check if the first segment is a Brazilian state code that should be excluded
+        if (pathSegments.length > 0) {
+            const firstSegment = pathSegments[0].toLowerCase();
+            if (EXCLUDED_STATES.includes(firstSegment)) {
+                return true;
+            }
+        }
+        
+        return false;
+    } catch (error) {
+        logger.error(`Error checking if URL is local news: ${error.message}`, error);
+        return false;
+    }
+}
+
+/**
+ * Filter out local news articles from an array of articles
+ * @param {Array} articles - Array of RSS articles
+ * @returns {Array} - Articles excluding local news
+ */
+function filterOutLocalNews(articles) {
+    if (!Array.isArray(articles)) return [];
+    
+    const filteredArticles = articles.filter(article => {
+        const url = article.link;
+        const isLocal = isLocalNews(url);
+        return !isLocal;
+    });
+    
+    logger.debug(`Filtered ${articles.length - filteredArticles.length} local news articles out of ${articles.length} total`);
+    return filteredArticles;
+}
 
 // Function to scrape news
 async function scrapeNews() {
@@ -134,5 +198,7 @@ module.exports = {
     searchNews,
     translateToPortuguese,
     parseXML,
-    getRelativeTime
+    getRelativeTime,
+    isLocalNews,
+    filterOutLocalNews
 }; 
