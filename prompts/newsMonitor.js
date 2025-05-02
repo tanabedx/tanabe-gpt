@@ -6,31 +6,23 @@ Tweet para Avaliação:
 {post}
 
 Instruções:
-Avalie o tweet acima com base nos seguintes critérios. Seja extremamente seletivo, já que esses artigos serão enviados para um grupo de WhatsApp no qual não deve conter muito spam de mensagens.
+Avalie o tweet acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
 
-Retorne apenas a palavra "null" se qualquer uma das condições abaixo se aplicar:
+Retorne a palavra "relevant" APENAS se o tweet atender a pelo menos um dos seguintes critérios:
+- Calamidades naturais ou desastres
+- Notícia global crítica
+- Relacionada ao Brasil ou com impacto direto no Brasil
+- Eventos de grande impacto global
+- Descobertas científicas ou avanços importantes
+- Eventos esportivos significativos com relevância internacional
 
-- A notícia já foi mencionada nos tweets anteriores (duplicada ou atualização, veja os tweets anteriores após as instruções).
-- Não se trata de um evento crítico ou relevante globalmente.
-- É sobre política dos EUA (a menos que envolva eventos significativos, controvérsias ou mortes).
-- É apenas uma atualização de uma notícia previamente mencionada, sem introduzir novas informações substanciais (veja os tweets anteriores após as instruções)).
-- Diz respeito a celebridades (a menos que envolva morte ou impacto global).
-- É uma notícia local com impacto mínimo no cenário global.
-
-Retorne a palavra "relevant" se o tweet atender a algum dos critérios abaixo:
-
-- Calamidades naturais ou desastres.
-- Trata-se de uma notícia global crítica.
-- Está relacionada ao Brasil ou impacta diretamente o Brasil.
-- Envolve eventos de grande impacto global.
-- Destaca descobertas científicas ou avanços importantes.
-- Discute eventos esportivos significativos com relevância internacional.
-
-Notas Adicionais:
-
-- Marque "relevant" apenas se o tweet apresentar implicações significativas ou efeitos de grande alcance.
-- Para mudanças regulatórias, marque como "relevant" somente se a mudança gerar ampla controvérsia ou discussão global.
-- Evite marcar atualizações como "relevant" a menos que adicionem informações substanciais à notícia original.
+Retorne a palavra "null" em todos os outros casos, incluindo:
+- A notícia já foi mencionada nos tweets anteriores (duplicada ou atualização)
+- Não se trata de um evento crítico ou relevante globalmente
+- É sobre política dos EUA (a menos que envolva eventos significativos, controvérsias ou mortes)
+- É apenas uma atualização sem novas informações substanciais
+- Diz respeito a celebridades (a menos que envolva morte ou impacto global)
+- É uma notícia local com impacto mínimo no cenário global
 
 Tweets Analisados Anteriormente (para Contexto):
 {previous_posts}
@@ -41,31 +33,23 @@ Artigo para Avaliação:
 {article}
 
 Instruções:
-Avalie o artigo acima com base nos seguintes critérios. Seja extremamente seletivo, já que esses artigos serão enviados para um grupo de WhatsApp no qual não deve conter muito spam de mensagens.
+Avalie o artigo acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
 
-Retorne apenas a palavra "null" se qualquer uma das condições abaixo se aplicar:
+Retorne a palavra "relevant" APENAS se o artigo atender a pelo menos um dos seguintes critérios:
+- Calamidades naturais ou desastres
+- Notícia global crítica
+- Notícia crítica relacionada ao Brasil ou com impacto direto no Brasil
+- Notícia crítica sobre a cidade de São Paulo
+- Eventos de grande impacto global
+- Descobertas científicas ou avanços importantes
+- Eventos esportivos significativos com relevância internacional ou ao Brasil
+- Escândalos políticos, econômicos ou de outra natureza
 
-- Não se trata de um evento crítico ou relevante globalmente ou ao Brasil ou a cidade de São Paulo.
-- A notícia já foi mencionada nos artigos anteriores (duplicada ou atualização, veja os artigos anteriores após as instruções).
-- É apenas uma atualização de uma notícia previamente mencionada, sem introduzir novas informações substanciais.
-- É uma notícia local com impacto mínimo no cenário global.
-
-Retorne a palavra "relevant" se o artigo atender a algum dos critérios abaixo:
-
-- Calamidades naturais ou desastres.
-- Trata-se de uma notícia global crítica.
-- Trata-se de uma notícia crítica relacionada ao Brasil ou impacta diretamente o Brasil.
-- Trata-se de uma notícia crítica sobre a cidade de São Paulo.
-- Envolve eventos de grande impacto global.
-- Destaca descobertas científicas ou avanços importantes.
-- Discute eventos esportivos significativos com relevância internacional ou ao Brasil.
-- Escandalos políticos, econômicos ou de outra natureza.
-
-Notas Adicionais:
-
-- Marque "relevant" apenas se o artigo apresentar implicações significativas ou efeitos de grande alcance.
-- Para mudanças regulatórias, marque como "relevant" somente se a mudança gerar ampla controvérsia ou discussão global.
-- Evite marcar atualizações como "relevant" a menos que adicionem informações substanciais à notícia original.
+Retorne a palavra "null" em todos os outros casos, incluindo:
+- Não se trata de um evento crítico ou relevante globalmente, ao Brasil ou à cidade de São Paulo
+- A notícia já foi mencionada nos artigos anteriores (duplicada ou atualização)
+- É apenas uma atualização sem novas informações substanciais
+- É uma notícia local com impacto mínimo no cenário global
 
 Artigos Analisados Anteriormente (para Contexto):
 {previous_articles}
@@ -76,21 +60,21 @@ Lista de Títulos de Artigos para Avaliação em Lote:
 {titles}
 
 Instruções:
-Avalie cada título acima para determinar quais têm potencial de serem relevantes globalmente. Seja extremamente seletivo, já que esses artigos serão enviados para um grupo de WhatsApp no qual não deve conter muito spam de mensagens.
+Avalie cada título acima para determinar quais têm potencial de serem relevantes. Seja extremamente seletivo para evitar spam de mensagens no grupo de WhatsApp.
 
-Um título deve ser considerado potencialmente irrelevante se claramente indicar alguma das condições abaixo:
-- Notícia local com impacto mínimo
-- Celebridades (exceto mortes ou impacto global)
-- Política de EUA (exceto eventos críticos)
-- Esportes não significativos
-
-Um título deve ser considerado potencialmente relevante se sugerir:
+Um título é potencialmente RELEVANTE se sugerir:
 - Calamidades naturais ou desastres
 - Notícia global crítica
 - Notícias críticas relacionadas ao Brasil
 - Eventos de impacto global
 - Descobertas científicas importantes
 - Eventos esportivos significativos
+
+Considere IRRELEVANTE qualquer título que claramente sugira:
+- Notícia local com impacto mínimo
+- Celebridades (exceto mortes ou impacto global)
+- Política de EUA (exceto eventos críticos)
+- Esportes não significativos
 
 Esta é apenas uma avaliação preliminar para filtrar conteúdo obviamente irrelevante.
 Responda apenas com os números dos títulos que você considera RELEVANTES, separados por vírgula. 

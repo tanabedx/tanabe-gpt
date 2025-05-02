@@ -41,6 +41,10 @@ const NEWS_MONITOR_CONFIG = {
         INCLUDED_SPECIAL_URLS: [
             'g1.globo.com/sp/sao-paulo'  // Include São Paulo news
         ],
+        // Path segments to always exclude (like podcast content)
+        EXCLUDED_PATHS: [
+            'podcast'  // Exclude podcast content
+        ],
         // Title patterns to filter out (considered low-quality or less relevant)
         TITLE_PATTERNS: [
             "VÍDEO:", 

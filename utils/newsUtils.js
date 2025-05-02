@@ -7,6 +7,8 @@ const config = require('../configs');
 // Get the excluded states from config or use empty array if not configured
 const EXCLUDED_STATES = config.NEWS_MONITOR?.CONTENT_FILTERING?.EXCLUDED_STATES || [];
 const INCLUDED_SPECIAL_URLS = config.NEWS_MONITOR?.CONTENT_FILTERING?.INCLUDED_SPECIAL_URLS || [];
+// Get additional paths to exclude from config
+const EXCLUDED_PATHS = config.NEWS_MONITOR?.CONTENT_FILTERING?.EXCLUDED_PATHS || [];
 
 /**
  * Check if an article URL is for local news based on the URL pattern
@@ -18,15 +20,14 @@ function isLocalNews(url) {
         // Skip if URL is missing
         if (!url) return false;
         
-        // Check if URL is in the special inclusion list
-        for (const specialUrl of INCLUDED_SPECIAL_URLS) {
-            if (url.includes(specialUrl)) {
-                return false; // Don't exclude this URL
-            }
-        }
-        
         // Parse the URL to extract path segments
-        const urlObj = new URL(url);
+        let urlObj;
+        try {
+            urlObj = new URL(url);
+        } catch (e) {
+            logger.error(`Invalid URL: ${e.message}`);
+            return false;
+        }
         
         // Only process G1 URLs
         if (!urlObj.hostname.includes('g1.globo.com')) return false;
@@ -34,14 +35,34 @@ function isLocalNews(url) {
         // Split the path into segments
         const pathSegments = urlObj.pathname.split('/').filter(segment => segment.length > 0);
         
+        // Check if any segment matches the excluded paths
+        if (pathSegments.some(segment => EXCLUDED_PATHS.includes(segment.toLowerCase()))) {
+            return true; // Exclude URLs with excluded paths (e.g., podcast)
+        }
+        
         // Check if the first segment is a Brazilian state code that should be excluded
         if (pathSegments.length > 0) {
             const firstSegment = pathSegments[0].toLowerCase();
+            
+            // Special case for São Paulo
+            if (firstSegment === 'sp') {
+                // Check if it's the specific São Paulo city URL we want to allow
+                if (pathSegments.length >= 2 && pathSegments[1].toLowerCase() === 'sao-paulo') {
+                    // This is the São Paulo city news we DO want to include
+                    return false;
+                } else {
+                    // This is other SP regional news we DON'T want
+                    return true;
+                }
+            }
+            
+            // For other states, just check if they're in the excluded list
             if (EXCLUDED_STATES.includes(firstSegment)) {
                 return true;
             }
         }
         
+        // Not in excluded states or paths
         return false;
     } catch (error) {
         logger.error(`Error checking if URL is local news: ${error.message}`, error);

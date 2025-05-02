@@ -187,13 +187,6 @@ async function handleRssDebug(message) {
              args[0].toLowerCase() === 'enable' || 
              args[0].toLowerCase() === 'disable');
 
-        // Skip the enabled check if it's a toggle command
-        if (!isToggleCommand && !config.NEWS_MONITOR.RSS_ENABLED) {
-            logger.error('RSS monitoring is disabled in configuration');
-            await message.reply('RSS monitoring is disabled in configuration. Use "!rssdebug on" to enable it.');
-            return;
-        }
-
         // Check if RSS feeds are configured
         if (!config.NEWS_MONITOR.FEEDS || !config.NEWS_MONITOR.FEEDS.length) {
             logger.error('No RSS feeds configured');

@@ -31,6 +31,9 @@ let twitterApiUsageCache = {
 // New cache specifically for articles that were sent to the group
 let sentArticleCache = new Map();
 
+// New cache for tweets that were sent to the group
+let sentTweetCache = new Map();
+
 // References to monitoring intervals for restarts
 let twitterIntervalId = null;
 let rssIntervalId = null;
@@ -67,15 +70,49 @@ function isQuietHour() {
 /**
  * Clean up old entries from the sent article cache based on retention period
  */
-function cleanupSentArticleCache() {
+function cleanupSentCache() {
     const now = Date.now();
     const retentionMs = (config.NEWS_MONITOR.HISTORICAL_CACHE?.RETENTION_HOURS || 24) * 60 * 60 * 1000;
     
+    // Clean article cache
     for (const [key, value] of sentArticleCache.entries()) {
         if (now - value.timestamp > retentionMs) {
             sentArticleCache.delete(key);
         }
     }
+    
+    // Clean tweet cache
+    for (const [key, value] of sentTweetCache.entries()) {
+        if (now - value.timestamp > retentionMs) {
+            sentTweetCache.delete(key);
+        }
+    }
+}
+
+// Alias for backward compatibility
+function cleanupSentArticleCache() {
+    cleanupSentCache();
+}
+
+/**
+ * Record a tweet as sent to the group
+ * @param {Object} tweet - The tweet that was sent
+ * @param {string} username - The Twitter username
+ */
+function recordSentTweet(tweet, username) {
+    if (!config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+        return;
+    }
+    
+    sentTweetCache.set(tweet.id, {
+        text: tweet.text,
+        timestamp: Date.now(),
+        username: username
+    });
+    
+    // Cleanup old entries if needed
+    cleanupSentCache();
+    logger.debug(`Recorded sent tweet from @${username}`);
 }
 
 /**
@@ -301,13 +338,62 @@ function getCurrentTwitterApiKey() {
  * @returns {Promise<object>} - Result with relevance and justification if requested
  */
 async function evaluateContent(content, previousContents, source, includeJustification = false) {
+    let formattedPreviousContents = [];
+    
+    if (source === 'twitter') {
+        // Start with the provided previous tweets (from the API)
+        formattedPreviousContents = [...previousContents];
+        
+        // If cache is enabled, add previously sent tweets too
+        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+            // Get up to 5 most recent tweets from sentTweetCache
+            const recentTweets = Array.from(sentTweetCache.entries())
+                .sort((a, b) => b[1].timestamp - a[1].timestamp)
+                .slice(0, 5);
+                
+            if (recentTweets.length > 0) {
+                // Add a marker to separate API tweets from cached tweets
+                if (formattedPreviousContents.length > 0) {
+                    formattedPreviousContents.push("--- TWEETS PREVIOUSLY SENT TO GROUP ---");
+                }
+                
+                // Add the cached tweets
+                for (const [_, data] of recentTweets) {
+                    formattedPreviousContents.push(data.text);
+                }
+                
+                logger.debug(`Using ${recentTweets.length} previously sent tweets as additional context`);
+            }
+        }
+        
+    } else if (source === 'rss') {
+        // For RSS articles, if cache is enabled, use sentArticleCache
+        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+            // Get up to 5 most recent articles from sentArticleCache
+            const recentEntries = Array.from(sentArticleCache.entries())
+                .sort((a, b) => b[1].timestamp - a[1].timestamp)
+                .slice(0, 5);
+                
+            if (recentEntries.length > 0) {
+                // Format the recent entries for the prompt
+                formattedPreviousContents = recentEntries.map(([_, data]) => `Título: ${data.title}`);
+                logger.debug(`Using ${recentEntries.length} recently sent articles as context for evaluation`);
+            }
+        }
+    }
+    
+    // Format the previous content based on the source
+    const previousContent = source === 'twitter'
+        ? formattedPreviousContents.join('\n\n')
+        : formattedPreviousContents.join('\n\n---\n\n');
+
     let prompt = source === 'twitter' 
         ? config.NEWS_MONITOR.PROMPTS.EVALUATE_TWEET
             .replace('{post}', content)
-            .replace('{previous_posts}', previousContents.join('\n\n'))
+            .replace('{previous_posts}', previousContent)
         : config.NEWS_MONITOR.PROMPTS.EVALUATE_ARTICLE
             .replace('{article}', content)
-            .replace('{previous_articles}', previousContents.join('\n\n---\n\n'));
+            .replace('{previous_articles}', previousContent);
 
     // If justification is requested, modify the prompt to ask for it
     if (includeJustification) {
@@ -591,6 +677,9 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                         const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
                                         await targetGroup.sendMessage(message);
                                         logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                        
+                                        // Record that we sent this tweet
+                                        recordSentTweet(latestTweet, account.username);
                                     }
 
                                     // Update last tweet ID in memory
@@ -719,10 +808,6 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                         } catch (error) {
                                             logger.error(`Error sending article "${article.title}": ${error.message}`);
                                         }
-                                    }
-                                    
-                                    if (articlesSent > 0) {
-                                        logger.info(`Sent ${articlesSent} relevant articles from feed: ${feed.name}`);
                                     }
                                     
                                 } catch (feedError) {
@@ -876,6 +961,9 @@ async function initializeNewsMonitor() {
                                         const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
                                         await targetGroup.sendMessage(message);
                                         logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                        
+                                        // Record that we sent this tweet
+                                        recordSentTweet(latestTweet, account.username);
                                     }
 
                                     // Update last tweet ID in memory
@@ -987,14 +1075,10 @@ async function initializeNewsMonitor() {
                                     articlesSent++;
                                     
                                     // Log that we sent an article with brief justification
-                                    logger.info(`Sent article from ${feed.name}: "${article.title.substring(0, 80)}${article.title.length > 80 ? '...' : ''}" - ${article.relevanceJustification || 'Relevante'}`);
+                                    logger.info(`Sent article from ${feed.name}: "${article.title.substring(0, 80)}${article.title.length > 80 ? '...' : ''}"\n- ${article.relevanceJustification || 'Relevante'}`);
                                     } catch (error) {
                                         logger.error(`Error sending article "${article.title}": ${error.message}`);
                                     }
-                                }
-                                
-                                if (articlesSent > 0) {
-                                    logger.info(`Sent ${articlesSent} relevant articles from feed: ${feed.name}`);
                                 }
                                 
                             } catch (feedError) {
@@ -2080,5 +2164,7 @@ module.exports = {
     fetchRssFeedItems,
     fetchLatestTweets,
     isQuietHour,
-    formatNewsArticle
+    formatNewsArticle,
+    recordSentTweet,
+    recordSentArticle
 }; 
