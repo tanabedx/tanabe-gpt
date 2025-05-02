@@ -1239,19 +1239,20 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                         const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
                                                         const imageBuffer = Buffer.from(response.data);
                                                         
-                                                        // Send only the media with "Breaking News" text
-                                                        const message = "*Breaking News* 🗞️";
-                                        await targetGroup.sendMessage(message);
-                                                        
-                                                        // Send the media without caption
+                                                        // Create the media object
                                                         const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
-                                                        await targetGroup.sendMessage(media);
                                                         
-                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                                        // Format message text
+                                                        const caption = `*Breaking News* 🗞️\n\n${latestTweet.text ? `${latestTweet.text}\n\n` : ''}Source: @${account.username}`;
+                                                        
+                                                        // Send media with caption in a single message
+                                                        await targetGroup.sendMessage(media, { caption: caption });
+                                                        
+                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text?.substring(0, 50)}...`);
                                         
-                                        // Record that we sent this tweet
-                                        recordSentTweet(latestTweet, account.username);
-                                    }
+                                                        // Record that we sent this tweet
+                                                        recordSentTweet(latestTweet, account.username);
+                                                    }
                                                 }
                                 } catch (error) {
                                                 logger.error(`Error processing media tweet for ${account.username}:`, error);
@@ -1600,15 +1601,16 @@ async function initializeNewsMonitor() {
                                                         const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
                                                         const imageBuffer = Buffer.from(response.data);
                                                         
-                                                        // Send only the media with "Breaking News" text
-                                                        const message = "*Breaking News* 🗞️";
-                                                        await targetGroup.sendMessage(message);
-                                                        
-                                                        // Send the media without caption
+                                                        // Create the media object
                                                         const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
-                                                        await targetGroup.sendMessage(media);
                                                         
-                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                                        // Format message text
+                                                        const caption = `*Breaking News* 🗞️\n\n${latestTweet.text ? `${latestTweet.text}\n\n` : ''}Source: @${account.username}`;
+                                                        
+                                                        // Send media with caption in a single message
+                                                        await targetGroup.sendMessage(media, { caption: caption });
+                                                        
+                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text?.substring(0, 50)}...`);
                                                         
                                                         // Record that we sent this tweet
                                                         recordSentTweet(latestTweet, account.username);
