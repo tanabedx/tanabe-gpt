@@ -3,7 +3,8 @@ const { runCompletion } = require('../utils/openaiUtils');
 const axios = require('axios');
 const logger = require('../utils/logger');
 const Parser = require('rss-parser');
-const { isLocalNews } = require('../utils/newsUtils');
+const { isLocalNews, formatTwitterApiUsage } = require('../utils/newsUtils');
+const { MessageMedia } = require('whatsapp-web.js');
 
 // Initialize RSS parser
 const parser = new Parser({
@@ -25,7 +26,13 @@ let twitterApiUsageCache = {
     fallback: null,
     fallback2: null,
     currentKey: 'primary',
-    lastCheck: null
+    lastCheck: null,
+    // Track rate limit reset times
+    resetTimes: {
+        primary: null,
+        fallback: null,
+        fallback2: null
+    }
 };
 
 // New cache specifically for articles that were sent to the group
@@ -215,13 +222,39 @@ async function getTwitterKeyUsage(key) {
         
         if (response.data && response.data.data) {
             const usage = response.data.data;
+            
+            // Debug log to show raw API response data
+            logger.debug('Twitter API usage raw response:', {
+                project_usage: usage.project_usage,
+                project_cap: usage.project_cap,
+                cap_reset_day: usage.cap_reset_day
+            });
+            
             return {
                 usage: usage.project_usage,
-                limit: usage.project_cap
+                limit: usage.project_cap,
+                capResetDay: usage.cap_reset_day, // Add cap_reset_day to the returned object
+                status: 'ok'
             };
         }
         throw new Error('Invalid response format from Twitter API');
     } catch (error) {
+        if (error.response && error.response.status === 429) {
+            // Store rate limit reset time if available
+            let resetTime = null;
+            if (error.response.headers && error.response.headers['x-rate-limit-reset']) {
+                resetTime = parseInt(error.response.headers['x-rate-limit-reset']) * 1000; // Convert to milliseconds
+            }
+            
+            // Return a special indicator for rate limit errors
+            return {
+                usage: 100,  // Consider it maxed out
+                limit: 100,
+                capResetDay: null, // Add capResetDay (null for rate-limited keys)
+                status: '429',
+                resetTime: resetTime
+            };
+        }
         throw error;
     }
 }
@@ -234,79 +267,292 @@ async function checkTwitterAPIUsage(forceCheck = false) {
             primary: twitterApiUsageCache.primary,
             fallback: twitterApiUsageCache.fallback,
             fallback2: twitterApiUsageCache.fallback2,
-            currentKey: twitterApiUsageCache.currentKey
+            currentKey: twitterApiUsageCache.currentKey,
+            resetTimes: twitterApiUsageCache.resetTimes
         };
     }
 
     try {
         const { primary, fallback, fallback2 } = config.CREDENTIALS.TWITTER_API_KEYS;
+        const isDebugMode = config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG === true;
         
-        // Get usage for all keys
-        const primaryUsage = await getTwitterKeyUsage(primary);
-        const fallbackUsage = await getTwitterKeyUsage(fallback);
-        const fallback2Usage = await getTwitterKeyUsage(fallback2);
+        // Initialize with null values
+        let primaryUsage = null;
+        let fallbackUsage = null;
+        let fallback2Usage = null;
+        let currentKey = 'primary'; // Default to primary
         
-        // Determine which key to use (prioritize primary, then fallback, then fallback2)
-        let currentKey = 'fallback2';
-        if (primaryUsage.usage < 100) {
-            currentKey = 'primary';
-        } else if (fallbackUsage.usage < 100) {
-            currentKey = 'fallback';
+        // Debug mode: Only check what's necessary to find a working key
+        if (isDebugMode) {
+            logger.debug('Twitter debug: Operating in DEBUG mode - checking keys sequentially');
+            
+            // Check primary key first
+            try {
+                primaryUsage = await getTwitterKeyUsage(primary);
+                
+                // Store reset time if available
+                if (primaryUsage.resetTime) {
+                    twitterApiUsageCache.resetTimes.primary = primaryUsage.resetTime;
+                }
+                
+                // If primary is not rate limited, use it and don't check others
+                if (primaryUsage.status !== '429') {
+                    currentKey = 'primary';
+                    // Create placeholders for unchecked keys
+                    fallbackUsage = { usage: '?', limit: '?', status: 'unchecked' };
+                    fallback2Usage = { usage: '?', limit: '?', status: 'unchecked' };
+                } else {
+                    // Primary is rate limited, try fallback
+                    logger.debug('Twitter debug: Primary key is rate limited, trying fallback');
+                    try {
+                        fallbackUsage = await getTwitterKeyUsage(fallback);
+                        
+                        // Store reset time if available
+                        if (fallbackUsage.resetTime) {
+                            twitterApiUsageCache.resetTimes.fallback = fallbackUsage.resetTime;
+                        }
+                        
+                        if (fallbackUsage.status !== '429') {
+                            currentKey = 'fallback';
+                            // Create placeholder for unchecked fallback2
+                            fallback2Usage = { usage: '?', limit: '?', status: 'unchecked' };
+                        } else {
+                            // Fallback is also rate limited, try fallback2
+                            logger.debug('Twitter debug: Fallback key is rate limited, trying fallback2');
+                            try {
+                                fallback2Usage = await getTwitterKeyUsage(fallback2);
+                                
+                                // Store reset time if available
+                                if (fallback2Usage.resetTime) {
+                                    twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
+                                }
+                                
+                                if (fallback2Usage.status !== '429') {
+                                    currentKey = 'fallback2';
+                                }
+                            } catch (error) {
+                                logger.error('Twitter debug: Error checking fallback2 key:', error);
+                                fallback2Usage = { usage: '?', limit: '?', status: 'error' };
+                            }
+                        }
+                    } catch (error) {
+                        logger.error('Twitter debug: Error checking fallback key:', error);
+                        fallbackUsage = { usage: '?', limit: '?', status: 'error' };
+                        
+                        // Still try fallback2 since fallback failed
+                        try {
+                            fallback2Usage = await getTwitterKeyUsage(fallback2);
+                            
+                            // Store reset time if available
+                            if (fallback2Usage.resetTime) {
+                                twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
+                            }
+                            
+                            if (fallback2Usage.status !== '429') {
+                                currentKey = 'fallback2';
+                            }
+                        } catch (error) {
+                            logger.error('Twitter debug: Error checking fallback2 key:', error);
+                            fallback2Usage = { usage: '?', limit: '?', status: 'error' };
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.error('Twitter debug: Error checking primary key:', error);
+                primaryUsage = { usage: '?', limit: '?', status: 'error' };
+                
+                // Primary failed, try fallback
+                try {
+                    fallbackUsage = await getTwitterKeyUsage(fallback);
+                    
+                    // Store reset time if available
+                    if (fallbackUsage.resetTime) {
+                        twitterApiUsageCache.resetTimes.fallback = fallbackUsage.resetTime;
+                    }
+                    
+                    if (fallbackUsage.status !== '429') {
+                        currentKey = 'fallback';
+                        // Create placeholder for unchecked fallback2
+                        fallback2Usage = { usage: '?', limit: '?', status: 'unchecked' };
+                    } else {
+                        // Fallback is rate limited, try fallback2
+                        try {
+                            fallback2Usage = await getTwitterKeyUsage(fallback2);
+                            
+                            // Store reset time if available
+                            if (fallback2Usage.resetTime) {
+                                twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
+                            }
+                            
+                            if (fallback2Usage.status !== '429') {
+                                currentKey = 'fallback2';
+                            }
+                        } catch (error) {
+                            logger.error('Twitter debug: Error checking fallback2 key:', error);
+                            fallback2Usage = { usage: '?', limit: '?', status: 'error' };
+                        }
+                    }
+                } catch (error) {
+                    logger.error('Twitter debug: Error checking fallback key:', error);
+                    fallbackUsage = { usage: '?', limit: '?', status: 'error' };
+                    
+                    // Try fallback2 as last resort
+                    try {
+                        fallback2Usage = await getTwitterKeyUsage(fallback2);
+                        
+                        // Store reset time if available
+                        if (fallback2Usage.resetTime) {
+                            twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
+                        }
+                        
+                        if (fallback2Usage.status !== '429') {
+                            currentKey = 'fallback2';
+                        }
+                    } catch (error) {
+                        logger.error('Twitter debug: Error checking fallback2 key:', error);
+                        fallback2Usage = { usage: '?', limit: '?', status: 'error' };
+                    }
+                }
+            }
+        } 
+        // Normal mode: Check all three keys to get accurate usage info
+        else {
+            logger.debug('Twitter API: Normal mode - checking all keys for usage info');
+            
+            // Try to get usage for all three keys
+            try {
+                primaryUsage = await getTwitterKeyUsage(primary);
+            } catch (error) {
+                logger.error('Error checking primary Twitter API key:', error);
+                primaryUsage = { usage: '?', limit: '?', status: 'error' };
+            }
+            
+            try {
+                fallbackUsage = await getTwitterKeyUsage(fallback);
+            } catch (error) {
+                logger.error('Error checking fallback Twitter API key:', error);
+                fallbackUsage = { usage: '?', limit: '?', status: 'error' };
+            }
+            
+            try {
+                fallback2Usage = await getTwitterKeyUsage(fallback2);
+            } catch (error) {
+                logger.error('Error checking fallback2 Twitter API key:', error);
+                fallback2Usage = { usage: '?', limit: '?', status: 'error' };
+            }
+            
+            // Determine which key to use based on availability and usage
+            if (primaryUsage.status !== '429' && primaryUsage.usage < 100) {
+                currentKey = 'primary';
+            } else if (fallbackUsage.status !== '429' && fallbackUsage.usage < 100) {
+                currentKey = 'fallback';
+            } else if (fallback2Usage.status !== '429' && fallback2Usage.usage < 100) {
+                currentKey = 'fallback2';
+            }
         }
         
-        // Update cache
+        // Ensure we have objects for all keys
+        primaryUsage = primaryUsage || { usage: '?', limit: '?', status: 'error' };
+        fallbackUsage = fallbackUsage || { usage: '?', limit: '?', status: 'error' };
+        fallback2Usage = fallback2Usage || { usage: '?', limit: '?', status: 'error' };
+        
+        // Update cache with all the information we've gathered
         twitterApiUsageCache = {
             primary: primaryUsage,
             fallback: fallbackUsage,
             fallback2: fallback2Usage,
             currentKey,
-            lastCheck: now
+            lastCheck: now,
+            resetTimes: {
+                ...twitterApiUsageCache.resetTimes,
+                // Only update reset times that are relevant
+                ...(primaryUsage && primaryUsage.resetTime ? { primary: primaryUsage.resetTime } : {}),
+                ...(fallbackUsage && fallbackUsage.resetTime ? { fallback: fallbackUsage.resetTime } : {}),
+                ...(fallback2Usage && fallback2Usage.resetTime ? { fallback2: fallback2Usage.resetTime } : {})
+            }
         };
         
+        // Format reset times for logging if available
+        const formatResetTime = (keyName) => {
+            const resetTime = twitterApiUsageCache.resetTimes[keyName];
+            if (resetTime) {
+                const resetDate = new Date(resetTime);
+                return ` (resets at ${resetDate.toLocaleString()})`;
+            }
+            return '';
+        };
+        
+        // Format usage statuses for detailed logging
+        const primaryStatus = primaryUsage.status === '429' ? 
+            `(rate limit${formatResetTime('primary')})` : 
+            primaryUsage.status === 'unchecked' ? '(unchecked)' : 
+            primaryUsage.status === 'error' ? '(error)' : '';
+            
+        const fallbackStatus = fallbackUsage.status === '429' ? 
+            `(rate limit${formatResetTime('fallback')})` : 
+            fallbackUsage.status === 'unchecked' ? '(unchecked)' : 
+            fallbackUsage.status === 'error' ? '(error)' : '';
+            
+        const fallback2Status = fallback2Usage.status === '429' ? 
+            `(rate limit${formatResetTime('fallback2')})` : 
+            fallback2Usage.status === 'unchecked' ? '(unchecked)' : 
+            fallback2Usage.status === 'error' ? '(error)' : '';
+        
+        // Log detailed object format
         logger.debug('Twitter API usage response', {
             current_key: currentKey,
-            primary_usage: `${primaryUsage.usage}/${primaryUsage.limit}`,
-            fallback_usage: `${fallbackUsage.usage}/${fallbackUsage.limit}`,
-            fallback2_usage: `${fallback2Usage.usage}/${fallback2Usage.limit}`
+            primary_usage: `${primaryUsage.usage}/${primaryUsage.limit} ${primaryStatus}`,
+            primary_reset_day: primaryUsage.capResetDay,
+            fallback_usage: `${fallbackUsage.usage}/${fallbackUsage.limit} ${fallbackStatus}`,
+            fallback_reset_day: fallbackUsage.capResetDay,
+            fallback2_usage: `${fallback2Usage.usage}/${fallback2Usage.limit} ${fallback2Status}`,
+            fallback2_reset_day: fallback2Usage.capResetDay
         });
         
-        // Check if all keys are over limit
-        if (primaryUsage.usage >= 100 && fallbackUsage.usage >= 100 && fallback2Usage.usage >= 100) {
-            const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${primaryUsage.usage}/${primaryUsage.limit}\nFallback: ${fallbackUsage.usage}/${fallbackUsage.limit}\nFallback2: ${fallback2Usage.usage}/${fallback2Usage.limit}`;
+        // Log single-line compact format using utility function
+        logger.debug(`Twitter API usage: ${formatTwitterApiUsage(
+            { primary: primaryUsage, fallback: fallbackUsage, fallback2: fallback2Usage }, 
+            twitterApiUsageCache.resetTimes, 
+            currentKey
+        )}`);
+        
+        // Check if all keys are over limit or rate limited
+        const allKeysOverLimit = (primaryUsage.status === '429' || primaryUsage.usage >= 100 || primaryUsage.status === 'error') && 
+                                (fallbackUsage.status === '429' || fallbackUsage.usage >= 100 || fallbackUsage.status === 'error') && 
+                                (fallback2Usage.status === '429' || fallback2Usage.usage >= 100 || fallback2Usage.status === 'error');
+        
+        if (allKeysOverLimit) {
+            // Format message with reset times when available
+            const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
+${formatTwitterApiUsage(
+    { primary: primaryUsage, fallback: fallbackUsage, fallback2: fallback2Usage }, 
+    twitterApiUsageCache.resetTimes, 
+    currentKey
+)}`;
             logger.warn(message);
-            
-            // Notify admin via WhatsApp
-            const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-            if (adminChat) {
-                await adminChat.sendMessage(message);
-            }
             
             // Disable Twitter monitor in config
             config.NEWS_MONITOR.TWITTER_ENABLED = false;
-            logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
-            return {
-                primary: primaryUsage,
-                fallback: fallbackUsage,
-                fallback2: fallback2Usage,
-                currentKey
-            };
+            logger.info('Twitter monitor has been disabled due to all API keys being over rate limit or returning 429 errors');
         }
         
         return {
             primary: primaryUsage,
             fallback: fallbackUsage,
             fallback2: fallback2Usage,
-            currentKey
+            currentKey,
+            resetTimes: twitterApiUsageCache.resetTimes
         };
     } catch (error) {
         // If we have cached data, use it even if it's old
         if (twitterApiUsageCache.lastCheck) {
-            logger.warn('Failed to check API usage, using cached data');
+            logger.warn('Failed to check API usage, using cached data', error);
             return {
                 primary: twitterApiUsageCache.primary,
                 fallback: twitterApiUsageCache.fallback,
                 fallback2: twitterApiUsageCache.fallback2,
-                currentKey: twitterApiUsageCache.currentKey
+                currentKey: twitterApiUsageCache.currentKey,
+                resetTimes: twitterApiUsageCache.resetTimes
             };
         }
         throw error;
@@ -333,14 +579,15 @@ function getCurrentTwitterApiKey() {
  * Evaluate content to determine if it's relevant for sharing
  * @param {string} content - Content to evaluate
  * @param {Array<string>} previousContents - Previous contents for context
- * @param {string} source - Source type ('twitter' or 'rss')
+ * @param {string} source - Source type ('twitter', 'twitter-media', or 'rss')
+ * @param {string} username - Username of the content source (for Twitter)
  * @param {boolean} includeJustification - Whether to request and return justification
  * @returns {Promise<object>} - Result with relevance and justification if requested
  */
-async function evaluateContent(content, previousContents, source, includeJustification = false) {
+async function evaluateContent(content, previousContents, source, username = '', includeJustification = false) {
     let formattedPreviousContents = [];
     
-    if (source === 'twitter') {
+    if (source === 'twitter' || source === 'twitter-media') {
         // Start with the provided previous tweets (from the API)
         formattedPreviousContents = [...previousContents];
         
@@ -383,21 +630,36 @@ async function evaluateContent(content, previousContents, source, includeJustifi
     }
     
     // Format the previous content based on the source
-    const previousContent = source === 'twitter'
+    const previousContent = source === 'twitter' || source === 'twitter-media'
         ? formattedPreviousContents.join('\n\n')
         : formattedPreviousContents.join('\n\n---\n\n');
 
-    let prompt = source === 'twitter' 
-        ? config.NEWS_MONITOR.PROMPTS.EVALUATE_TWEET
-            .replace('{post}', content)
-            .replace('{previous_posts}', previousContent)
-        : config.NEWS_MONITOR.PROMPTS.EVALUATE_ARTICLE
-            .replace('{article}', content)
+    // Add username information to the content for better context
+    const contentWithSource = username 
+        ? `Tweet from @${username}:\n${content}` 
+        : content;
+
+    let prompt;
+    if (source === 'twitter-media') {
+        // For backward compatibility, use regular EVALUATE_TWEET for media tweets
+        prompt = config.NEWS_MONITOR.PROMPTS.EVALUATE_TWEET
+            .replace('{post}', contentWithSource)
+            .replace('{previous_posts}', previousContent);
+    } else if (source === 'twitter') {
+        prompt = config.NEWS_MONITOR.PROMPTS.EVALUATE_TWEET
+            .replace('{post}', contentWithSource)
+            .replace('{previous_posts}', previousContent);
+    } else {
+        prompt = config.NEWS_MONITOR.PROMPTS.EVALUATE_ARTICLE
+            .replace('{article}', contentWithSource)
             .replace('{previous_articles}', previousContent);
+    }
 
     // If justification is requested, modify the prompt to ask for it
     if (includeJustification) {
         prompt = prompt.replace('Retorne apenas a palavra "null"', 
+            'Retorne a palavra "null" seguida por um delimitador "::" e depois uma breve justificativa');
+        prompt = prompt.replace('Retorne a palavra "null"', 
             'Retorne a palavra "null" seguida por um delimitador "::" e depois uma breve justificativa');
         prompt = prompt.replace('Retorne a palavra "relevant"', 
             'Retorne a palavra "relevant" seguida por um delimitador "::" e depois uma breve justificativa');
@@ -446,19 +708,290 @@ async function generateSummary(title, content) {
 /**
  * Twitter-specific functions
  */
-async function fetchLatestTweets(userId) {
+async function fetchTweets(accounts) {
     try {
-        const { key } = getCurrentTwitterApiKey();
-        // Fetch last 5 tweets
-        const url = `https://api.twitter.com/2/users/${userId}/tweets?tweet.fields=created_at&max_results=5`;
-        const response = await axios.get(url, {
-            headers: {
-                'Authorization': `Bearer ${key.bearer_token}`
+        const isDebugMode = config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG === true;
+        const { primary, fallback, fallback2 } = config.CREDENTIALS.TWITTER_API_KEYS;
+        let { key, name } = getCurrentTwitterApiKey();
+        
+        // Base URL for fetching user tweets
+        let url = `https://api.twitter.com/2/tweets/search/recent?query=`;
+        
+        // Construct the search query
+        const queryParts = accounts.map(account => {
+            if (account.mediaOnly) {
+                return `(from:${account.username} has:images)`;
+            } else {
+                return `(from:${account.username})`;
             }
         });
+        url += queryParts.join(' OR ');
         
-        if (!response.data.data) return [];
-        return response.data.data;
+        // Add tweet fields
+        url += '&tweet.fields=created_at,attachments';
+        
+        // Add media fields
+        url += '&media.fields=type,url,preview_image_url';
+        
+        // Add user fields to get usernames
+        url += '&user.fields=username';
+        
+        // Add all expansions in a single parameter
+        url += '&expansions=author_id,attachments.media_keys';
+        
+        // Set the maximum number of tweets to fetch
+        url += '&max_results=10';
+        
+        logger.debug('Twitter debug: Constructed API URL', {
+            url: url,
+            queryParts: queryParts,
+            accounts: accounts.map(a => a.username)
+        });
+        
+        // Log the full URL for debugging purposes
+        logger.debug(`Full Twitter API URL: ${url}`);
+        
+        // Try each key in sequence if in debug mode
+        let response;
+        let keysToTry = isDebugMode ? [
+            { key: primary, name: 'primary' },
+            { key: fallback, name: 'fallback' },
+            { key: fallback2, name: 'fallback2' }
+        ] : [{ key, name }];
+        
+        let lastError = null;
+        
+        for (const keyObj of keysToTry) {
+            try {
+                logger.debug(`Twitter debug: Attempting API call with ${keyObj.name} key`);
+                response = await axios.get(url, {
+                    headers: {
+                        'Authorization': `Bearer ${keyObj.key.bearer_token}`
+                    }
+                });
+                
+                logger.debug('Twitter debug: API call successful', {
+                    keyUsed: keyObj.name,
+                    statusCode: response.status,
+                    dataReceived: !!response.data,
+                    tweetsReceived: response.data?.data?.length || 0,
+                    meta: response.data?.meta || {}
+                });
+                
+                // If successful, log which key we're using
+                if (isDebugMode && keyObj.name !== name) {
+                    logger.debug(`DEBUG MODE: Switched to ${keyObj.name} key for tweet fetching after 429 error`);
+                }
+                
+                // Successfully got a response, break the loop
+                break;
+            } catch (error) {
+                lastError = error;
+                
+                logger.debug('Twitter debug: API call error', {
+                    keyUsed: keyObj.name,
+                    statusCode: error.response?.status,
+                    errorMessage: error.message,
+                    errorData: error.response?.data || {},
+                    errorHeaders: error.response?.headers || {}
+                });
+                
+                // Store rate limit reset time if available
+                if (error.response?.headers?.['x-rate-limit-reset']) {
+                    const resetTimestamp = parseInt(error.response.headers['x-rate-limit-reset']) * 1000; // Convert to ms
+                    twitterApiUsageCache.resetTimes[keyObj.name] = resetTimestamp;
+                    
+                    // Display rate limit reset time if available and in debug mode
+                    if (isDebugMode) {
+                        const resetDate = new Date(resetTimestamp);
+                        logger.debug(`Twitter API rate limit for ${keyObj.name} key will reset at: ${resetDate.toLocaleString()}`);
+                    }
+                }
+                
+                // Only try other keys in debug mode when we get 429 errors
+                if (!isDebugMode || error.response?.status !== 429) {
+                    throw error;
+                }
+                
+                logger.debug(`DEBUG MODE: Twitter API key ${keyObj.name} returned 429 error, trying next key...`);
+            }
+        }
+        
+        // If we tried all keys and still have an error, throw it
+        if (!response) {
+            if (lastError) {
+                throw lastError;
+            }
+            throw new Error('Failed to fetch tweets with all API keys');
+        }
+        
+        logger.debug('Twitter debug: Response data structure', {
+            hasData: !!response.data?.data,
+            dataCount: response.data?.data?.length || 0,
+            hasIncludes: !!response.data?.includes,
+            hasUsers: !!response.data?.includes?.users,
+            usersCount: response.data?.includes?.users?.length || 0,
+            hasMedia: !!response.data?.includes?.media,
+            mediaCount: response.data?.includes?.media?.length || 0
+        });
+        
+        // Show rate limit information in debug mode if available
+        if (isDebugMode && response.headers?.['x-rate-limit-reset']) {
+            const resetTimestamp = parseInt(response.headers['x-rate-limit-reset']);
+            const resetDate = new Date(resetTimestamp * 1000);
+            const remaining = response.headers['x-rate-limit-remaining'] || 'unknown';
+            const limit = response.headers['x-rate-limit-limit'] || 'unknown';
+            logger.debug(`Twitter API rate limits - Remaining: ${remaining}/${limit}, Reset time: ${resetDate.toLocaleString()}`);
+        }
+        
+        // Handle media-only tweets
+        if (response.data.data) {
+            // Group tweets by username
+            const tweetsByUser = {};
+            const userMap = new Map();
+            
+            // Create a map of users by author_id
+            if (response.data.includes && response.data.includes.users) {
+                response.data.includes.users.forEach(user => {
+                    userMap.set(user.id, user);
+                    
+                    // Initialize the array for this user if it doesn't exist
+                    if (!tweetsByUser[user.username]) {
+                        tweetsByUser[user.username] = [];
+                    }
+                });
+                
+                logger.debug('Twitter debug: Mapped users', {
+                    userCount: userMap.size,
+                    usernames: Array.from(userMap.values()).map(u => u.username)
+                });
+            } else {
+                logger.debug('Twitter debug: No users found in response includes');
+            }
+            
+            // Create a map of media items by media_key
+            const mediaMap = new Map();
+            if (response.data.includes && response.data.includes.media) {
+                response.data.includes.media.forEach(media => {
+                    mediaMap.set(media.media_key, media);
+                });
+                
+                logger.debug('Twitter debug: Mapped media', {
+                    mediaCount: mediaMap.size,
+                    mediaTypes: Array.from(new Set(Array.from(mediaMap.values()).map(m => m.type)))
+                });
+            }
+            
+            // Group tweets by username
+            response.data.data.forEach(tweet => {
+                logger.debug('Twitter debug: Processing tweet', {
+                    id: tweet.id,
+                    text: tweet.text?.substring(0, 50) + '...',
+                    hasAuthorId: !!tweet.author_id,
+                    authorId: tweet.author_id,
+                    hasMedia: !!(tweet.attachments?.media_keys?.length > 0),
+                    mediaCount: tweet.attachments?.media_keys?.length || 0
+                });
+                
+                if (tweet.author_id) {
+                    const user = userMap.get(tweet.author_id);
+                    
+                    if (!user) {
+                        logger.debug('Twitter debug: Could not find user for author_id', {
+                            authorId: tweet.author_id,
+                            availableUsers: Array.from(userMap.keys())
+                        });
+                    }
+                    
+                    if (user && tweetsByUser[user.username]) {
+                        const account = accounts.find(acc => acc.username === user.username);
+                        
+                        if (!account) {
+                            logger.debug('Twitter debug: Could not find matching account config', {
+                                username: user.username,
+                                configuredAccounts: accounts.map(a => a.username)
+                            });
+                        }
+                        
+                        // Add media objects to any tweet that has attachments (for all account types)
+                        if (tweet.attachments && tweet.attachments.media_keys && tweet.attachments.media_keys.length > 0) {
+                            tweet.mediaObjects = tweet.attachments.media_keys
+                                .map(key => mediaMap.get(key))
+                                .filter(Boolean);
+                                
+                            logger.debug('Twitter debug: Tweet has media', {
+                                tweetId: tweet.id,
+                                username: user.username,
+                                mediaKeysCount: tweet.attachments.media_keys.length,
+                                mediaObjectsFound: tweet.mediaObjects.length,
+                                mediaTypes: tweet.mediaObjects.map(m => m.type)
+                            });
+                                
+                            // For media-only accounts, only include tweets with photo media
+                            if (account.mediaOnly) {
+                                if (tweet.mediaObjects.some(media => media.type === 'photo')) {
+                                    tweetsByUser[user.username].push(tweet);
+                                    logger.debug('Twitter debug: Added tweet with photo for media-only account', {
+                                        username: user.username,
+                                        tweetId: tweet.id
+                                    });
+                                } else {
+                                    logger.debug('Twitter debug: Skipped tweet for media-only account (no photos)', {
+                                        username: user.username,
+                                        tweetId: tweet.id,
+                                        mediaTypes: tweet.mediaObjects.map(m => m.type)
+                                    });
+                                }
+                            } else {
+                                // For regular accounts, include all tweets regardless of media
+                                tweetsByUser[user.username].push(tweet);
+                                logger.debug('Twitter debug: Added tweet with media for regular account', {
+                                    username: user.username,
+                                    tweetId: tweet.id
+                                });
+                            }
+                        } 
+                        // For regular accounts with no media, still include the tweets
+                        else if (!account.mediaOnly) {
+                            tweetsByUser[user.username].push(tweet);
+                            logger.debug('Twitter debug: Added tweet without media for regular account', {
+                                username: user.username,
+                                tweetId: tweet.id
+                            });
+                        } else {
+                            logger.debug('Twitter debug: Skipped tweet for media-only account (no media attachments)', {
+                                username: user.username,
+                                tweetId: tweet.id
+                            });
+                        }
+                    } else {
+                        logger.debug('Twitter debug: Could not match tweet to user', {
+                            authorId: tweet.author_id,
+                            hasUser: !!user,
+                            username: user?.username,
+                            hasUserInTweetsByUser: user ? !!tweetsByUser[user.username] : false
+                        });
+                    }
+                } else {
+                    logger.debug('Twitter debug: Tweet has no author_id', {
+                        tweetId: tweet.id
+                    });
+                }
+            });
+            
+            logger.debug('Twitter debug: Final tweets by user', {
+                userCount: Object.keys(tweetsByUser).length,
+                tweetCountByUser: Object.entries(tweetsByUser).map(([username, tweets]) => ({
+                    username,
+                    tweetCount: tweets.length
+                }))
+            });
+            
+            return tweetsByUser;
+        }
+        
+        logger.debug('Twitter debug: No data in response, returning empty object');
+        return {};
     } catch (error) {
         logger.error('Error fetching tweets:', error);
         throw error;
@@ -594,12 +1127,6 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                         const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
                         logger.warn(message);
                         
-                        // Notify admin via WhatsApp
-                        const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-                        if (adminChat) {
-                            await adminChat.sendMessage(message);
-                        }
-                        
                         // Disable Twitter monitor in config
                         config.NEWS_MONITOR.TWITTER_ENABLED = false;
                         logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
@@ -617,7 +1144,11 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                             
                             // Check API usage before processing (will use cache if check was recent)
                             const usage = await checkTwitterAPIUsage();
-                            logger.debug(`Twitter monitor check (Primary: ${usage.primary.usage}/${usage.primary.limit}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}, using ${usage.currentKey} key)`);
+                            logger.debug(`Twitter monitor check (${formatTwitterApiUsage(
+                                usage,
+                                twitterApiUsageCache.resetTimes,
+                                usage.currentKey
+                            )})`);
                             
                             // Check if current key is over limit and switch if needed
                             if (usage[usage.currentKey].usage >= 100) {
@@ -638,12 +1169,6 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
                                     logger.warn(message);
                                     
-                                    // Notify admin via WhatsApp
-                                    const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-                                    if (adminChat) {
-                                        await adminChat.sendMessage(message);
-                                    }
-                                    
                                     // Disable Twitter monitor in config
                                     config.NEWS_MONITOR.TWITTER_ENABLED = false;
                                     logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
@@ -655,10 +1180,19 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                 }
                             }
                             
+                            // Process tweets using the search API approach
+                            try {
+                                // Fetch tweets for all accounts in one call
+                                const tweetsByUser = await fetchTweets(config.NEWS_MONITOR.TWITTER_ACCOUNTS);
+                                
+                                // Process tweets for each account
                             for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
                                 try {
-                                    const tweets = await fetchLatestTweets(account.userId);
+                                        const tweets = tweetsByUser[account.username] || [];
                                     if (tweets.length === 0) continue;
+                                        
+                                        // Sort tweets by creation date (newest first)
+                                        tweets.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
                                     // Get the latest tweet and previous tweets
                                     const [latestTweet, ...previousTweets] = tweets;
@@ -666,66 +1200,138 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     // Skip if we've already processed this tweet
                                     if (latestTweet.id === account.lastTweetId) continue;
 
-                                    // Evaluate if tweet should be shared
-                                    const evalResult = await evaluateContent(
-                                        latestTweet.text, 
-                                        previousTweets.map(t => t.text), 
-                                        'twitter'
-                                    );
-                                    
-                                    if (evalResult.isRelevant) {
-                                        const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
+                                        // Special handling for media tweets
+                                        if (account.mediaOnly) {
+                                            // Process media tweet (with image)
+                                            try {
+                                                // Check if this account should use an account-specific prompt
+                                                if (account.promptSpecific) {
+                                                    // Run the account-specific evaluation
+                                                    const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                    if (!passed) {
+                                                        logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                                        continue;
+                                                    }
+                                                    logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
+                                                }
+                                                
+                                                // Standard evaluation if not skipping
+                                                let isRelevant = account.skipEvaluation || false;
+                                                
+                                                if (!account.skipEvaluation) {
+                                                    const evalResult = await evaluateContent(
+                                                        latestTweet.text, 
+                                                        previousTweets.map(t => t.text), 
+                                                        'twitter-media',
+                                                        account.username
+                                                    );
+                                                    isRelevant = evalResult.isRelevant;
+                                                }
+                                                
+                                                if (isRelevant && latestTweet.mediaObjects) {
+                                                    // Find the first photo in the media objects
+                                                    const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                    
+                                                    if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                        const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                        
+                                                        // Download the image
+                                                        const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                                                        const imageBuffer = Buffer.from(response.data);
+                                                        
+                                                        // Send only the media with "Breaking News" text
+                                                        const message = "*Breaking News* 🗞️";
                                         await targetGroup.sendMessage(message);
-                                        logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                                        
+                                                        // Send the media without caption
+                                                        const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                                        await targetGroup.sendMessage(media);
+                                                        
+                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
                                         
                                         // Record that we sent this tweet
                                         recordSentTweet(latestTweet, account.username);
                                     }
-
-                                    // Update last tweet ID in memory
-                                    account.lastTweetId = latestTweet.id;
+                                                }
                                 } catch (error) {
-                                    if (error.response && error.response.status === 429) {
-                                        // If we hit a rate limit, try switching keys
-                                        logger.warn(`Rate limit hit for account ${account.username}, attempting to switch API keys...`);
-                                        
-                                        // Force a fresh API usage check
-                                        const newUsage = await checkTwitterAPIUsage(true);
-                                        
-                                        // Try to switch to a key with available usage
-                                        if (newUsage.primary.usage < 100) {
-                                            twitterApiUsageCache.currentKey = 'primary';
-                                            logger.info('Switched to primary Twitter API key');
-                                        } else if (newUsage.fallback.usage < 100) {
-                                            twitterApiUsageCache.currentKey = 'fallback';
-                                            logger.info('Switched to fallback Twitter API key');
-                                        } else if (newUsage.fallback2.usage < 100) {
-                                            twitterApiUsageCache.currentKey = 'fallback2';
-                                            logger.info('Switched to fallback2 Twitter API key');
-                                        } else {
-                                            // All keys are over limit, disable Twitter monitor
-                                            const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${newUsage.primary.usage}/${newUsage.primary.limit}\nFallback: ${newUsage.fallback.usage}/${newUsage.fallback.limit}\nFallback2: ${newUsage.fallback2.usage}/${newUsage.fallback2.limit}`;
-                                            logger.warn(message);
-                                            
-                                            // Notify admin via WhatsApp
-                                            const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-                                            if (adminChat) {
-                                                await adminChat.sendMessage(message);
+                                                logger.error(`Error processing media tweet for ${account.username}:`, error);
                                             }
-                                            
-                                            // Disable Twitter monitor in config
-                                            config.NEWS_MONITOR.TWITTER_ENABLED = false;
-                                            logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
-                                            
-                                            // Clear the interval
-                                            clearInterval(twitterIntervalId);
-                                            twitterIntervalId = null;
-                                            return;
+                                        } else {
+                                            // Process regular tweet (text-based)
+                                            try {
+                                                // Check if this account should use an account-specific prompt
+                                                if (account.promptSpecific) {
+                                                    // Run the account-specific evaluation
+                                                    const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                    if (!passed) {
+                                                        logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                                        continue;
+                                                    }
+                                                    logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
+                                                }
+                                                
+                                                // Standard evaluation if not skipping
+                                                let isRelevant = account.skipEvaluation || false;
+                                                
+                                                if (!account.skipEvaluation) {
+                                                    const evalResult = await evaluateContent(
+                                                        latestTweet.text,
+                                                        previousTweets.map(t => t.text),
+                                                        'twitter',
+                                                        account.username
+                                                    );
+                                                    isRelevant = evalResult.isRelevant;
+                                                }
+                                                
+                                                if (isRelevant) {
+                                                    // Create base message
+                                                    const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
+                                                    
+                                                    // Send text message
+                                                    await targetGroup.sendMessage(message);
+                                                    
+                                                    // Check if the tweet has media and attach one media item if available
+                                                    if (latestTweet.mediaObjects && latestTweet.mediaObjects.length > 0) {
+                                                        // Find the first photo in the media objects
+                                                        const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                        
+                                                        if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                            try {
+                                                                const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                                
+                                                                // Download the image
+                                                                const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                                                                const imageBuffer = Buffer.from(response.data);
+                                                                
+                                                                // Send just the image (without caption)
+                                                                const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                                                await targetGroup.sendMessage(media);
+                                                                
+                                                                logger.info(`Attached media from ${account.username} tweet`);
+                                                            } catch (mediaError) {
+                                                                logger.error(`Error attaching media for ${account.username}:`, mediaError);
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                                    
+                                                    // Record that we sent this tweet
+                                                    recordSentTweet(latestTweet, account.username);
+                                                }
+                                            } catch (error) {
+                                                logger.error(`Error processing tweet for ${account.username}:`, error);
+                                            }
                                         }
-                                    } else {
-                                        logger.error(`Error processing tweets for account ${account.username}:`, error);
+                                        
+                                        // Update last tweet ID in memory
+                                        account.lastTweetId = latestTweet.id;
+                                    } catch (accountError) {
+                                        logger.error(`Error processing account ${account.username}:`, accountError);
                                     }
                                 }
+                            } catch (error) {
+                                logger.error('Error fetching and processing tweets:', error);
                             }
                         } catch (error) {
                             logger.error('Error in Twitter monitor interval:', error);
@@ -794,7 +1400,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                         const summary = await generateSummary(article.title, articleContent);
                                         
                                         // Format message
-                                        const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name} | [Read More](${article.link})`;
+                                        const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name}\n${article.link}`;
                                         
                                         // Send to group
                                         await targetGroup.sendMessage(message);
@@ -875,12 +1481,6 @@ async function initializeNewsMonitor() {
                 if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
                     const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
                     logger.warn(message);
-                    
-                    // Notify admin via WhatsApp
-                    const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-                    if (adminChat) {
-                        await adminChat.sendMessage(message);
-                    }
                         
                         // Disable Twitter monitor in config
                         config.NEWS_MONITOR.TWITTER_ENABLED = false;
@@ -888,7 +1488,11 @@ async function initializeNewsMonitor() {
                         break; // Exit retry loop if all keys are over limit
                     }
 
-                    logger.info(`Twitter monitor initialized (Primary: ${usage.primary.usage}/${usage.primary.limit}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}, using ${usage.currentKey} key)`);
+                    logger.info(`Twitter monitor initialized (${formatTwitterApiUsage(
+                        usage, 
+                        twitterApiUsageCache.resetTimes, 
+                        usage.currentKey
+                    )})`);
 
                     // Set up Twitter monitoring interval (slower due to API limits)
                     twitterIntervalId = setInterval(async () => {
@@ -901,7 +1505,11 @@ async function initializeNewsMonitor() {
                             
                             // Check API usage before processing (will use cache if check was recent)
                             const usage = await checkTwitterAPIUsage();
-                            logger.debug(`Twitter monitor check (Primary: ${usage.primary.usage}/${usage.primary.limit}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}, using ${usage.currentKey} key)`);
+                            logger.debug(`Twitter monitor check (${formatTwitterApiUsage(
+                                usage,
+                                twitterApiUsageCache.resetTimes,
+                                usage.currentKey
+                            )})`);
                             
                             // Check if current key is over limit and switch if needed
                             if (usage[usage.currentKey].usage >= 100) {
@@ -922,12 +1530,6 @@ async function initializeNewsMonitor() {
                                     const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
                                     logger.warn(message);
                                     
-                                    // Notify admin via WhatsApp
-                                    const adminChat = await global.client.getChatById(config.CREDENTIALS.ADMIN_NUMBER + '@c.us');
-                                    if (adminChat) {
-                                        await adminChat.sendMessage(message);
-                                    }
-                                    
                                     // Disable Twitter monitor in config
                                     config.NEWS_MONITOR.TWITTER_ENABLED = false;
                                     logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
@@ -939,10 +1541,19 @@ async function initializeNewsMonitor() {
                                 }
                             }
                             
+                            // Process tweets using the search API approach
+                            try {
+                                // Fetch tweets for all accounts in one call
+                                const tweetsByUser = await fetchTweets(config.NEWS_MONITOR.TWITTER_ACCOUNTS);
+                                
+                                // Process tweets for each account
                             for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
                                 try {
-                                    const tweets = await fetchLatestTweets(account.userId);
+                                        const tweets = tweetsByUser[account.username] || [];
                                     if (tweets.length === 0) continue;
+                                        
+                                        // Sort tweets by creation date (newest first)
+                                        tweets.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
                                     // Get the latest tweet and previous tweets
                                     const [latestTweet, ...previousTweets] = tweets;
@@ -950,27 +1561,138 @@ async function initializeNewsMonitor() {
                                     // Skip if we've already processed this tweet
                                     if (latestTweet.id === account.lastTweetId) continue;
 
-                                    // Evaluate if tweet should be shared
-                                    const evalResult = await evaluateContent(
-                                        latestTweet.text, 
-                                        previousTweets.map(t => t.text), 
-                                        'twitter'
-                                    );
-                                    
-                                    if (evalResult.isRelevant) {
+                                        // Special handling for media tweets
+                                        if (account.mediaOnly) {
+                                            // Process media tweet (with image)
+                                            try {
+                                                // Check if this account should use an account-specific prompt
+                                                if (account.promptSpecific) {
+                                                    // Run the account-specific evaluation
+                                                    const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                    if (!passed) {
+                                                        logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                                        continue;
+                                                    }
+                                                    logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
+                                                }
+                                                
+                                                // Standard evaluation if not skipping
+                                                let isRelevant = account.skipEvaluation || false;
+                                                
+                                                if (!account.skipEvaluation) {
+                                                    const evalResult = await evaluateContent(
+                                                        latestTweet.text, 
+                                                        previousTweets.map(t => t.text), 
+                                                        'twitter-media',
+                                                        account.username
+                                                    );
+                                                    isRelevant = evalResult.isRelevant;
+                                                }
+                                                
+                                                if (isRelevant && latestTweet.mediaObjects) {
+                                                    // Find the first photo in the media objects
+                                                    const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                    
+                                                    if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                        const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                        
+                                                        // Download the image
+                                                        const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                                                        const imageBuffer = Buffer.from(response.data);
+                                                        
+                                                        // Send only the media with "Breaking News" text
+                                                        const message = "*Breaking News* 🗞️";
+                                                        await targetGroup.sendMessage(message);
+                                                        
+                                                        // Send the media without caption
+                                                        const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                                        await targetGroup.sendMessage(media);
+                                                        
+                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                                        
+                                                        // Record that we sent this tweet
+                                                        recordSentTweet(latestTweet, account.username);
+                                                    }
+                                                }
+                                } catch (error) {
+                                                logger.error(`Error processing media tweet for ${account.username}:`, error);
+                                            }
+                                        } else {
+                                            // Process regular tweet (text-based)
+                                            try {
+                                                // Check if this account should use an account-specific prompt
+                                                if (account.promptSpecific) {
+                                                    // Run the account-specific evaluation
+                                                    const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                    if (!passed) {
+                                                        logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                                        continue;
+                                                    }
+                                                    logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
+                                                }
+                                                
+                                                // Standard evaluation if not skipping
+                                                let isRelevant = account.skipEvaluation || false;
+                                                
+                                                if (!account.skipEvaluation) {
+                                                    const evalResult = await evaluateContent(
+                                                        latestTweet.text,
+                                                        previousTweets.map(t => t.text),
+                                                        'twitter',
+                                                        account.username
+                                                    );
+                                                    isRelevant = evalResult.isRelevant;
+                                                }
+                                                
+                                                if (isRelevant) {
+                                                    // Create base message
                                         const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
+                                                    
+                                                    // Send text message
                                         await targetGroup.sendMessage(message);
+                                                    
+                                                    // Check if the tweet has media and attach one media item if available
+                                                    if (latestTweet.mediaObjects && latestTweet.mediaObjects.length > 0) {
+                                                        // Find the first photo in the media objects
+                                                        const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                        
+                                                        if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                            try {
+                                                                const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                                
+                                                                // Download the image
+                                                                const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                                                                const imageBuffer = Buffer.from(response.data);
+                                                                
+                                                                // Send just the image (without caption)
+                                                                const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                                                await targetGroup.sendMessage(media);
+                                                                
+                                                                logger.info(`Attached media from ${account.username} tweet`);
+                                                            } catch (mediaError) {
+                                                                logger.error(`Error attaching media for ${account.username}:`, mediaError);
+                                                            }
+                                                        }
+                                                    }
+                                                    
                                         logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
                                         
                                         // Record that we sent this tweet
                                         recordSentTweet(latestTweet, account.username);
-                                    }
-
-                                    // Update last tweet ID in memory
-                                    account.lastTweetId = latestTweet.id;
-                                } catch (error) {
-                                    logger.error(`Error processing tweets for account ${account.username}:`, error);
+                                                }
+                                            } catch (error) {
+                                                logger.error(`Error processing tweet for ${account.username}:`, error);
+                                            }
+                                        }
+                                        
+                                        // Update last tweet ID in memory
+                                        account.lastTweetId = latestTweet.id;
+                                    } catch (accountError) {
+                                        logger.error(`Error processing account ${account.username}:`, accountError);
                                 }
+                                }
+                            } catch (error) {
+                                logger.error('Error fetching and processing tweets:', error);
                             }
                         } catch (error) {
                             logger.error('Error in Twitter monitor interval:', error);
@@ -1065,7 +1787,7 @@ async function initializeNewsMonitor() {
                                     const summary = await generateSummary(article.title, articleContent);
                                     
                                     // Format message
-                                    const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name} | [Read More](${article.link})`;
+                                    const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name}\n${article.link}`;
                                     
                                     // Send to group
                                     await targetGroup.sendMessage(message);
@@ -1131,68 +1853,280 @@ async function debugTwitterFunctionality(message) {
                 await message.reply('Twitter monitor has been disabled. Monitor has been stopped.');
                 logger.info('Twitter monitor disabled by admin command');
                 return;
+            } else if (command === 'reset' || command === 'check') {
+                // Force a fresh API usage check to get current reset days
+                const usage = await checkTwitterAPIUsage(true);
+                
+                // Format reset days for each key
+                const formatResetDay = (keyData, keyName) => {
+                    if (!keyData || keyData.status === 'error' || keyData.status === 'unchecked') {
+                        return `${keyName}: No data available`;
+                    }
+                    
+                    // Format billing cycle reset day
+                    let resetDayInfo = '';
+                    if (keyData.capResetDay) {
+                        // Get current date to construct full reset date
+                        const now = new Date();
+                        const currentMonth = now.getMonth();
+                        const currentYear = now.getFullYear();
+                        
+                        // Create date object for the reset day in current month
+                        let resetDate = new Date(currentYear, currentMonth, keyData.capResetDay);
+                        
+                        // If reset day has passed this month, show next month
+                        if (now > resetDate) {
+                            resetDate = new Date(currentYear, currentMonth + 1, keyData.capResetDay);
+                        }
+                        
+                        resetDayInfo = `Cycle resets on day ${keyData.capResetDay} (${resetDate.toLocaleDateString()})`;
+                    } else {
+                        resetDayInfo = 'No cycle reset data';
+                    }
+                    
+                    // Format API rate limit info if applicable
+                    if (keyData.status === '429' && twitterApiUsageCache.resetTimes[keyName]) {
+                        const rateResetDate = new Date(twitterApiUsageCache.resetTimes[keyName]);
+                        resetDayInfo += `\nRate limit resets at ${rateResetDate.toLocaleString()}`;
+                    }
+                    
+                    return `${keyName}: ${resetDayInfo}`;
+                };
+                
+                const responseMsg = `Twitter API Key Reset Information:\n\n` +
+                    `${formatResetDay(usage.primary, 'Primary')}\n\n` +
+                    `${formatResetDay(usage.fallback, 'Fallback')}\n\n` +
+                    `${formatResetDay(usage.fallback2, 'Fallback2')}\n\n` +
+                    `Current key: ${usage.currentKey}\n` +
+                    `Usage: ${formatTwitterApiUsage(usage, twitterApiUsageCache.resetTimes, usage.currentKey)}`;
+                
+                await message.reply(responseMsg);
+                return;
             }
         }
         
+        // Check Twitter API credentials
+        logger.debug('Twitter debug: Checking Twitter API credentials');
+        const { primary, fallback, fallback2 } = config.CREDENTIALS.TWITTER_API_KEYS;
+        
+        // Log API key details (without exposing full tokens)
+        const checkCredential = (credential, name) => {
+            if (!credential) {
+                logger.debug(`Twitter debug: ${name} key is missing`);
+                return false;
+            }
+            
+            if (!credential.bearer_token) {
+                logger.debug(`Twitter debug: ${name} key has no bearer_token property`);
+                return false;
+            }
+            
+            // Only log first and last few characters of the token
+            const tokenLength = credential.bearer_token.length;
+            const maskedToken = tokenLength > 10 
+                ? `${credential.bearer_token.substring(0, 5)}...${credential.bearer_token.substring(tokenLength - 5)}`
+                : '[too short to mask]';
+                
+            logger.debug(`Twitter debug: ${name} key found with token ${maskedToken} (length: ${tokenLength})`);
+            return tokenLength > 20; // Most bearer tokens are significantly longer than 20 chars
+        };
+        
+        const primaryValid = checkCredential(primary, 'Primary');
+        const fallbackValid = checkCredential(fallback, 'Fallback');
+        const fallback2Valid = checkCredential(fallback2, 'Fallback2');
+        
+        if (!primaryValid && !fallbackValid && !fallback2Valid) {
+            logger.error('Twitter debug: No valid Twitter API credentials found');
+            await message.reply('Error: No valid Twitter API credentials found. Check your config.');
+            return;
+        }
+        
+        // Get API usage info
         const usage = await checkTwitterAPIUsage();
+        logger.debug('Twitter debug: API usage check completed', usage);
         
         if (!config.NEWS_MONITOR.TWITTER_ACCOUNTS || config.NEWS_MONITOR.TWITTER_ACCOUNTS.length === 0) {
             await message.reply('No Twitter accounts configured');
             return;
         }
         
-        const account = config.NEWS_MONITOR.TWITTER_ACCOUNTS[0];
-        const tweets = await fetchLatestTweets(account.userId);
-        
-        if (tweets.length === 0) {
-            await message.reply('No tweets found');
-            return;
-        }
-
-        const [latestTweet, ...previousTweets] = tweets;
-        
-        // For debugging, explicitly log evaluation results
-        logger.info('Twitter debug: Starting evaluation');
-        // Evaluate tweet relevance
-        const evalResult = await evaluateContent(
-            latestTweet.text, 
-            previousTweets.map(t => t.text), 
-            'twitter', 
-            true
-        );
-        logger.info('Twitter debug: Content evaluation result', {
-            decision: evalResult.isRelevant ? 'RELEVANT' : 'NOT RELEVANT',
-            justification: evalResult.justification || 'No justification provided'
+        logger.debug('Twitter debug: Configured accounts', {
+            accounts: config.NEWS_MONITOR.TWITTER_ACCOUNTS.map(a => ({
+                username: a.username,
+                mediaOnly: a.mediaOnly,
+                skipEvaluation: a.skipEvaluation,
+                lastTweetId: a.lastTweetId
+            }))
         });
         
-        // Format message that would be sent to the group if relevant
-        const groupMessage = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nFonte: @${account.username}`;
+        // Fetch tweets for all accounts in one API call
+        logger.debug('Twitter debug: Starting fetchTweets for all accounts');
+        const allTweetsByUser = await fetchTweets(config.NEWS_MONITOR.TWITTER_ACCOUNTS);
+        logger.debug('Twitter debug: fetchTweets completed', {
+            usersWithTweets: Object.keys(allTweetsByUser),
+            tweetCounts: Object.entries(allTweetsByUser).map(([username, tweets]) => ({
+                username,
+                count: tweets?.length || 0
+            }))
+        });
         
-        const debugInfo = `Twitter Debug Info:
-- Account: @${account.username} (ID: ${account.userId})
+        // Show debug mode status and API info
+        const isDebugMode = config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG === true;
+        
+        let debugInfo = `Twitter Monitor Debug Summary:
+- Debug Mode: ${isDebugMode ? 'Enabled' : 'Disabled'}
 - API Status:
-  - Primary Key Usage: ${usage.primary.usage}/${usage.primary.limit}
-  - Fallback Key Usage: ${usage.fallback.usage}/${usage.fallback.limit}
-  - Fallback2 Key Usage: ${usage.fallback2.usage}/${usage.fallback2.limit}
+  - Primary Key: ${usage.primary.usage}/${usage.primary.limit} ${usage.primary.status === '429' ? '(429 error)' : usage.primary.status === 'unchecked' ? '(unchecked)' : ''}
+  - Fallback Key: ${usage.fallback.usage}/${usage.fallback.limit} ${usage.fallback.status === '429' ? '(429 error)' : usage.fallback.status === 'unchecked' ? '(unchecked)' : ''}
+  - Fallback2 Key: ${usage.fallback2.usage}/${usage.fallback2.limit} ${usage.fallback2.status === '429' ? '(429 error)' : usage.fallback2.status === 'unchecked' ? '(unchecked)' : ''}
   - Currently Using: ${usage.currentKey} key
 - Status: ${config.NEWS_MONITOR.TWITTER_ENABLED ? 'Enabled' : 'Disabled'}
 - Running: ${twitterIntervalId !== null ? 'Yes' : 'No'}
+- Checking Interval: ${config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL/60000} minutes\n`;
+        
+        // Information for each account
+        let accountInfos = [];
+        let imagePromises = [];
+        
+        for (let i = 0; i < config.NEWS_MONITOR.TWITTER_ACCOUNTS.length; i++) {
+            const account = config.NEWS_MONITOR.TWITTER_ACCOUNTS[i];
+            const tweets = allTweetsByUser[account.username] || [];
+            const tweetCount = tweets.length;
+            
+            let accountInfo = `\n==== ACCOUNT ${i+1}: @${account.username} ====
+- Account Type: ${account.mediaOnly ? 'Media Only' : 'Regular'}
+- Skip Evaluation: ${account.skipEvaluation ? 'Yes' : 'No'}
+- Account-Specific Prompt: ${account.promptSpecific ? 'Yes' : 'No'}
+- Tweets Found: ${tweetCount}
+- Last Tweet ID: ${account.lastTweetId || 'Not set'}`;
 
-Latest Tweet:
-${latestTweet.text}
+            if (tweetCount === 0) {
+                accountInfo += `\n- Status: No tweets found for this account`;
+                accountInfos.push(accountInfo);
+                continue;
+            }
+            
+            // Sort tweets by creation date (newest first)
+            tweets.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            
+            // Get the latest tweet and previous tweets
+            const [latestTweet, ...previousTweets] = tweets;
+        
+            // Use the appropriate evaluation method based on account type
+            const sourceType = account.mediaOnly ? 'twitter-media' : 'twitter';
+            
+            // Check for account-specific evaluation first
+            let accountSpecificResult = null;
+            if (account.promptSpecific) {
+                // Test the account-specific evaluation
+                const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                accountSpecificResult = {
+                    passed: passed,
+                    promptName: `${account.username}_PROMPT`
+                };
+            }
+            
+            // Skip evaluation if the account is configured to do so
+            let evalResult = { isRelevant: account.skipEvaluation, justification: 'Skip evaluation flag is enabled' };
+            
+            // If not skipping evaluation, actually evaluate the tweet
+            if (!account.skipEvaluation) {
+                evalResult = await evaluateContent(
+                    latestTweet.text, 
+                    previousTweets.map(t => t.text), 
+                    sourceType, 
+                    account.username,
+                    true
+                );
+            }
+            
+            // Media information
+            let mediaInfo = 'No media attached';
+            let hasMedia = false;
+            let photoMedia = null;
+            
+            if (latestTweet.mediaObjects && latestTweet.mediaObjects.length > 0) {
+                photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                
+                if (photoMedia) {
+                    hasMedia = true;
+                    mediaInfo = `Has Image: Yes (${photoMedia.type})`;
+                    
+                    // If result is relevant and we should send this tweet, download the image
+                    if (evalResult.isRelevant && latestTweet.id !== account.lastTweetId) {
+                        try {
+                            const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                            const imagePromise = axios.get(imageUrl, { responseType: 'arraybuffer' })
+                                .then(response => {
+                                    const imageBuffer = Buffer.from(response.data);
+                                    const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                    return message.reply(media, null, { 
+                                        caption: `(Debug) Image for @${account.username} tweet` 
+                                    });
+                                })
+                                .catch(error => {
+                                    logger.error(`Error downloading image for @${account.username}:`, error);
+                                });
+                            
+                            imagePromises.push(imagePromise);
+                        } catch (error) {
+                            mediaInfo += ` (Error downloading: ${error.message})`;
+                        }
+                    }
+                } else {
+                    mediaInfo = `Has Media: Yes (${latestTweet.mediaObjects.map(m => m.type).join(', ')}, but no photos)`;
+                }
+            }
+            
+            // Format the message as it would be sent to the group
+            let groupMessage;
+            if (account.mediaOnly) {
+                groupMessage = `*Breaking News* 🗞️`;
+                if (latestTweet.text) {
+                    groupMessage += `\n\n${latestTweet.text}`;
+                }
+                groupMessage += `\n\nSource: @${account.username}`;
+            } else {
+                groupMessage = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
+            }
+            
+            accountInfo += `
+- Latest Tweet: "${latestTweet.text.substring(0, 100)}${latestTweet.text.length > 100 ? '...' : ''}"
+- Tweet Creation: ${new Date(latestTweet.created_at).toLocaleString()}
+- Tweet ID: ${latestTweet.id}
+- Would Process: ${latestTweet.id !== account.lastTweetId ? 'Yes' : 'No (Already Processed)'}
+- Media: ${mediaInfo}`;
 
-Tweet ID: ${latestTweet.id}
-Stored ID: ${account.lastTweetId}
-Would Process: ${latestTweet.id !== account.lastTweetId ? 'Yes' : 'No (Already Processed)'}
-Evaluation Result: ${evalResult.isRelevant ? 'RELEVANT' : 'NOT RELEVANT'}
-Justification: ${evalResult.justification || 'No justification provided'}
+            // Add account-specific evaluation results if applicable
+            if (accountSpecificResult) {
+                accountInfo += `
+- Account-Specific Evaluation:
+  - Prompt: ${accountSpecificResult.promptName}
+  - Result: ${accountSpecificResult.passed ? 'PASSED (sim)' : 'FAILED (não)'}
+  - Would Continue: ${accountSpecificResult.passed ? 'Yes' : 'No'}`;
+            }
+
+            // Add standard evaluation results
+            accountInfo += `
+- Standard Evaluation Result: ${evalResult.isRelevant ? 'RELEVANT' : 'NOT RELEVANT'}
+- Justification: ${evalResult.justification || 'No justification provided'}
+- Final Decision: ${(accountSpecificResult ? accountSpecificResult.passed : true) && evalResult.isRelevant && latestTweet.id !== account.lastTweetId ? 'SEND' : 'DO NOT SEND'}
 
 Message that would be sent (if relevant):
-${groupMessage}
+${groupMessage}${hasMedia ? '\n[With attached image]' : ''}`;
 
-Checking interval: ${config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL/60000} minutes`;
+            accountInfos.push(accountInfo);
+        }
         
+        // Add each account's info to the debug message
+        debugInfo += accountInfos.join('\n');
+        
+        // Send the complete debug info
         await message.reply(debugInfo);
+        
+        // Wait for all image promises to complete
+        await Promise.all(imagePromises);
+        
     } catch (error) {
         logger.error('Error in Twitter debug:', error);
         await message.reply('Error testing Twitter functionality: ' + error.message);
@@ -1275,6 +2209,7 @@ async function debugRssFunctionality(message) {
         
         // Create arrays for articles that pass and fail the time filter
         const articlesFromLastCheckInterval = [];
+        const olderArticles = [];
         
         // Process each article for time filtering
         for (const article of allArticles) {
@@ -1291,12 +2226,12 @@ async function debugRssFunctionality(message) {
             // Include if date is invalid, in future, or newer than cutoff
             if (isNaN(articleDate) || articleDate > new Date() || articleDate >= cutoffTime) {
                 articlesFromLastCheckInterval.push(article);
+            } else {
+                olderArticles.push(article);
             }
         }
         
-        stats.lastIntervalCount = articlesFromLastCheckInterval.length;
-        
-        // Log time filter results
+        // Log time filter results BEFORE moving to next step
         logger.debug(`Found ${articlesFromLastCheckInterval.length} articles from the last ${intervalMs/60000} minutes`);
         
         // Early exit if no articles from check interval
@@ -1317,8 +2252,6 @@ async function debugRssFunctionality(message) {
                 nonLocalArticles.push(article);
             }
         }
-        
-        stats.localExcludedCount = localArticles.length;
         
         // Format excluded titles for logging - now showing truncated titles (90 chars)
         const localTitles = localArticles.map(article => 
@@ -1357,8 +2290,6 @@ async function debugRssFunctionality(message) {
                 filteredByTitleArticles.push(article);
             }
         }
-        
-        stats.patternExcludedCount = excludedByTitleArticles.length;
         
         // Format excluded titles for logging - now showing truncated titles (90 chars)
         const excludedTitlePatterns = excludedByTitleArticles.map(article => 
@@ -1724,14 +2655,36 @@ function formatNewsArticle(article) {
 async function newsMonitorStatus(message) {
     try {
         const currentlyInQuietHours = isQuietHour();
+        const isDebugMode = config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG === true;
+        
+        // Get Twitter API key usage info
+        let twitterApiStatus = "Unknown";
+        try {
+            const usage = await checkTwitterAPIUsage();
+            twitterApiStatus = `Using ${usage.currentKey} key - Primary: ${usage.primary.usage}/${usage.primary.limit}${usage.primary.status === '429' ? ' (429)' : ''}, Fallback: ${usage.fallback.usage}/${usage.fallback.limit}${usage.fallback.status === '429' ? ' (429)' : ''}, Fallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}${usage.fallback2.status === '429' ? ' (429)' : ''}`;
+        } catch (error) {
+            twitterApiStatus = `Error checking API status: ${error.message}`;
+        }
+        
+        // Prepare detailed Twitter account information
+        let twitterAccountsInfo = '';
+        if (config.NEWS_MONITOR.TWITTER_ACCOUNTS && config.NEWS_MONITOR.TWITTER_ACCOUNTS.length > 0) {
+            config.NEWS_MONITOR.TWITTER_ACCOUNTS.forEach((account, index) => {
+                twitterAccountsInfo += `  ${index + 1}. @${account.username} (${account.mediaOnly ? 'Media Only' : 'Regular'}, Eval: ${account.skipEvaluation ? 'Skipped' : 'Required'})\n`;
+            });
+        } else {
+            twitterAccountsInfo = '  No accounts configured\n';
+        }
         
         const statusInfo = `News Monitor Status:
 - Master Toggle: ${config.NEWS_MONITOR.enabled ? 'Enabled' : 'Disabled'}
+- Debug Mode: ${isDebugMode ? 'Enabled' : 'Disabled'}
 - Target Group: ${config.NEWS_MONITOR.TARGET_GROUP}
 - Quiet Hours: ${config.NEWS_MONITOR.QUIET_HOURS?.ENABLED ? 'Enabled' : 'Disabled'}
 - Quiet Hours Period: ${config.NEWS_MONITOR.QUIET_HOURS?.START_HOUR}:00 to ${config.NEWS_MONITOR.QUIET_HOURS?.END_HOUR}:00 (${config.NEWS_MONITOR.QUIET_HOURS?.TIMEZONE || 'UTC'})
 - Currently in Quiet Hours: ${currentlyInQuietHours ? 'Yes' : 'No'}
 - Sent Article Cache: ${sentArticleCache.size} entries
+- Sent Tweet Cache: ${sentTweetCache.size} entries
 
 RSS Monitor:
 - Status: ${config.NEWS_MONITOR.RSS_ENABLED ? 'Enabled' : 'Disabled'}
@@ -1743,11 +2696,14 @@ Twitter Monitor:
 - Status: ${config.NEWS_MONITOR.TWITTER_ENABLED ? 'Enabled' : 'Disabled'}
 - Running: ${twitterIntervalId !== null ? 'Yes' : 'No'}
 - Check Interval: ${config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL/60000} minutes
+- API Status: ${twitterApiStatus}
 - Account Count: ${config.NEWS_MONITOR.TWITTER_ACCOUNTS?.length || 0}
-
+- Accounts:
+${twitterAccountsInfo}
 Commands:
 - !rssdebug on/off - Enable/disable RSS monitoring
 - !twitterdebug on/off - Enable/disable Twitter monitoring
+- !twitterdebug reset - Check all API keys' reset days
 - !newsstatus - Show this status information`;
 
         await message.reply(statusInfo);
@@ -2151,6 +3107,42 @@ async function processRssFeed(feed) {
     }
 }
 
+/**
+ * Evaluate a tweet using an account-specific prompt
+ * @param {string} content - The tweet content
+ * @param {string} username - The Twitter username
+ * @returns {Promise<boolean>} - Whether the tweet passed the account-specific evaluation
+ */
+async function evaluateAccountSpecific(content, username) {
+    try {
+        // Check if the account has a specific prompt defined
+        const promptName = `${username}_PROMPT`;
+        const prompt = config.NEWS_MONITOR.PROMPTS[promptName];
+        
+        if (!prompt) {
+            logger.debug(`No account-specific prompt found for @${username}, skipping account-specific evaluation`);
+            return true; // Default to passing if no prompt is defined
+        }
+        
+        // Use the account-specific prompt and replace placeholders
+        const formattedPrompt = prompt.replace('{post}', content);
+        
+        // Run the completion with the account-specific prompt
+        const result = await runCompletion(formattedPrompt, 0.3);
+        
+        // Parse the result (expecting 'sim' or 'não')
+        const lowerResult = result.trim().toLowerCase();
+        const passed = lowerResult === 'sim';
+        
+        logger.debug(`Account-specific evaluation for @${username}: ${passed ? 'Passed' : 'Failed'} (response: "${result}")`);
+        
+        return passed;
+    } catch (error) {
+        logger.error(`Error in account-specific evaluation for @${username}:`, error);
+        return true; // Default to passing in case of error to avoid blocking potentially relevant content
+    }
+}
+
 module.exports = {
     initializeNewsMonitor,
     debugTwitterFunctionality,
@@ -2162,9 +3154,9 @@ module.exports = {
     evaluateContent,
     generateSummary,
     fetchRssFeedItems,
-    fetchLatestTweets,
     isQuietHour,
     formatNewsArticle,
     recordSentTweet,
-    recordSentArticle
+    recordSentArticle,
+    evaluateAccountSpecific
 }; 

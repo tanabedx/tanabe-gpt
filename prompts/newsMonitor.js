@@ -11,7 +11,7 @@ Avalie o tweet acima e determine se ele deve ser enviado para um grupo de WhatsA
 Retorne a palavra "relevant" APENAS se o tweet atender a pelo menos um dos seguintes critérios:
 - Calamidades naturais ou desastres
 - Notícia global crítica
-- Relacionada ao Brasil ou com impacto direto no Brasil
+- Notícias críticas relacionadas ao Brasil ou com impacto direto no Brasil
 - Eventos de grande impacto global
 - Descobertas científicas ou avanços importantes
 - Eventos esportivos significativos com relevância internacional
@@ -26,6 +26,14 @@ Retorne a palavra "null" em todos os outros casos, incluindo:
 
 Tweets Analisados Anteriormente (para Contexto):
 {previous_posts}
+    `,
+    
+    SITREP_artorias_PROMPT: `
+Tweet de SITREP_artorias para Avaliação:
+{post}
+
+Instruções:
+Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Responda com apenas 'sim' ou 'não'.
     `,
     
     EVALUATE_ARTICLE: `

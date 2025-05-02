@@ -213,6 +213,83 @@ function getRelativeTime(date) {
     return `${diffInDays} dias atrás`;
 }
 
+/**
+ * Format a date in a compact way as MM/DD/YY
+ * @param {Date} date - The date to format
+ * @returns {string} - Formatted date string
+ */
+function formatCompactDate(date) {
+    if (!date || isNaN(date)) return '';
+    return `${date.getMonth()+1}/${date.getDate()}/${String(date.getFullYear()).substring(2)}`;
+}
+
+/**
+ * Format Twitter API usage information in a compact, single-line format
+ * @param {Object} usage - The Twitter API usage data
+ * @param {Object} resetTimes - Object containing reset timestamps for each key
+ * @param {string} currentKey - The currently active API key
+ * @returns {string} - Formatted usage string
+ */
+function formatTwitterApiUsage(usage, resetTimes, currentKey) {
+    if (!usage || !usage.primary) return 'API usage data unavailable';
+    
+    // Format API rate limit reset times (from 429 responses)
+    const formatRateLimitReset = (keyName) => {
+        const resetTime = resetTimes && resetTimes[keyName];
+        if (resetTime) {
+            const resetDate = new Date(resetTime);
+            return ` (resets ${formatCompactDate(resetDate)})`;
+        }
+        return '';
+    };
+    
+    // Format billing cycle reset day (from cap_reset_day)
+    const formatBillingReset = (keyData) => {
+        if (keyData && keyData.capResetDay) {
+            // Get current date to construct full reset date
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            
+            // Create date object for the reset day in the current month
+            let resetDate = new Date(currentYear, currentMonth, keyData.capResetDay);
+            
+            // If reset day has passed this month, show next month
+            if (now > resetDate) {
+                resetDate = new Date(currentYear, currentMonth + 1, keyData.capResetDay);
+            }
+            
+            return ` (resets ${formatCompactDate(resetDate)})`;
+        }
+        return '';
+    };
+    
+    // Format statuses for each key
+    const formatKeyStatus = (keyData, keyName) => {
+        if (!keyData) return '?/? (unknown)';
+        
+        const usage = keyData.usage || '?';
+        const limit = keyData.limit || '?';
+        
+        if (keyData.status === '429') {
+            return `${usage}/${limit} (rate limit${formatRateLimitReset(keyName)})`;
+        } else if (keyData.status === 'unchecked') {
+            return `${usage}/${limit} (unchecked)`;
+        } else if (keyData.status === 'error') {
+            return `${usage}/${limit} (error)`;
+        }
+        
+        // Add billing cycle reset info for non-error keys
+        return `${usage}/${limit}${formatBillingReset(keyData)}`;
+    };
+    
+    // Create the formatted message
+    return `Primary: ${formatKeyStatus(usage.primary, 'primary')}, ` +
+           `Fallback: ${formatKeyStatus(usage.fallback, 'fallback')}, ` +
+           `Fallback2: ${formatKeyStatus(usage.fallback2, 'fallback2')}, ` +
+           `using ${currentKey} key`;
+}
+
 module.exports = {
     scrapeNews,
     scrapeNews2,
@@ -221,5 +298,7 @@ module.exports = {
     parseXML,
     getRelativeTime,
     isLocalNews,
-    filterOutLocalNews
+    filterOutLocalNews,
+    formatCompactDate,
+    formatTwitterApiUsage
 }; 

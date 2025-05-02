@@ -1,4 +1,4 @@
-const { EVALUATE_TWEET, EVALUATE_ARTICLE, BATCH_EVALUATE_TITLES, BATCH_EVALUATE_FULL_CONTENT, SUMMARIZE_CONTENT } = require('../../prompts/newsMonitor');
+const { EVALUATE_TWEET, EVALUATE_ARTICLE, BATCH_EVALUATE_TITLES, BATCH_EVALUATE_FULL_CONTENT, SUMMARIZE_CONTENT, SITREP_artorias_PROMPT } = require('../../prompts/newsMonitor');
 
 // Unified News Monitor configuration
 const NEWS_MONITOR_CONFIG = {
@@ -11,8 +11,24 @@ const NEWS_MONITOR_CONFIG = {
     TWITTER_ACCOUNTS: [
         {
             username: 'BreakingNews',
-            userId: '6017542',
-            lastTweetId: '1874590993955123330'
+            lastTweetId: '1874590993955123330',
+            mediaOnly: false, // Regular news account - pull all tweets
+            skipEvaluation: false, // Evaluate these tweets with ChatGPT
+            promptSpecific: false // Use standard EVALUATE_TWEET prompt
+        },
+        {
+            username: 'BrazilianReport',
+            lastTweetId: null, // Will be populated after first fetch
+            mediaOnly: false, // Regular news account - pull all tweets
+            skipEvaluation: false, // Evaluate these tweets with ChatGPT
+            promptSpecific: false // Use standard EVALUATE_TWEET prompt
+        },
+        {
+            username: 'SITREP_artorias',
+            lastTweetId: null, // Will be populated after first fetch
+            mediaOnly: true, // Only pull tweets with media attachments
+            skipEvaluation: true, // Skip standard evaluation and rely only on account-specific prompt
+            promptSpecific: true // Use account-specific prompt
         }
     ],
     
@@ -77,7 +93,8 @@ const NEWS_MONITOR_CONFIG = {
         EVALUATE_ARTICLE,
         BATCH_EVALUATE_TITLES,
         BATCH_EVALUATE_FULL_CONTENT,
-        SUMMARIZE_CONTENT
+        SUMMARIZE_CONTENT,
+        SITREP_artorias_PROMPT
     }
 };
 
