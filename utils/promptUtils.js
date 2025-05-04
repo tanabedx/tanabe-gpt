@@ -1,8 +1,8 @@
 const logger = require('./logger');
-const CHAT_GPT = require('../prompts/chat_gpt');
-const GROUP_PERSONALITIES = require('../prompts/personalities');
-const RESUMO = require('../prompts/resumo');
-const DESENHO = require('../prompts/desenho');
+const CHAT_GPT = require('../prompts/chatgpt.prompt');
+const GROUP_PERSONALITIES = require('../prompts/personalities.prompt');
+const RESUMO = require('../prompts/resumo.prompt');
+const DESENHO = require('../prompts/desenho.prompt');
 
 // Get group names from environment variables
 const GROUP_LF = process.env.GROUP_LF;

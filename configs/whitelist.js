@@ -3,8 +3,8 @@
 
 // Import credentials for admin ID
 const CREDENTIALS = require('./credentials');
-const PERIODIC_SUMMARY = require('./periodic_summary_config');
-const envMapper = require('../utils/env_mapper');
+const PERIODIC_SUMMARY = require('./commandConfigs/periodicSummary.config');
+const envMapper = require('../utils/envMapper');
 
 // Avoid circular dependency with logger
 let logger;

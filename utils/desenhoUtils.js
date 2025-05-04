@@ -2,7 +2,7 @@ const axios = require('axios');
 const config = require('../configs');
 const logger = require('./logger');
 const { runCompletion } = require('./openaiUtils');
-const DESENHO = require('../prompts/desenho');
+const DESENHO = require('../prompts/desenho.prompt');
 
 async function generateImage(prompt, cfg_scale = 7) {
     try {

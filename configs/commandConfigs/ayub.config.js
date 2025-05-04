@@ -1,7 +1,7 @@
 // ayub.config.js
 // Configuration for the ayub news commands
 
-const RESUMO_PROMPT = require('../../prompts/resumo');
+const RESUMO_PROMPT = require('../../prompts/resumo.prompt');
 
 // Main AYUB_NEWS configuration
 const AYUB_CONFIG = {

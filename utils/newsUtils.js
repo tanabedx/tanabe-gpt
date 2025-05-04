@@ -171,19 +171,46 @@ async function searchNews(searchTerm) {
 }
 
 // Function to translate news to Portuguese
-async function translateToPortuguese(news) {
-    if (!Array.isArray(news) || news.length === 0) {
-        return [];
-    }
+async function translateToPortuguese(text, fromLanguage = 'en') {
+    // Handle array of news items (backward compatibility)
+    if (Array.isArray(text)) {
+        if (text.length === 0) {
+            return [];
+        }
 
+        try {
+            const newsText = text.join('\n');
+            const prompt = `Translate the following news to Portuguese. Keep the format and any source information in parentheses:\n\n${newsText}`;
+            const completion = await runCompletion(prompt, 1);
+            return completion.trim().split('\n').filter(item => item.trim() !== '');
+        } catch (error) {
+            logger.error(`[ERROR] Translation failed:`, error.message);
+            return text;
+        }
+    }
+    
+    // Handle a single text input
     try {
-        const newsText = news.join('\n');
-        const prompt = `Translate the following news to Portuguese. Keep the format and any source information in parentheses:\n\n${newsText}`;
-        const completion = await runCompletion(prompt, 1);
-        return completion.trim().split('\n').filter(item => item.trim() !== '');
+        if (!text || text.trim() === '') {
+            return text;
+        }
+        
+        // Skip translation if already in Portuguese
+        if (fromLanguage === 'pt') {
+            return text;
+        }
+        
+        const prompt = `Translate the following text from ${fromLanguage} to Portuguese. Maintain formatting and any special characters:
+
+${text}
+
+Provide only the translated text without additional commentary.`;
+
+        const translation = await runCompletion(prompt, 0.3);
+        return translation.trim();
     } catch (error) {
-        logger.error(`[ERROR] Translation failed:`, error.message);
-        return news;
+        logger.error(`[ERROR] Single text translation failed:`, error.message);
+        return text;
     }
 }
 

@@ -1,7 +1,7 @@
 // resumo.config.js
 // Configuration for the resumo command
 
-const RESUMO_PROMPT = require('../../prompts/resumo');
+const RESUMO_PROMPT = require('../../prompts/resumo.prompt');
 
 const RESUMO_CONFIG = {
     prefixes: ['#resumo'],

@@ -1,8 +1,8 @@
 // utils/group_manager.js
 // Utility for managing groups and their configurations
 
-const envMapper = require('./env_mapper');
-const periodicSummary = require('../configs/periodic_summary_config');
+const envMapper = require('./envMapper');
+const periodicSummary = require('../configs/commandConfigs/periodicSummary.config');
 
 // Avoid circular dependency with logger
 let logger;

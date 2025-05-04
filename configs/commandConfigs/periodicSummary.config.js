@@ -1,10 +1,10 @@
-// periodic_summary_config.js
+// periodicSummary.config.js
 require('dotenv').config({ path: './configs/.env' });
 
-// Avoid circular dependency with env_mapper
+// Avoid circular dependency with envMapper
 let envMapper;
 setTimeout(() => {
-    envMapper = require('../utils/env_mapper');
+    envMapper = require('../../utils/envMapper');
 }, 0);
 
 const PERIODIC_SUMMARY = {
@@ -15,7 +15,7 @@ const PERIODIC_SUMMARY = {
             end: '09:00'
         },
         deleteAfter: null,
-        promptPath: './prompts/periodic_summary.js'
+        promptPath: './prompts/periodicSummary.prompt.js'
     },
     groups: {
         [process.env.GROUP_AG]: {

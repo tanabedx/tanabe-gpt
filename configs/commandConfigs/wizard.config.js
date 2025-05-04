@@ -2,8 +2,8 @@
 // Configuration for the resumo_config (wizard) command
 
 // Import the resumo config
-const RESUMO_CONFIG = require('../periodic_summary_config');
-const RESUMO_CONFIG_PROMPT = require('../../prompts/resumo_config');
+const RESUMO_CONFIG = require('./periodicSummary.config');
+const RESUMO_CONFIG_PROMPT = require('../../prompts/resumoConfig.prompt');
 
 const WIZARD_CONFIG = {
     // Use the configuration from the periodic summary config

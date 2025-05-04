@@ -5,10 +5,10 @@ const CREDENTIALS = require('./credentials');
 const COMMANDS = require('./commandConfigs');
 const NEWS_MONITOR = require('./commandConfigs/newsMonitor.config');
 
-// Avoid circular dependency with periodic_summary_config
+// Avoid circular dependency with periodicSummary.config
 let PERIODIC_SUMMARY;
 setTimeout(() => {
-    PERIODIC_SUMMARY = require('./periodic_summary_config');
+    PERIODIC_SUMMARY = require('./commandConfigs/periodicSummary.config');
 }, 0);
 
 // System settings

@@ -523,12 +523,12 @@ async function checkTwitterAPIUsage(forceCheck = false) {
         
         if (allKeysOverLimit) {
             // Format message with reset times when available
-            const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
-${formatTwitterApiUsage(
-    { primary: primaryUsage, fallback: fallbackUsage, fallback2: fallback2Usage }, 
-    twitterApiUsageCache.resetTimes, 
-    currentKey
-)}`;
+            const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
+            ${formatTwitterApiUsage(
+                { primary: primaryUsage, fallback: fallbackUsage, fallback2: fallback2Usage }, 
+                twitterApiUsageCache.resetTimes, 
+                currentKey
+            )}`;
             logger.warn(message);
             
             // Disable Twitter monitor in config
@@ -717,12 +717,12 @@ async function fetchTweets(accounts) {
         // Base URL for fetching user tweets
         let url = `https://api.twitter.com/2/tweets/search/recent?query=`;
         
-        // Construct the search query
+        // Construct the search query with exclusions for retweets and replies
         const queryParts = accounts.map(account => {
             if (account.mediaOnly) {
-                return `(from:${account.username} has:images)`;
+                return `(from:${account.username} has:images -is:reply -is:retweet)`;
             } else {
-                return `(from:${account.username})`;
+                return `(from:${account.username} -is:reply -is:retweet)`;
             }
         });
         url += queryParts.join(' OR ');
@@ -1124,7 +1124,12 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                     
                     // Check if all keys are over limit
                     if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                        const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                        const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
+                        ${formatTwitterApiUsage(
+                            { primary: usage, fallback: usage, fallback2: usage }, 
+                            twitterApiUsageCache.resetTimes, 
+                            usage.currentKey
+                        )}`;
                         logger.warn(message);
                         
                         // Disable Twitter monitor in config
@@ -1166,7 +1171,12 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     logger.info('Switched to fallback2 Twitter API key');
                                 } else {
                                     // All keys are over limit, disable Twitter monitor
-                                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
+                                    ${formatTwitterApiUsage(
+                                        { primary: usage, fallback: usage, fallback2: usage }, 
+                                        twitterApiUsageCache.resetTimes, 
+                                        usage.currentKey
+                                    )}`;
                                     logger.warn(message);
                                     
                                     // Disable Twitter monitor in config
@@ -1242,8 +1252,22 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                         // Create the media object
                                                         const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
                                                         
+                                                        // Translate tweet text if needed
+                                                        let translatedText = latestTweet.text || '';
+                                                        try {
+                                                            // Only translate if there's text
+                                                            if (translatedText) {
+                                                                // Assume English as source language
+                                                                translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en');
+                                                                logger.debug(`Translated media tweet from ${account.username}`);
+                                                            }
+                                                        } catch (translationError) {
+                                                            logger.error(`Error translating media tweet for ${account.username}:`, translationError);
+                                                            // Continue with original text if translation fails
+                                                        }
+                                                        
                                                         // Format message text
-                                                        const caption = `*Breaking News* 🗞️\n\n${latestTweet.text ? `${latestTweet.text}\n\n` : ''}Source: @${account.username}`;
+                                                        const caption = `*Breaking News* 🗞️\n\n${translatedText ? `${translatedText}\n\n` : ''}Source: @${account.username}`;
                                                         
                                                         // Send media with caption in a single message
                                                         await targetGroup.sendMessage(media, { caption: caption });
@@ -1285,13 +1309,18 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                 }
                                                 
                                                 if (isRelevant) {
-                                                    // Create base message
-                                                    const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
+                                                    // Check if we need to translate the tweet
+                                                    let translatedText = latestTweet.text;
+                                                    try {
+                                                        // Assume English as source language for translation
+                                                        translatedText = await require('../utils/newsUtils').translateToPortuguese(latestTweet.text, 'en');
+                                                        logger.debug(`Translated tweet from ${account.username}`);
+                                                    } catch (translationError) {
+                                                        logger.error(`Error translating tweet for ${account.username}:`, translationError);
+                                                        // Continue with original text if translation fails
+                                                    }
                                                     
-                                                    // Send text message
-                                                    await targetGroup.sendMessage(message);
-                                                    
-                                                    // Check if the tweet has media and attach one media item if available
+                                                    // Check if the tweet has media
                                                     if (latestTweet.mediaObjects && latestTweet.mediaObjects.length > 0) {
                                                         // Find the first photo in the media objects
                                                         const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
@@ -1304,18 +1333,33 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                 const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
                                                                 const imageBuffer = Buffer.from(response.data);
                                                                 
-                                                                // Send just the image (without caption)
+                                                                // Create media object
                                                                 const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
-                                                                await targetGroup.sendMessage(media);
                                                                 
-                                                                logger.info(`Attached media from ${account.username} tweet`);
+                                                                // Format message text with caption
+                                                                const caption = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                                
+                                                                // Send media with caption in a single message
+                                                                await targetGroup.sendMessage(media, { caption: caption });
+                                                                
+                                                                logger.info(`Sent tweet with media from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
                                                             } catch (mediaError) {
                                                                 logger.error(`Error attaching media for ${account.username}:`, mediaError);
+                                                                
+                                                                // Fallback to sending text-only message if media fails
+                                                                const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                                await targetGroup.sendMessage(message);
                                                             }
+                                                        } else {
+                                                            // No photo media available, send text only
+                                                            const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                            await targetGroup.sendMessage(message);
                                                         }
+                                                    } else {
+                                                        // No media, send text only
+                                                        const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                        await targetGroup.sendMessage(message);
                                                     }
-                                                    
-                                                    logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
                                                     
                                                     // Record that we sent this tweet
                                                     recordSentTweet(latestTweet, account.username);
@@ -1480,7 +1524,12 @@ async function initializeNewsMonitor() {
                 
                 // Check if all keys are over limit
                 if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
+                    ${formatTwitterApiUsage(
+                        { primary: usage, fallback: usage, fallback2: usage }, 
+                        twitterApiUsageCache.resetTimes, 
+                        usage.currentKey
+                    )}`;
                     logger.warn(message);
                         
                         // Disable Twitter monitor in config
@@ -1528,7 +1577,12 @@ async function initializeNewsMonitor() {
                                     logger.info('Switched to fallback2 Twitter API key');
                                 } else {
                                     // All keys are over limit, disable Twitter monitor
-                                    const message = `⚠️ Twitter Monitor Disabled: All API keys are over rate limit.\nPrimary: ${usage.primary.usage}/${usage.primary.limit}\nFallback: ${usage.fallback.usage}/${usage.fallback.limit}\nFallback2: ${usage.fallback2.usage}/${usage.fallback2.limit}`;
+                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
+                                    ${formatTwitterApiUsage(
+                                        { primary: usage, fallback: usage, fallback2: usage }, 
+                                        twitterApiUsageCache.resetTimes, 
+                                        usage.currentKey
+                                    )}`;
                                     logger.warn(message);
                                     
                                     // Disable Twitter monitor in config
@@ -1604,14 +1658,28 @@ async function initializeNewsMonitor() {
                                                         // Create the media object
                                                         const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
                                                         
+                                                        // Translate tweet text if needed
+                                                        let translatedText = latestTweet.text || '';
+                                                        try {
+                                                            // Only translate if there's text
+                                                            if (translatedText) {
+                                                                // Assume English as source language
+                                                                translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en');
+                                                                logger.debug(`Translated media tweet from ${account.username}`);
+                                                            }
+                                                        } catch (translationError) {
+                                                            logger.error(`Error translating media tweet for ${account.username}:`, translationError);
+                                                            // Continue with original text if translation fails
+                                                        }
+                                                        
                                                         // Format message text
-                                                        const caption = `*Breaking News* 🗞️\n\n${latestTweet.text ? `${latestTweet.text}\n\n` : ''}Source: @${account.username}`;
+                                                        const caption = `*Breaking News* 🗞️\n\n${translatedText ? `${translatedText}\n\n` : ''}Source: @${account.username}`;
                                                         
                                                         // Send media with caption in a single message
                                                         await targetGroup.sendMessage(media, { caption: caption });
                                                         
                                                         logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text?.substring(0, 50)}...`);
-                                                        
+                                        
                                                         // Record that we sent this tweet
                                                         recordSentTweet(latestTweet, account.username);
                                                     }
@@ -1647,13 +1715,18 @@ async function initializeNewsMonitor() {
                                                 }
                                                 
                                                 if (isRelevant) {
-                                                    // Create base message
-                                        const message = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
+                                                    // Check if we need to translate the tweet
+                                                    let translatedText = latestTweet.text;
+                                                    try {
+                                                        // Assume English as source language for translation
+                                                        translatedText = await require('../utils/newsUtils').translateToPortuguese(latestTweet.text, 'en');
+                                                        logger.debug(`Translated tweet from ${account.username}`);
+                                                    } catch (translationError) {
+                                                        logger.error(`Error translating tweet for ${account.username}:`, translationError);
+                                                        // Continue with original text if translation fails
+                                                    }
                                                     
-                                                    // Send text message
-                                        await targetGroup.sendMessage(message);
-                                                    
-                                                    // Check if the tweet has media and attach one media item if available
+                                                    // Check if the tweet has media
                                                     if (latestTweet.mediaObjects && latestTweet.mediaObjects.length > 0) {
                                                         // Find the first photo in the media objects
                                                         const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
@@ -1666,21 +1739,36 @@ async function initializeNewsMonitor() {
                                                                 const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
                                                                 const imageBuffer = Buffer.from(response.data);
                                                                 
-                                                                // Send just the image (without caption)
+                                                                // Create media object
                                                                 const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
-                                                                await targetGroup.sendMessage(media);
                                                                 
-                                                                logger.info(`Attached media from ${account.username} tweet`);
+                                                                // Format message text with caption
+                                                                const caption = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                                
+                                                                // Send media with caption in a single message
+                                                                await targetGroup.sendMessage(media, { caption: caption });
+                                                                
+                                                                logger.info(`Sent tweet with media from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
                                                             } catch (mediaError) {
                                                                 logger.error(`Error attaching media for ${account.username}:`, mediaError);
+                                                                
+                                                                // Fallback to sending text-only message if media fails
+                                                                const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                                await targetGroup.sendMessage(message);
                                                             }
+                                                        } else {
+                                                            // No photo media available, send text only
+                                                            const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                            await targetGroup.sendMessage(message);
                                                         }
+                                                    } else {
+                                                        // No media, send text only
+                                                        const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                                                        await targetGroup.sendMessage(message);
                                                     }
                                                     
-                                        logger.info(`Sent tweet from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
-                                        
-                                        // Record that we sent this tweet
-                                        recordSentTweet(latestTweet, account.username);
+                                                    // Record that we sent this tweet
+                                                    recordSentTweet(latestTweet, account.username);
                                                 }
                                             } catch (error) {
                                                 logger.error(`Error processing tweet for ${account.username}:`, error);
@@ -2189,380 +2277,419 @@ async function debugRssFunctionality(message) {
         // Process the feed with stats collection
         logger.debug(`Fetching RSS feed: ${feed.name} (${feed.url})`);
         
-        const feedData = await parser.parseURL(feed.url);
-        const allArticles = feedData.items || [];
-        stats.fetchedCount = allArticles.length;
+        // Initialize variables to prevent undefined errors
+        let allArticles = [];
+        let articlesFromLastCheckInterval = [];
+        let nonLocalArticles = [];
+        let localArticles = [];
+        let filteredByTitleArticles = [];
+        let excludedByTitleArticles = [];
+        let notRecentlySentArticles = [];
+        let recentlySentArticles = [];
+        let dedupedArticles = [];
+        let relevantArticles = [];
+        let irrelevantArticles = [];
+        let finalRelevantArticles = [];
+        let notRelevantFullContent = [];
+        let formattedExamples = [];
         
-        // Log immediately after fetching
-        logger.debug(`Retrieved ${allArticles.length} items from feed: ${feed.name}`);
-        
-        // Early exit if no articles
-        if (allArticles.length === 0) {
-            logger.debug(`No items found in feed: ${feed.name}`);
-            return [];
+        try {
+            const feedData = await parser.parseURL(feed.url);
+            allArticles = feedData.items || [];
+            stats.fetchedCount = allArticles.length;
+            
+            // Log immediately after fetching
+            logger.debug(`Retrieved ${allArticles.length} items from feed: ${feed.name}`);
+        } catch (error) {
+            logger.error(`Error fetching RSS feed ${feed.name}:`, error);
+            stats.fetchedCount = 0;
         }
         
-        // STEP 2: Filter by time - purely synchronous operation
-        // Sort by date first (newest first)
-        allArticles.sort((a, b) => new Date(b.pubDate || b.isoDate) - new Date(a.pubDate || a.isoDate));
-        
-        const intervalMs = config.NEWS_MONITOR.RSS_CHECK_INTERVAL;
-        const cutoffTime = new Date(Date.now() - intervalMs);
-        
-        // Create arrays for articles that pass and fail the time filter
-        const articlesFromLastCheckInterval = [];
-        const olderArticles = [];
-        
-        // Process each article for time filtering
-        for (const article of allArticles) {
-            const pubDate = article.pubDate || article.isoDate;
+        // Continue only if we have articles
+        if (allArticles.length > 0) {
+            // STEP 2: Filter by time - purely synchronous operation
+            // Sort by date first (newest first)
+            allArticles.sort((a, b) => new Date(b.pubDate || b.isoDate) - new Date(a.pubDate || a.isoDate));
             
-            // Default to including if no date
-            if (!pubDate) {
-                articlesFromLastCheckInterval.push(article);
-                continue;
+            const intervalMs = config.NEWS_MONITOR.RSS_CHECK_INTERVAL;
+            const cutoffTime = new Date(Date.now() - intervalMs);
+            
+            // Create arrays for articles that pass and fail the time filter
+            articlesFromLastCheckInterval = [];
+            const olderArticles = [];
+            
+            // Process each article for time filtering
+            for (const article of allArticles) {
+                const pubDate = article.pubDate || article.isoDate;
+                
+                // Default to including if no date
+                if (!pubDate) {
+                    articlesFromLastCheckInterval.push(article);
+                    continue;
+                }
+                
+                const articleDate = new Date(pubDate);
+                
+                // Include if date is invalid, in future, or newer than cutoff
+                if (isNaN(articleDate) || articleDate > new Date() || articleDate >= cutoffTime) {
+                    articlesFromLastCheckInterval.push(article);
+                } else {
+                    olderArticles.push(article);
+                }
             }
             
-            const articleDate = new Date(pubDate);
+            // Update stats
+            stats.lastIntervalCount = articlesFromLastCheckInterval.length;
             
-            // Include if date is invalid, in future, or newer than cutoff
-            if (isNaN(articleDate) || articleDate > new Date() || articleDate >= cutoffTime) {
-                articlesFromLastCheckInterval.push(article);
+            // Log time filter results
+            logger.debug(`Found ${articlesFromLastCheckInterval.length} articles from the last ${intervalMs/60000} minutes`);
+        }
+        
+        // Continue processing if we have articles from the check interval
+        if (articlesFromLastCheckInterval.length > 0) {
+            // STEP 3: Filter local news
+            nonLocalArticles = [];
+            localArticles = [];
+            
+            // Check each article
+            for (const article of articlesFromLastCheckInterval) {
+                if (isLocalNews(article.link)) {
+                    localArticles.push(article);
+                } else {
+                    nonLocalArticles.push(article);
+                }
+            }
+            
+            // Update stats
+            stats.localExcludedCount = localArticles.length;
+            
+            // Format excluded titles for logging - now showing truncated titles (90 chars)
+            const localTitles = localArticles.map(article => 
+                `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
+                ).join('\n');
+                
+            // Log filtered local news results
+            if (localArticles.length > 0) {
+                // Log the count message with titles
+                logger.debug(`Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total\n${localTitles}`);
             } else {
-                olderArticles.push(article);
+                logger.debug(`Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total`);
             }
         }
         
-        // Log time filter results BEFORE moving to next step
-        logger.debug(`Found ${articlesFromLastCheckInterval.length} articles from the last ${intervalMs/60000} minutes`);
-        
-        // Early exit if no articles from check interval
-        if (articlesFromLastCheckInterval.length === 0) {
-            logger.debug(`No new articles in the last check interval for feed: ${feed.name}`);
-            return [];
-        }
-        
-        // STEP 3: Filter local news
-        const nonLocalArticles = [];
-        const localArticles = [];
-        
-        // Check each article
-        for (const article of articlesFromLastCheckInterval) {
-            if (isLocalNews(article.link)) {
-                localArticles.push(article);
-            } else {
-                nonLocalArticles.push(article);
+        // Continue processing if we have non-local articles
+        if (nonLocalArticles.length > 0) {
+            // STEP 4: Filter articles with low-quality title patterns
+            const titlePatterns = config.NEWS_MONITOR.CONTENT_FILTERING.TITLE_PATTERNS || [];
+            filteredByTitleArticles = [];
+            excludedByTitleArticles = [];
+            
+            // Check each article against title patterns
+            for (const article of nonLocalArticles) {
+                // Check if the title matches any of the patterns to filter
+                const matchesPattern = titlePatterns.some(pattern => 
+                    article.title && article.title.includes(pattern)
+                );
+                
+                if (matchesPattern) {
+                    excludedByTitleArticles.push(article);
+                } else {
+                    filteredByTitleArticles.push(article);
+                }
             }
-        }
-        
-        // Format excluded titles for logging - now showing truncated titles (90 chars)
-        const localTitles = localArticles.map(article => 
-            `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
+            
+            // Update stats
+            stats.patternExcludedCount = excludedByTitleArticles.length;
+            
+            // Format excluded titles for logging - now showing truncated titles (90 chars)
+            const excludedTitlePatterns = excludedByTitleArticles.map(article => 
+                `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
             ).join('\n');
             
-        // Log filtered local news results
-        if (localArticles.length > 0) {
-            // Log the count message with titles
-            logger.debug(`Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total\n${localTitles}`);
-        } else {
-            logger.debug(`Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total`);
-        }
-        
-        // Early exit if no non-local articles
-        if (nonLocalArticles.length === 0) {
-            logger.debug(`No non-local articles found in check interval for feed: ${feed.name}`);
-            return [];
-        }
-        
-        // STEP 4: Filter articles with low-quality title patterns
-        const titlePatterns = config.NEWS_MONITOR.CONTENT_FILTERING.TITLE_PATTERNS || [];
-        const filteredByTitleArticles = [];
-        const excludedByTitleArticles = [];
-        
-        // Check each article against title patterns
-        for (const article of nonLocalArticles) {
-            // Check if the title matches any of the patterns to filter
-            const matchesPattern = titlePatterns.some(pattern => 
-                article.title && article.title.includes(pattern)
-            );
-            
-            if (matchesPattern) {
-                excludedByTitleArticles.push(article);
+            // Log filtered title pattern results
+            if (excludedByTitleArticles.length > 0) {
+                // Log the count message with titles
+                logger.debug(`Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total\n${excludedTitlePatterns}`);
             } else {
-                filteredByTitleArticles.push(article);
+                logger.debug(`Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total`);
             }
         }
         
-        // Format excluded titles for logging - now showing truncated titles (90 chars)
-        const excludedTitlePatterns = excludedByTitleArticles.map(article => 
-            `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
-        ).join('\n');
-        
-        // Log filtered title pattern results
-        if (excludedByTitleArticles.length > 0) {
-            // Log the count message with titles
-            logger.debug(`Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total\n${excludedTitlePatterns}`);
-        } else {
-            logger.debug(`Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total`);
-        }
-        
-        // Early exit if no articles passed title filtering
-        if (filteredByTitleArticles.length === 0) {
-            logger.debug(`No articles passed title pattern filtering`);
-            return [];
-        }
-        
-        // STEP 5: Filter out articles similar to ones recently sent
-        const notRecentlySentArticles = [];
-        const recentlySentArticles = [];
-        
-        // Add feed ID to each article for caching purposes
-        filteredByTitleArticles.forEach(article => {
-            article.feedId = feed.id;
-        });
-        
-        // Filter out articles that are similar to ones sent in the last 24h
-        for (const article of filteredByTitleArticles) {
-            if (isArticleSentRecently(article)) {
-                recentlySentArticles.push(article);
-            } else {
-                notRecentlySentArticles.push(article);
-            }
-        }
-        
-        stats.historicalExcludedCount = recentlySentArticles.length;
-        
-        // Format recently sent article titles for logging - showing truncated titles (90 chars)
-        const recentlySentTitles = recentlySentArticles.map(article => 
-            `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
-        ).join('\n');
-        
-        // Log recently sent filter results
-        if (recentlySentArticles.length > 0) {
-            // Log the count message with titles
-            logger.debug(`Filtered ${recentlySentArticles.length} articles similar to recently sent ones\n${recentlySentTitles}`);
-        } else {
-            logger.debug(`Filtered ${recentlySentArticles.length} articles similar to recently sent ones`);
-        }
-        
-        // Process the remaining articles the same way as in processRssFeed
-        // STEP 5.5: Filter similar articles within the current batch
-        const sortedByDateArticles = [...notRecentlySentArticles].sort((a, b) => {
-            const dateA = new Date(a.pubDate || a.isoDate || 0);
-            const dateB = new Date(b.pubDate || b.isoDate || 0);
-            return dateA - dateB; // Oldest first
-        });
-        
-        const dedupedArticles = [];
-        const duplicateGroups = []; // For tracking which articles were kept vs removed
-        const processedTitles = new Map();
-        const similarityThreshold = config.NEWS_MONITOR?.HISTORICAL_CACHE?.BATCH_SIMILARITY_THRESHOLD || 0.65;
-        
-        // Process each article for de-duplication
-        for (const article of sortedByDateArticles) {
-            const articleTitle = article.title?.toLowerCase() || '';
-            if (!articleTitle) {
-                // Include articles with no title (should be rare)
-                dedupedArticles.push(article);
-                continue;
-            }
+        // Continue processing if articles passed title filtering
+        if (filteredByTitleArticles.length > 0) {
+            // STEP 5: Filter out articles similar to ones recently sent
+            notRecentlySentArticles = [];
+            recentlySentArticles = [];
             
-            // Check if similar to any already processed article
-            let isDuplicate = false;
-            let groupIndex = -1;
-            
-            for (const [processedTitle, info] of processedTitles.entries()) {
-                const similarity = calculateTitleSimilarity(articleTitle, processedTitle);
-                if (similarity >= similarityThreshold) {
-                    isDuplicate = true;
-                    groupIndex = info.groupIndex;
-                    // Add to existing duplicate group for logging
-                    duplicateGroups[groupIndex].duplicates.push({
-                        title: article.title,
-                        date: article.pubDate || article.isoDate,
-                        similarity: similarity
-                    });
-                    break;
-                }
-            }
-            
-            // If not a duplicate, add to deduped list and track the title
-            if (!isDuplicate) {
-                dedupedArticles.push(article);
-                // Create a new group for this article
-                groupIndex = duplicateGroups.length;
-                duplicateGroups.push({
-                    kept: {
-                        title: article.title,
-                        date: article.pubDate || article.isoDate
-                    },
-                    duplicates: []
-                });
-                processedTitles.set(articleTitle, {
-                    groupIndex,
-                    article
-                });
-            }
-        }
-        
-        // Count duplicates removed
-        const duplicateCount = duplicateGroups.reduce((count, group) => count + group.duplicates.length, 0);
-        stats.duplicatesExcludedCount = duplicateCount;
-        
-        // Log duplicate filtering results
-        const groupsWithDuplicates = duplicateGroups.filter(group => group.duplicates.length > 0);
-        
-        if (groupsWithDuplicates.length > 0) {
-            let duplicateLog = `Found and removed ${duplicateCount} duplicate articles in current batch:\n`;
-            
-            groupsWithDuplicates.forEach((group, index) => {
-                const keptDate = new Date(group.kept.date);
-                const formattedKeptDate = isNaN(keptDate) ? 'Unknown date' : 
-                    keptDate.toISOString().replace('T', ' ').substring(0, 19);
-                
-                const keptTitle = group.kept.title?.substring(0, 90) + (group.kept.title?.length > 90 ? '...' : '');
-                duplicateLog += `KEPT: "${keptTitle}" (${formattedKeptDate})\nDUPLICATES:\n`;
-                
-                const sortedDuplicates = [...group.duplicates].sort((a, b) => b.similarity - a.similarity);
-                
-                sortedDuplicates.forEach(dup => {
-                    const dupDate = new Date(dup.date);
-                    const formattedDupDate = isNaN(dupDate) ? 'Unknown date' : 
-                        dupDate.toISOString().replace('T', ' ').substring(0, 19);
-                    
-                    // Truncate title to 90 chars for logging
-                    const dupTitle = dup.title?.substring(0, 90) + (dup.title?.length > 90 ? '...' : '');
-                    duplicateLog += `"${dupTitle}" (${formattedDupDate}) - similarity: ${dup.similarity.toFixed(2)}\n`;
-                });
-                
-                // Add double line break between groups, except after the last group
-                if (index < groupsWithDuplicates.length - 1) {
-                    duplicateLog += `\n\n`;
-                }
+            // Add feed ID to each article for caching purposes
+            filteredByTitleArticles.forEach(article => {
+                article.feedId = feed.id;
             });
             
-            logger.debug(duplicateLog);
-        } else {
-            logger.debug(`No duplicate articles found in current batch`);
-        }
-        
-        // STEP 7: Preliminary relevance assessment
-        const fullTitles = dedupedArticles.map(article => article.title);
-        
-        // Perform the batch evaluation 
-        const titleRelevanceResults = await batchEvaluateArticleTitles(fullTitles);
-        
-        // Find articles with relevant titles
-        const relevantArticles = [];
-        const irrelevantArticles = [];
-        
-        dedupedArticles.forEach((article, index) => {
-            if (titleRelevanceResults[index]) {
-                relevantArticles.push(article);
-            } else {
-                irrelevantArticles.push(article);
+            // Filter out articles that are similar to ones sent in the last 24h
+            for (const article of filteredByTitleArticles) {
+                if (isArticleSentRecently(article)) {
+                    recentlySentArticles.push(article);
+                } else {
+                    notRecentlySentArticles.push(article);
+                }
             }
-        });
-        
-        stats.preliminaryExcludedCount = irrelevantArticles.length;
-        
-        // Log results of preliminary relevance assessment - showing truncated titles (90 chars)
-        if (irrelevantArticles.length > 0) {
-            const irrelevantTitles = irrelevantArticles.map(article => 
+            
+            // Update stats
+            stats.historicalExcludedCount = recentlySentArticles.length;
+            
+            // Format recently sent article titles for logging - showing truncated titles (90 chars)
+            const recentlySentTitles = recentlySentArticles.map(article => 
                 `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
             ).join('\n');
-            logger.debug(`Filtered out ${irrelevantArticles.length} out of ${dedupedArticles.length} irrelevant titles:\n${irrelevantTitles}`);
+            
+            // Log recently sent filter results
+            if (recentlySentArticles.length > 0) {
+                // Log the count message with titles
+                logger.debug(`Filtered ${recentlySentArticles.length} articles similar to recently sent ones\n${recentlySentTitles}`);
+            } else {
+                logger.debug(`Filtered ${recentlySentArticles.length} articles similar to recently sent ones`);
+            }
         }
         
-        // Log relevant titles - showing truncated titles (90 chars)
-        if (relevantArticles.length > 0) {
-            const relevantTitles = relevantArticles.map(article => 
-                `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
-            ).join('\n');
-        } else {
-            logger.debug(`No articles were found to have relevant titles.`);
-            return [];
-        }
-        
-        // STEP 8: Evaluate full content of each article individually
-        const finalRelevantArticles = [];
-        const notRelevantFullContent = [];
-        
-        // Process each article individually with the EVALUATE_ARTICLE prompt
-        for (const article of relevantArticles) {
-            const articleContent = extractArticleContent(article);
+        // Continue processing the remaining articles
+        if (notRecentlySentArticles.length > 0) {
+            // STEP 5.5: Filter similar articles within the current batch
+            const sortedByDateArticles = [...notRecentlySentArticles].sort((a, b) => {
+                const dateA = new Date(a.pubDate || a.isoDate || 0);
+                const dateB = new Date(b.pubDate || b.isoDate || 0);
+                return dateA - dateB; // Oldest first
+            });
             
-            // We use an empty array for previousArticles since we're evaluating each individually
-            const evalResult = await evaluateContent(
-                `Título: ${article.title}\n\n${articleContent}`, 
-                [], // No previous articles context
-                'rss',
-                true // Include justification
-            );
+            dedupedArticles = [];
+            const duplicateGroups = []; // For tracking which articles were kept vs removed
+            const processedTitles = new Map();
+            const similarityThreshold = config.NEWS_MONITOR?.HISTORICAL_CACHE?.BATCH_SIMILARITY_THRESHOLD || 0.65;
             
-            if (evalResult.isRelevant) {
-                // Extract only the key reason from justification (keep it brief)
-                let shortJustification = evalResult.justification;
-                if (shortJustification && shortJustification.length > 40) {
-                    // Try to find common phrases that explain the reason
-                    if (shortJustification.includes('notícia global')) {
-                        shortJustification = 'Notícia global crítica';
-                    } else if (shortJustification.includes('Brasil') || shortJustification.includes('brasileiro')) {
-                        shortJustification = 'Relevante para o Brasil';
-                    } else if (shortJustification.includes('São Paulo')) {
-                        shortJustification = 'Relevante para São Paulo';
-                    } else if (shortJustification.includes('científic')) {
-                        shortJustification = 'Descoberta científica importante';
-                    } else if (shortJustification.includes('esport')) {
-                        shortJustification = 'Evento esportivo significativo';
-                    } else if (shortJustification.includes('escândalo') || shortJustification.includes('polític')) {
-                        shortJustification = 'Escândalo político/econômico';
-                    } else if (shortJustification.includes('impacto global')) {
-                        shortJustification = 'Grande impacto global';
-                    } else {
-                        // If none of the above, truncate to first 40 chars
-                        shortJustification = shortJustification.substring(0, 40) + '...';
+            // Process each article for de-duplication
+            for (const article of sortedByDateArticles) {
+                const articleTitle = article.title?.toLowerCase() || '';
+                if (!articleTitle) {
+                    // Include articles with no title (should be rare)
+                    dedupedArticles.push(article);
+                    continue;
+                }
+                
+                // Check if similar to any already processed article
+                let isDuplicate = false;
+                let groupIndex = -1;
+                
+                for (const [processedTitle, info] of processedTitles.entries()) {
+                    const similarity = calculateTitleSimilarity(articleTitle, processedTitle);
+                    if (similarity >= similarityThreshold) {
+                        isDuplicate = true;
+                        groupIndex = info.groupIndex;
+                        // Add to existing duplicate group for logging
+                        duplicateGroups[groupIndex].duplicates.push({
+                            title: article.title,
+                            date: article.pubDate || article.isoDate,
+                            similarity: similarity
+                        });
+                        break;
                     }
                 }
                 
-                // Store short justification with the article for later use
-                article.relevanceJustification = shortJustification;
-                finalRelevantArticles.push(article);
-            } else {
-                notRelevantFullContent.push({
-                    title: article.title
+                // If not a duplicate, add to deduped list and track the title
+                if (!isDuplicate) {
+                    dedupedArticles.push(article);
+                    // Create a new group for this article
+                    groupIndex = duplicateGroups.length;
+                    duplicateGroups.push({
+                        kept: {
+                            title: article.title,
+                            date: article.pubDate || article.isoDate
+                        },
+                        duplicates: []
+                    });
+                    processedTitles.set(articleTitle, {
+                        groupIndex,
+                        article
+                    });
+                }
+            }
+            
+            // Count duplicates removed
+            const duplicateCount = duplicateGroups.reduce((count, group) => count + group.duplicates.length, 0);
+            stats.duplicatesExcludedCount = duplicateCount;
+            
+            // Log duplicate filtering results
+            const groupsWithDuplicates = duplicateGroups.filter(group => group.duplicates.length > 0);
+            
+            if (groupsWithDuplicates.length > 0) {
+                let duplicateLog = `Found and removed ${duplicateCount} duplicate articles in current batch:\n`;
+                
+                groupsWithDuplicates.forEach((group, index) => {
+                    const keptDate = new Date(group.kept.date);
+                    const formattedKeptDate = isNaN(keptDate) ? 'Unknown date' : 
+                        keptDate.toISOString().replace('T', ' ').substring(0, 19);
+                    
+                    const keptTitle = group.kept.title?.substring(0, 90) + (group.kept.title?.length > 90 ? '...' : '');
+                    duplicateLog += `KEPT: "${keptTitle}" (${formattedKeptDate})\nDUPLICATES:\n`;
+                    
+                    const sortedDuplicates = [...group.duplicates].sort((a, b) => b.similarity - a.similarity);
+                    
+                    sortedDuplicates.forEach(dup => {
+                        const dupDate = new Date(dup.date);
+                        const formattedDupDate = isNaN(dupDate) ? 'Unknown date' : 
+                            dupDate.toISOString().replace('T', ' ').substring(0, 19);
+                        
+                        // Truncate title to 90 chars for logging
+                        const dupTitle = dup.title?.substring(0, 90) + (dup.title?.length > 90 ? '...' : '');
+                        duplicateLog += `"${dupTitle}" (${formattedDupDate}) - similarity: ${dup.similarity.toFixed(2)}\n`;
+                    });
+                    
+                    // Add double line break between groups, except after the last group
+                    if (index < groupsWithDuplicates.length - 1) {
+                        duplicateLog += `\n\n`;
+                    }
                 });
+                
+                logger.debug(duplicateLog);
+            } else {
+                logger.debug(`No duplicate articles found in current batch`);
             }
         }
         
-        stats.fullContentExcludedCount = notRelevantFullContent.length;
-        stats.relevantCount = finalRelevantArticles.length;
-        
-        // Log results of full content evaluation - showing only titles (90 chars)
-        if (notRelevantFullContent.length > 0) {
-            let irrelevantLog = `Filtered out ${notRelevantFullContent.length} out of ${relevantArticles.length} after content evaluation:\n`;
+        // Continue with preliminary relevance assessment if we have deduped articles
+        if (dedupedArticles.length > 0) {
+            // STEP 7: Preliminary relevance assessment
+            const fullTitles = dedupedArticles.map(article => article.title);
             
-            notRelevantFullContent.forEach(item => {
-                const truncatedTitle = item.title?.substring(0, 90) + (item.title?.length > 90 ? '...' : '');
-                irrelevantLog += `"${truncatedTitle}"\n`;
-            });
-            
-            logger.debug(irrelevantLog);
+            try {
+                // Perform the batch evaluation 
+                const titleRelevanceResults = await batchEvaluateArticleTitles(fullTitles);
+                
+                // Find articles with relevant titles
+                relevantArticles = [];
+                irrelevantArticles = [];
+                
+                dedupedArticles.forEach((article, index) => {
+                    if (titleRelevanceResults[index]) {
+                        relevantArticles.push(article);
+                    } else {
+                        irrelevantArticles.push(article);
+                    }
+                });
+                
+                // Update stats
+                stats.preliminaryExcludedCount = irrelevantArticles.length;
+                
+                // Log results of preliminary relevance assessment - showing truncated titles (90 chars)
+                if (irrelevantArticles.length > 0) {
+                    const irrelevantTitles = irrelevantArticles.map(article => 
+                        `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
+                    ).join('\n');
+                    logger.debug(`Filtered out ${irrelevantArticles.length} out of ${dedupedArticles.length} irrelevant titles:\n${irrelevantTitles}`);
+                }
+                
+                // Log relevant titles - showing truncated titles (90 chars)
+                if (relevantArticles.length > 0) {
+                    const relevantTitles = relevantArticles.map(article => 
+                        `"${article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')}"`
+                    ).join('\n');
+                    logger.debug(`Found ${relevantArticles.length} articles with relevant titles:\n${relevantTitles}`);
+                } else {
+                    logger.debug(`No articles were found to have relevant titles.`);
+                }
+            } catch (error) {
+                logger.error('Error in preliminary relevance assessment:', error);
+                // If evaluation fails, keep all articles for full content evaluation
+                relevantArticles = dedupedArticles;
+                stats.preliminaryExcludedCount = 0;
+            }
         }
         
-        // Log final relevant articles - showing truncated titles (90 chars) with brief justifications
-        if (finalRelevantArticles.length > 0) {
-            let relevantLog = `Final selection: ${finalRelevantArticles.length} out of ${relevantArticles.length} articles after content evaluation:\n`;
+        // Continue with full content evaluation if we have relevant articles
+        if (relevantArticles && relevantArticles.length > 0) {
+            // STEP 8: Evaluate full content of each article individually
+            finalRelevantArticles = [];
+            notRelevantFullContent = [];
             
-            finalRelevantArticles.forEach(article => {
-                const truncatedTitle = article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '');
-                relevantLog += `"${truncatedTitle}"\n${article.relevanceJustification || 'Relevante'}\n\n`;
-            });
-            
-            logger.debug(relevantLog);
+            try {
+                // Process each article individually with the EVALUATE_ARTICLE prompt
+                for (const article of relevantArticles) {
+                    const articleContent = extractArticleContent(article);
+                    
+                    // We use an empty array for previousArticles since we're evaluating each individually
+                    const evalResult = await evaluateContent(
+                        `Título: ${article.title}\n\n${articleContent}`, 
+                        [], // No previous articles context
+                        'rss',
+                        true // Include justification
+                    );
+                    
+                    if (evalResult.isRelevant) {
+                        // Extract only the key reason from justification (keep it brief)
+                        let shortJustification = evalResult.justification;
+                        if (shortJustification && shortJustification.length > 40) {
+                            // Try to find common phrases that explain the reason
+                            if (shortJustification.includes('notícia global')) {
+                                shortJustification = 'Notícia global crítica';
+                            } else if (shortJustification.includes('Brasil') || shortJustification.includes('brasileiro')) {
+                                shortJustification = 'Relevante para o Brasil';
+                            } else if (shortJustification.includes('São Paulo')) {
+                                shortJustification = 'Relevante para São Paulo';
+                            } else if (shortJustification.includes('científic')) {
+                                shortJustification = 'Descoberta científica importante';
+                            } else if (shortJustification.includes('esport')) {
+                                shortJustification = 'Evento esportivo significativo';
+                            } else if (shortJustification.includes('escândalo') || shortJustification.includes('polític')) {
+                                shortJustification = 'Escândalo político/econômico';
+                            } else if (shortJustification.includes('impacto global')) {
+                                shortJustification = 'Grande impacto global';
         } else {
-            logger.debug(`No articles were found to be relevant after full content evaluation.`);
-            return [];
+                                // If none of the above, truncate to first 40 chars
+                                shortJustification = shortJustification.substring(0, 40) + '...';
+                            }
+                        }
+                        
+                        // Store short justification with the article for later use
+                        article.relevanceJustification = shortJustification;
+                        finalRelevantArticles.push(article);
+                    } else {
+                        notRelevantFullContent.push({
+                            title: article.title
+                        });
+                    }
+                }
+                
+                // Update stats
+                stats.fullContentExcludedCount = notRelevantFullContent.length;
+                stats.relevantCount = finalRelevantArticles.length;
+                
+                // Log results of full content evaluation - showing only titles (90 chars)
+                if (notRelevantFullContent.length > 0) {
+                    let irrelevantLog = `Filtered out ${notRelevantFullContent.length} out of ${relevantArticles.length} after content evaluation:\n`;
+                    
+                    notRelevantFullContent.forEach(item => {
+                        const truncatedTitle = item.title?.substring(0, 90) + (item.title?.length > 90 ? '...' : '');
+                        irrelevantLog += `"${truncatedTitle}"\n`;
+                    });
+                    
+                    logger.debug(irrelevantLog);
+                }
+                
+                // Log final relevant articles - showing truncated titles (90 chars) with brief justifications
+                if (finalRelevantArticles.length > 0) {
+                    let relevantLog = `Final selection: ${finalRelevantArticles.length} out of ${relevantArticles.length} articles after content evaluation:\n`;
+                    
+                    finalRelevantArticles.forEach(article => {
+                        const truncatedTitle = article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '');
+                        relevantLog += `"${truncatedTitle}"\n${article.relevanceJustification || 'Relevante'}\n\n`;
+                    });
+                    
+                    logger.debug(relevantLog);
+                } else {
+                    logger.debug(`No articles were found to be relevant after full content evaluation.`);
+                }
+            } catch (error) {
+                logger.error('Error in full content evaluation:', error);
+            }
         }
         
         // Check the target group
@@ -2573,10 +2700,12 @@ async function debugRssFunctionality(message) {
         }
         
         // Format an example message for each article
-        const formattedExamples = [];
-        for (const article of finalRelevantArticles) { // Show all relevant articles
-            const formattedMessage = formatNewsArticle(article);
-            formattedExamples.push(formattedMessage);
+        formattedExamples = [];
+        if (finalRelevantArticles && finalRelevantArticles.length > 0) {
+            for (const article of finalRelevantArticles) { // Show all relevant articles
+                const formattedMessage = formatNewsArticle(article);
+                formattedExamples.push(formattedMessage);
+            }
         }
         
         // Prepare and send the formatted debug response
@@ -2591,7 +2720,7 @@ async function debugRssFunctionality(message) {
         // Calculate check interval in minutes
         const checkIntervalMinutes = config.NEWS_MONITOR.RSS_CHECK_INTERVAL / 60000;
         
-        // Format the debug response
+        // Format the debug response - Always send regardless of article status
         const debugResponse = `*RSS Monitor Debug Report*
 
 - RSS monitor enabled: ${config.NEWS_MONITOR.RSS_ENABLED ? 'Yes' : 'No'}
@@ -2608,11 +2737,11 @@ async function debugRssFunctionality(message) {
 - Pattern excluded: ${stats.patternExcludedCount}/${stats.lastIntervalCount - stats.localExcludedCount}
 - Historical excluded: ${stats.historicalExcludedCount}/${stats.lastIntervalCount - stats.localExcludedCount - stats.patternExcludedCount}
 - Duplicates excluded: ${stats.duplicatesExcludedCount}/${stats.lastIntervalCount - stats.localExcludedCount - stats.patternExcludedCount - stats.historicalExcludedCount}
-- Preliminary excluded: ${stats.preliminaryExcludedCount}/${dedupedArticles.length}
-- Full content excluded: ${stats.fullContentExcludedCount}/${relevantArticles.length}
+- Preliminary excluded: ${stats.preliminaryExcludedCount}/${dedupedArticles ? dedupedArticles.length : 0}
+- Full content excluded: ${stats.fullContentExcludedCount}/${relevantArticles ? relevantArticles.length : 0}
 - Relevant: ${stats.relevantCount}
 
-${finalRelevantArticles.length > 0 ? formattedExamples.join('\n\n---\n\n') : 'No relevant articles to display'}`;
+${finalRelevantArticles && finalRelevantArticles.length > 0 ? formattedExamples.join('\n\n---\n\n') : 'No relevant articles to display'}`;
 
         await message.reply(debugResponse);
         

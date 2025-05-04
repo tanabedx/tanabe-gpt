@@ -1,7 +1,7 @@
 // desenho.config.js
 // Configuration for the desenho command
 
-const DESENHO_PROMPT = require('../../prompts/desenho');
+const DESENHO_PROMPT = require('../../prompts/desenho.prompt');
 
 const DESENHO_CONFIG = {
     prefixes: ['#desenho'],

@@ -101,7 +101,7 @@ async function runPeriodicSummary(groupName) {
         logger.debug(`Formatted ${messageTexts.length} messages for summary in ${groupName}`);
 
         // Generate summary using OpenAI
-        const PERIODIC_SUMMARY = require('../prompts/periodic_summary');
+        const PERIODIC_SUMMARY = require('../prompts/periodicSummary.prompt');
         const promptToUse = groupConfig.prompt || PERIODIC_SUMMARY.DEFAULT;
         const summaryText = await runCompletion(promptToUse + '\n\n' + messageTexts.join(''), 0.7);
         

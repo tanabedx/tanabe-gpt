@@ -4,7 +4,7 @@ const { handleAutoDelete } = require('../utils/messageUtils');
 const { runCompletion } = require('../utils/openaiUtils');
 const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUtils');
 const { scrapeNews, searchNews, translateToPortuguese, scrapeNews2 } = require('../utils/newsUtils');
-const RESUMO = require('../prompts/resumo');
+const RESUMO = require('../prompts/resumo.prompt');
 
 // Get group and member names from environment variables
 const GROUP_LF = process.env.GROUP_LF;

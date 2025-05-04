@@ -6,13 +6,13 @@ const config = require('../configs');
 let logger, groupManager, envMapper;
 setTimeout(() => {
     logger = require('./logger');
-    groupManager = require('./group_manager');
-    envMapper = require('./env_mapper');
+    groupManager = require('./groupManager');
+    envMapper = require('./envMapper');
 }, 0);
 
 async function savePeriodicSummaryConfig(periodicSummaryConfig) {
     try {
-        const configPath = path.join(__dirname, '..', 'configs', 'periodic_summary_config.js');
+        const configPath = path.join(__dirname, '..', 'configs', 'periodicSummary.config.js');
         
         // Format the groups configuration with proper indentation
         const groupsConfig = Object.entries(periodicSummaryConfig.groups || {})
@@ -104,13 +104,13 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
             })
             .join(',\n');
 
-        const periodicSummaryContent = `// periodic_summary_config.js
+        const periodicSummaryContent = `// periodicSummary.config.js
 require('dotenv').config({ path: './configs/.env' });
 
-// Avoid circular dependency with env_mapper
+// Avoid circular dependency with envMapper
 let envMapper;
 setTimeout(() => {
-    envMapper = require('../utils/env_mapper');
+    envMapper = require('../utils/envMapper');
 }, 0);
 
 const PERIODIC_SUMMARY = {

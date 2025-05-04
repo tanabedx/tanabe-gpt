@@ -2,11 +2,11 @@ const config = require('../configs');
 const { runCompletion } = require('../utils/openaiUtils');
 const { saveConfig } = require('../utils/configUtils');
 const logger = require('../utils/logger');
-const defaultPrompt = require('../prompts/periodic_summary').DEFAULT;
+const defaultPrompt = require('../prompts/periodicSummary.prompt').DEFAULT;
 const nlpProcessor = require('./nlpProcessor');
-const PERIODIC_SUMMARY = require('../configs/periodic_summary_config');
-const groupManager = require('../utils/group_manager');
-const envMapper = require('../utils/env_mapper');
+const PERIODIC_SUMMARY = require('../configs/commandConfigs/periodicSummary.config');
+const groupManager = require('../utils/groupManager');
+const envMapper = require('../utils/envMapper');
 
 // Store user states
 const userStates = new Map();

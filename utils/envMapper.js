@@ -1,4 +1,4 @@
-// utils/env_mapper.js
+// utils/envMapper.js
 // Utility for mapping between environment variables and their values
 require('dotenv').config({ path: './configs/.env' });
 const fs = require('fs');

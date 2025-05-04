@@ -1,4 +1,4 @@
-const { EVALUATE_TWEET, EVALUATE_ARTICLE, BATCH_EVALUATE_TITLES, BATCH_EVALUATE_FULL_CONTENT, SUMMARIZE_CONTENT, SITREP_artorias_PROMPT } = require('../../prompts/newsMonitor');
+const { EVALUATE_TWEET, EVALUATE_ARTICLE, BATCH_EVALUATE_TITLES, BATCH_EVALUATE_FULL_CONTENT, SUMMARIZE_CONTENT, SITREP_artorias_PROMPT } = require('../../prompts/newsMonitor.prompt');
 
 // Unified News Monitor configuration
 const NEWS_MONITOR_CONFIG = {
