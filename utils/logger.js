@@ -128,6 +128,30 @@ function formatError(error) {
     return `${error.message} (${location})`;
 }
 
+// Function to get the caller's location (file:line)
+function getCallerLocation() {
+    const error = new Error();
+    const stack = error.stack.split('\n');
+    
+    // Skip the first 3 lines (Error, getCallerLocation, log function)
+    // and find the first line that's not from logger.js
+    const callerLine = stack.slice(3).find(line => !line.includes('logger.js'));
+    
+    if (!callerLine) return '';
+    
+    // Extract file path and line number
+    const match = callerLine.match(/\((.+):(\d+):\d+\)/) || callerLine.match(/at (.+):(\d+):\d+/);
+    if (!match) return '';
+    
+    const fullPath = match[1];
+    const line = match[2];
+    
+    // Extract just the filename from the path
+    const filename = fullPath.split('/').pop();
+    
+    return ` ${COLORS.GREY}[${filename}:${line}]${COLORS.RESET}`;
+}
+
 // Function to format the log message with timestamp
 function formatLogWithTimestamp(level, message, error = null) {
     const now = new Date();
@@ -143,39 +167,45 @@ function formatLogWithTimestamp(level, message, error = null) {
     let formattedMessage = message;
     let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
     
+    // Show location for all log types when DEBUG is enabled in config
+    const showLocation = config.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG === true;
+    
+    // Get caller location if needed
+    const location = showLocation ? getCallerLocation() : '';
+    
     // In test mode, don't use colors
     if (process.env.TEST_MODE === 'true') {
-        return `${prefix} ${message}${error ? `: ${formatError(error)}` : ''}`;
+        return `${prefix} ${message}${error ? `: ${formatError(error)}` : ''}${location}`;
     }
     
     switch(level) {
         case LOG_LEVELS.ERROR:
             prefix = `${COLORS.BOLD}${COLORS.RED}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.WARN:
             prefix = `${COLORS.YELLOW}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.INFO:
             prefix = `[${timestamp}] ${COLORS.GREEN}[${level}]${COLORS.RESET}`;
-            formattedMessage = message; // Regular white text
+            formattedMessage = `${message}${location}`; // Regular white text
             break;
         case LOG_LEVELS.DEBUG:
             prefix = `[${timestamp}] ${COLORS.BLUE}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${location}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.SUMMARY:
             prefix = `[${timestamp}] ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${location}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.PROMPT:
             prefix = `[${timestamp}] ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${location}${COLORS.RESET}`;
             break;
         case LOG_LEVELS.STARTUP:
             prefix = `[${timestamp}] ${COLORS.BOLD}${COLORS.GREEN}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.BOLD}${COLORS.GREEN}${message}${COLORS.RESET}`;
+            formattedMessage = `${COLORS.BOLD}${COLORS.GREEN}${message}${COLORS.RESET}${location}`;
             break;
     }
     

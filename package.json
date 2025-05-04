@@ -5,17 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon --ignore 'wwebjs/' --ignore 'prompts/' --ignore 'history/' index.js",
-    "setup": "node setup.js",
-    "test": "node test/testMenu.js",
-    "test:run": "DEBUG=false node --no-deprecation test/runTests.js",
-    "test:v": "DEBUG=true node --no-deprecation test/runTests.js --verbose",
-    "test:chat": "node --no-deprecation test/runTests.js chat",
-    "test:history": "node --no-deprecation test/runTests.js history",
-    "test:ai": "node --no-deprecation test/runTests.js ai",
-    "test:media": "node --no-deprecation test/runTests.js media",
-    "test:admin": "node --no-deprecation test/runTests.js admin",
-    "test:setup": "node setup.js --test"
+    "dev": "cross-env FORCE_DEBUG_LOGS=true FORCE_PROMPT_LOGS=true nodemon --ignore 'wwebjs/' --ignore 'prompts/' --ignore 'history/' index.js",
+    "test": "node test/testMenu.js"
   },
   "keywords": [],
   "author": "",
@@ -33,5 +24,9 @@
     "rss-parser": "^3.13.0",
     "webp-converter": "^2.3.3",
     "whatsapp-web.js": "^1.23.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.10"
   }
 }

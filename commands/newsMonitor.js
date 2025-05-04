@@ -522,18 +522,9 @@ async function checkTwitterAPIUsage(forceCheck = false) {
                                 (fallback2Usage.status === '429' || fallback2Usage.usage >= 100 || fallback2Usage.status === 'error');
         
         if (allKeysOverLimit) {
-            // Format message with reset times when available
-            const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
-            ${formatTwitterApiUsage(
-                { primary: primaryUsage, fallback: fallbackUsage, fallback2: fallback2Usage }, 
-                twitterApiUsageCache.resetTimes, 
-                currentKey
-            )}`;
-            logger.warn(message);
-            
-            // Disable Twitter monitor in config
+            // Disable Twitter monitor in config without logging
+            // This prevents duplicate logs when called from initializeNewsMonitor
             config.NEWS_MONITOR.TWITTER_ENABLED = false;
-            logger.info('Twitter monitor has been disabled due to all API keys being over rate limit or returning 429 errors');
         }
         
         return {
@@ -1124,8 +1115,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                     
                     // Check if all keys are over limit
                     if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                        const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
-                        ${formatTwitterApiUsage(
+                        const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
                             { primary: usage, fallback: usage, fallback2: usage }, 
                             twitterApiUsageCache.resetTimes, 
                             usage.currentKey
@@ -1171,8 +1161,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     logger.info('Switched to fallback2 Twitter API key');
                                 } else {
                                     // All keys are over limit, disable Twitter monitor
-                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
-                                    ${formatTwitterApiUsage(
+                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
                                         { primary: usage, fallback: usage, fallback2: usage }, 
                                         twitterApiUsageCache.resetTimes, 
                                         usage.currentKey
@@ -1524,8 +1513,7 @@ async function initializeNewsMonitor() {
                 
                 // Check if all keys are over limit
                 if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
-                    ${formatTwitterApiUsage(
+                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
                         { primary: usage, fallback: usage, fallback2: usage }, 
                         twitterApiUsageCache.resetTimes, 
                         usage.currentKey
@@ -1577,8 +1565,7 @@ async function initializeNewsMonitor() {
                                     logger.info('Switched to fallback2 Twitter API key');
                                 } else {
                                     // All keys are over limit, disable Twitter monitor
-                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors.
-                                    ${formatTwitterApiUsage(
+                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
                                         { primary: usage, fallback: usage, fallback2: usage }, 
                                         twitterApiUsageCache.resetTimes, 
                                         usage.currentKey
