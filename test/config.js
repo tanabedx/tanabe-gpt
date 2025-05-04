@@ -37,7 +37,7 @@ module.exports = {
     // WhatsApp client settings
     CLIENT_CONFIG: {
         clientId: TEST_CLIENT_ID,
-        dataPath: path.join(__dirname, '..', '.wwebjs_auth_test'),
+        dataPath: path.join(__dirname, '..', 'wwebjs/auth_test'),
         puppeteerOptions: {
             headless: true,
             args: [

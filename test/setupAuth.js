@@ -31,11 +31,11 @@ const TEST_CLIENT_ID = 'test-client';
 // Authentication directories (using absolute paths)
 const AUTH_DIRS = [
     {
-        path: path.join(__dirname, '..', '.wwebjs_auth_main'),
+        path: path.join(__dirname, '..', 'wwebjs/auth_main'),
         clientId: MAIN_CLIENT_ID
     },
     {
-        path: path.join(__dirname, '..', '.wwebjs_auth_test'),
+        path: path.join(__dirname, '..', 'wwebjs/auth_test'),
         clientId: TEST_CLIENT_ID
     }
 ];

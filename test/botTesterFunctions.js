@@ -108,7 +108,7 @@ async function initializeClient() {
 // Start the bot in the background
 function startBot() {
     console.log('Starting the bot in the background...');
-    const mainAuthPath = path.join(__dirname, '..', '.wwebjs_auth_main');
+    const mainAuthPath = path.join(__dirname, '..', 'wwebjs/auth_main');
     const mainClientId = 'tanabe-gpt-client';
     console.debug(`Setting bot to use auth path: ${mainAuthPath} with client ID: ${mainClientId}`);
     
@@ -801,7 +801,7 @@ async function checkIfBotIsRunning() {
 
 // Delete the .wwebjs_cache directory
 function cleanupCache() {
-    const cachePath = path.join(__dirname, '.wwebjs_cache');
+    const cachePath = path.join(__dirname, '..', '.wwebjs_cache');
     console.log(`Cleaning up cache directory: ${cachePath}`);
     
     try {

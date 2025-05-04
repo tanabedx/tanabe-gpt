@@ -62,7 +62,7 @@ async function initializeClient() {
     // Create a client initialization promise with timeout
     const clientInitPromise = new Promise((resolve, reject) => {
         try {
-            const testAuthPath = path.join(__dirname, '..', '.wwebjs_auth_test');
+            const testAuthPath = path.join(__dirname, '..', 'wwebjs/auth_test');
 
             const client = new Client({
                 authStrategy: new LocalAuth({
@@ -136,7 +136,7 @@ async function initializeClient() {
 function startBot() {
     sendStatusMessage('Starting the bot in the background...');
     logger.log('Starting the bot in the background...');
-    const botAuthPath = path.join(__dirname, '..', '.wwebjs_auth_main');
+    const botAuthPath = path.join(__dirname, '..', 'wwebjs/auth_main');
     const botClientId = 'tanabe-gpt-client';
     logger.debug(`Setting bot to use auth path: ${botAuthPath} with client ID: ${botClientId}`);
     
@@ -837,7 +837,7 @@ async function runAllTests() {
             logger.log('WhatsApp test client initialized successfully');
         } catch (error) {
             logger.error('Failed to initialize WhatsApp test client:', error);
-            logger.error('Try deleting the .wwebjs_auth_test directory and running npm run setup again');
+            logger.error('Try deleting the wwebjs/auth_test directory and running npm run setup again');
             throw error;
         }
         

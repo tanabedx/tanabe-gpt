@@ -255,7 +255,7 @@ async function runTests() {
             logger.log('WhatsApp test client initialized successfully');
         } catch (error) {
             logger.error('Failed to initialize WhatsApp test client:', error);
-            logger.error('Try deleting the .wwebjs_auth_test directory and running npm run setup again');
+            logger.error('Try deleting the wwebjs/auth_test directory and running npm run setup again');
             throw error;
         }
         
@@ -430,7 +430,7 @@ async function runTests() {
         }
         
         // Delete the .wwebjs_cache directory
-        const cachePath = path.join(__dirname, '.wwebjs_cache');
+        const cachePath = path.join(__dirname, '..', '.wwebjs_cache');
         logger.log(`Cleaning up cache directory: ${cachePath}`);
         try {
             if (fs.existsSync(cachePath)) {

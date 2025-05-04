@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon --ignore '.wwebjs_auth' --ignore 'prompts/' --ignore 'history/' index.js",
+    "dev": "nodemon --ignore 'wwebjs/' --ignore 'prompts/' --ignore 'history/' index.js",
     "setup": "node setup.js",
     "test": "node test/testMenu.js",
     "test:run": "DEBUG=false node --no-deprecation test/runTests.js",

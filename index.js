@@ -224,7 +224,7 @@ async function initializeBot() {
         logger.debug('Starting WhatsApp client initialization...');
         
         // Determine auth path and client ID
-        const authPath = process.env.USE_AUTH_DIR || path.join(__dirname, '.wwebjs_auth_main');
+        const authPath = process.env.USE_AUTH_DIR || path.join(__dirname, 'wwebjs/auth_main');
         const clientId = process.env.USE_CLIENT_ID || 'tanabe-gpt-client';
         logger.debug(`Using authentication path: ${authPath} with client ID: ${clientId}`);
         
@@ -295,7 +295,7 @@ async function initializeBot() {
 
         client.on('auth_failure', (msg) => {
             logger.error('Authentication failed:', msg);
-            logger.info('Please try again. If the problem persists, delete the .wwebjs_auth directory and restart.');
+            logger.info('Please try again. If the problem persists, delete the wwebjs/auth_main directory and restart.');
             throw new Error(`Authentication failed: ${msg}`);
         });
 
@@ -414,10 +414,10 @@ async function main() {
         // Provide specific guidance based on the error
         if (error.message && error.message.includes('auth')) {
             logger.error('Authentication error detected. Try the following:');
-            logger.error('1. Delete the .wwebjs_auth directory: rm -rf .wwebjs_auth');
+            logger.error('1. Delete the wwebjs/auth_main directory: rm -rf wwebjs/auth_main');
             logger.error('2. Restart the bot: node index.js');
             logger.error('3. Scan the QR code with your WhatsApp');
-            logger.info('Authentication error detected. Try deleting the .wwebjs_auth directory and restarting the bot.');
+            logger.info('Authentication error detected. Try deleting the wwebjs/auth_main directory and restarting the bot.');
         } else if (error.message && error.message.includes('timeout')) {
             logger.error('Timeout error detected. Try the following:');
             logger.error('1. Check your internet connection');

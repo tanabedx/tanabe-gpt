@@ -1,35 +1,34 @@
 # Environment variables
-configs/.env
+.env
 
 # Node modules
 node_modules/
+package-lock.json
 
 # Logs
 *.log
 
 # IDE specific files
+.cursor/
 .vscode/
 .idea/
 *.swp
 *.swo
+.cursorignore
+.git
 
 # OS specific files
 .DS_Store
 Thumbs.db
 
-test_results.json
-.wwebjs_auth
+# WhatsApp Web.js files
+wwebjs/*
 .wwebjs_cache
-package-lock.json
-commands.txt
-.cursorignore
-debug.png
-tanabe-gpt.log
+test_results.json
+
+# Service files
 tanabe_monitor.py
 tanabe-gpt.service
 start.sh
 tanabe-monitor.service
 setup.sh
-.wwebjs_auth_test
-.wwebjs_auth_main
-/backup
