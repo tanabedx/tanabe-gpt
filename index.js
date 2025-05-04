@@ -214,6 +214,7 @@ async function initializeBot() {
         if (config.SYSTEM?.ENABLE_STARTUP_CACHE_CLEARING) {
             logger.debug('Cache clearing is enabled, performing cleanup...');
             const { performCacheClearing } = require('./commands/cacheManagement');
+            // Use default parameter (5 days)
             const { clearedFiles } = await performCacheClearing();
             if (clearedFiles > 0) {
                 logger.info(`Cache cleared successfully: ${clearedFiles} files removed`);

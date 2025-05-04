@@ -60,7 +60,8 @@ async function handleCacheClear(message) {
     }
     
     try {
-        await performCacheClearing();
+        // Pass 0 to clear all files regardless of age
+        await performCacheClearing(0);
         await message.reply('Cache cleared successfully');
     } catch (error) {
         logger.error('Error clearing cache', error);

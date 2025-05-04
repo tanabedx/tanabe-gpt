@@ -9,9 +9,13 @@ const CACHE_DIRS = [
 
 /**
  * Clears WhatsApp Web.js and Puppeteer caches while preserving authentication
+ * @param {number} maxAgeInDays - Only clear files older than this many days, or 0 to clear all files
+ * @returns {Promise<{clearedFiles: number}>} Number of files cleared
  */
-async function performCacheClearing() {
+async function performCacheClearing(maxAgeInDays = 5) {
     let clearedFiles = 0;
+    const now = Date.now();
+    const maxAgeMs = maxAgeInDays * 24 * 60 * 60 * 1000;
 
     for (const dir of CACHE_DIRS) {
         const dirPath = path.join(__dirname, '..', dir);
@@ -25,7 +29,11 @@ async function performCacheClearing() {
                     if (file.includes('session') || file.includes('auth')) {
                         continue;
                     }
-                    if (stats.isFile()) {
+                    
+                    // Check file age if maxAgeInDays > 0, otherwise clear all files
+                    const shouldClear = maxAgeInDays === 0 || (now - stats.mtime.getTime() > maxAgeMs);
+                    
+                    if (stats.isFile() && shouldClear) {
                         await fs.unlink(filePath);
                         clearedFiles++;
                     }
