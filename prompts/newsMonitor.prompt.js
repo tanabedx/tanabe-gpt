@@ -8,15 +8,19 @@ Tweet para Avaliação:
 Instruções:
 Avalie o tweet acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
 
-Retorne a palavra "relevant" APENAS se o tweet atender a pelo menos um dos seguintes critérios:
-- Calamidades naturais ou desastres
+Resposta obrigatória em uma das seguintes formas:
+1. Se relevante: "relevant::Breve justificativa de 5-10 palavras sobre por que é relevante"
+2. Se não relevante: "null::Motivo da exclusão em 5-10 palavras"
+
+O tweet é RELEVANTE se atender a pelo menos um dos seguintes critérios:
+- Calamidades naturais ou desastres de larga escala
 - Notícia global crítica
 - Notícias críticas relacionadas ao Brasil ou com impacto direto no Brasil
 - Eventos de grande impacto global
 - Descobertas científicas ou avanços importantes
 - Eventos esportivos significativos com relevância internacional
 
-Retorne a palavra "null" em todos os outros casos, incluindo:
+O tweet é IRRELEVANTE (null) nos seguintes casos:
 - A notícia já foi mencionada nos tweets anteriores (duplicada ou atualização)
 - Não se trata de um evento crítico ou relevante globalmente
 - É sobre política dos EUA (a menos que envolva eventos significativos, controvérsias ou mortes)
@@ -43,7 +47,11 @@ Artigo para Avaliação:
 Instruções:
 Avalie o artigo acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
 
-Retorne a palavra "relevant" APENAS se o artigo atender a pelo menos um dos seguintes critérios:
+Resposta obrigatória em uma das seguintes formas:
+1. Se relevante: "relevant::Breve justificativa de 5-10 palavras sobre por que é relevante"
+2. Se não relevante: "null::Motivo da exclusão em 5-10 palavras"
+
+O artigo é RELEVANTE se atender a pelo menos um dos seguintes critérios:
 - Calamidades naturais ou desastres
 - Notícia global crítica
 - Notícia crítica relacionada ao Brasil ou com impacto direto no Brasil
@@ -53,7 +61,7 @@ Retorne a palavra "relevant" APENAS se o artigo atender a pelo menos um dos segu
 - Eventos esportivos significativos com relevância internacional ou ao Brasil
 - Escândalos políticos, econômicos ou de outra natureza
 
-Retorne a palavra "null" em todos os outros casos, incluindo:
+O artigo é IRRELEVANTE (null) nos seguintes casos:
 - Não se trata de um evento crítico ou relevante globalmente, ao Brasil ou à cidade de São Paulo
 - A notícia já foi mencionada nos artigos anteriores (duplicada ou atualização)
 - É apenas uma atualização sem novas informações substanciais
@@ -111,6 +119,16 @@ Exemplos de formato:
 • Primeiro ponto importante e factual do artigo.
 • Segundo ponto importante comunicando outro aspecto essencial.
 • Terceiro ponto com informação complementar relevante.
+    `,
+
+    PROCESS_SITREP_IMAGE_PROMPT: `
+Analise a imagem no URL {image_url}.
+Extraia todo o texto contido nela.
+Formate o texto extraído de forma clara, estruturada e em português do Brasil, mantendo a intenção o máximo possível.
+Adicione um emoji da bandeira do primeiro país mencionado ao lado do nome do país. 
+Caso você for utilizar markdown, o utilize de acordo com os parametros do Whatsapp. 
+Se não houver texto na imagem ou se o texto não for significativo para um "breaking news", responda com "Nenhum texto relevante detectado na imagem.".
+Apenas o texto em português formatado deve ser a sua resposta final.
     `
 };
 

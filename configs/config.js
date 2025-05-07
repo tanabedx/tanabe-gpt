@@ -20,17 +20,18 @@ const SYSTEM = {
     OPENAI_MODELS: {
         DEFAULT: "gpt-4o-mini",
         VOICE: "whisper-1",  // Model for voice transcription
+        VISION_DEFAULT: "gpt-4o-mini" // Added default vision model
     },
     // Logging and notification settings
     CONSOLE_LOG_LEVELS: {
         ERROR: true,
         WARN: true,
         INFO: true,
-        DEBUG: false,
+        DEBUG: true,
         SUMMARY: true,
         STARTUP: true,
         SHUTDOWN: true,
-        PROMPT: false,
+        PROMPT: true,
         COMMAND: true
     },
     NOTIFICATION_LEVELS: {
@@ -45,6 +46,7 @@ const SYSTEM = {
         COMMAND: false
     },
     ADMIN_NOTIFICATION_CHAT: CREDENTIALS.ADMIN_WHATSAPP_ID,
+    PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js'] // Files to stash before git pull
 };
 
 // Export all configurations

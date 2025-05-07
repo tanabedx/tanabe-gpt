@@ -131,18 +131,9 @@ async function handleTwitterDebug(message) {
 
         // Parse the input to check for on/off commands
         const args = message.body.split(' ').slice(1);
-        const isToggleCommand = args.length > 0 && 
-            (args[0].toLowerCase() === 'on' || 
-             args[0].toLowerCase() === 'off' || 
-             args[0].toLowerCase() === 'enable' || 
-             args[0].toLowerCase() === 'disable');
-
-        // Skip the enabled check if it's a toggle command
-        if (!isToggleCommand && !config.NEWS_MONITOR.TWITTER_ENABLED) {
-            logger.error('Twitter monitoring is disabled in configuration');
-            await message.reply('Twitter monitoring is disabled in configuration. Use "!twitterdebug on" to enable it.');
-            return;
-        }
+        
+        // Note: Removed the check that prevented the command from running when Twitter monitoring is disabled
+        // The debug command should work regardless of monitoring status
 
         // Check if Twitter accounts are configured
         if (!config.NEWS_MONITOR.TWITTER_ACCOUNTS || !config.NEWS_MONITOR.TWITTER_ACCOUNTS.length) {
@@ -152,11 +143,7 @@ async function handleTwitterDebug(message) {
         }
 
         // Check if API keys are configured
-        if (!config.CREDENTIALS.TWITTER_API_KEYS?.primary?.bearer_token || !config.CREDENTIALS.TWITTER_API_KEYS?.fallback?.bearer_token) {
-            logger.error('Twitter API keys not configured');
-            await message.reply('Twitter API keys not properly configured in the system.');
-            return;
-        }
+        // Additional checks for credentials will happen in debugTwitterFunctionality
 
         // Call the Twitter debug function
         await debugTwitterFunctionality(message);
@@ -180,13 +167,11 @@ async function handleRssDebug(message) {
         const chat = await message.getChat();
         await chat.sendStateTyping();
 
-        // Parse the input to check for on/off commands
+        // Parse the input to check for on/off commands - no need to store, just for reference
         const args = message.body.split(' ').slice(1);
-        const isToggleCommand = args.length > 0 && 
-            (args[0].toLowerCase() === 'on' || 
-             args[0].toLowerCase() === 'off' || 
-             args[0].toLowerCase() === 'enable' || 
-             args[0].toLowerCase() === 'disable');
+        
+        // Note: Removed the check that prevented the command from running when RSS monitoring is disabled
+        // The debug command should work regardless of monitoring status
 
         // Check if RSS feeds are configured
         if (!config.NEWS_MONITOR.FEEDS || !config.NEWS_MONITOR.FEEDS.length) {

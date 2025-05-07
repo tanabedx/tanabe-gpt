@@ -1,5 +1,5 @@
 const config = require('../configs');
-const { runCompletion } = require('../utils/openaiUtils');
+const { runCompletion, extractTextFromImageWithOpenAI } = require('../utils/openaiUtils');
 const axios = require('axios');
 const logger = require('../utils/logger');
 const Parser = require('rss-parser');
@@ -40,6 +40,12 @@ let sentArticleCache = new Map();
 
 // New cache for tweets that were sent to the group
 let sentTweetCache = new Map();
+
+// New cache for storing the last fetched tweets per account
+let lastFetchedTweetsCache = {
+    tweets: {},  // Format: { username: [tweets] }
+    lastUpdated: null
+};
 
 // References to monitoring intervals for restarts
 let twitterIntervalId = null;
@@ -106,7 +112,7 @@ function cleanupSentArticleCache() {
  * @param {Object} tweet - The tweet that was sent
  * @param {string} username - The Twitter username
  */
-function recordSentTweet(tweet, username) {
+function recordSentTweet(tweet, username, justification = null) {
     if (!config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
         return;
     }
@@ -114,7 +120,8 @@ function recordSentTweet(tweet, username) {
     sentTweetCache.set(tweet.id, {
         text: tweet.text,
         timestamp: Date.now(),
-        username: username
+        username: username,
+        justification: justification
     });
     
     // Cleanup old entries if needed
@@ -197,7 +204,8 @@ function recordSentArticle(article) {
     sentArticleCache.set(article.link, {
         title: article.title,
         timestamp: Date.now(),
-        feedId: article.feedId || 'unknown'
+        feedId: article.feedId || 'unknown',
+        justification: article.relevanceJustification || null
     });
     
     // Cleanup old entries if needed
@@ -276,185 +284,81 @@ async function checkTwitterAPIUsage(forceCheck = false) {
         const { primary, fallback, fallback2 } = config.CREDENTIALS.TWITTER_API_KEYS;
         const isDebugMode = config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG === true;
         
-        // Initialize with null values
-        let primaryUsage = null;
-        let fallbackUsage = null;
-        let fallback2Usage = null;
+        // Initialize with default values instead of null
+        let primaryUsage = { usage: 0, limit: 100, status: 'pending' };
+        let fallbackUsage = { usage: 0, limit: 100, status: 'pending' };
+        let fallback2Usage = { usage: 0, limit: 100, status: 'pending' };
         let currentKey = 'primary'; // Default to primary
         
-        // Debug mode: Only check what's necessary to find a working key
-        if (isDebugMode) {
-            logger.debug('Twitter debug: Operating in DEBUG mode - checking keys sequentially');
+        // Check all keys, regardless of debug mode to ensure accurate data
+        // Try primary key
+        try {
+            primaryUsage = await getTwitterKeyUsage(primary);
             
-            // Check primary key first
-            try {
-                primaryUsage = await getTwitterKeyUsage(primary);
-                
-                // Store reset time if available
-                if (primaryUsage.resetTime) {
-                    twitterApiUsageCache.resetTimes.primary = primaryUsage.resetTime;
-                }
-                
-                // If primary is not rate limited, use it and don't check others
-                if (primaryUsage.status !== '429') {
-                    currentKey = 'primary';
-                    // Create placeholders for unchecked keys
-                    fallbackUsage = { usage: '?', limit: '?', status: 'unchecked' };
-                    fallback2Usage = { usage: '?', limit: '?', status: 'unchecked' };
-                } else {
-                    // Primary is rate limited, try fallback
-                    logger.debug('Twitter debug: Primary key is rate limited, trying fallback');
-                    try {
-                        fallbackUsage = await getTwitterKeyUsage(fallback);
-                        
-                        // Store reset time if available
-                        if (fallbackUsage.resetTime) {
-                            twitterApiUsageCache.resetTimes.fallback = fallbackUsage.resetTime;
-                        }
-                        
-                        if (fallbackUsage.status !== '429') {
-                            currentKey = 'fallback';
-                            // Create placeholder for unchecked fallback2
-                            fallback2Usage = { usage: '?', limit: '?', status: 'unchecked' };
-                        } else {
-                            // Fallback is also rate limited, try fallback2
-                            logger.debug('Twitter debug: Fallback key is rate limited, trying fallback2');
-                            try {
-                                fallback2Usage = await getTwitterKeyUsage(fallback2);
-                                
-                                // Store reset time if available
-                                if (fallback2Usage.resetTime) {
-                                    twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
-                                }
-                                
-                                if (fallback2Usage.status !== '429') {
-                                    currentKey = 'fallback2';
-                                }
-                            } catch (error) {
-                                logger.error('Twitter debug: Error checking fallback2 key:', error);
-                                fallback2Usage = { usage: '?', limit: '?', status: 'error' };
-                            }
-                        }
-                    } catch (error) {
-                        logger.error('Twitter debug: Error checking fallback key:', error);
-                        fallbackUsage = { usage: '?', limit: '?', status: 'error' };
-                        
-                        // Still try fallback2 since fallback failed
-                        try {
-                            fallback2Usage = await getTwitterKeyUsage(fallback2);
-                            
-                            // Store reset time if available
-                            if (fallback2Usage.resetTime) {
-                                twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
-                            }
-                            
-                            if (fallback2Usage.status !== '429') {
-                                currentKey = 'fallback2';
-                            }
-                        } catch (error) {
-                            logger.error('Twitter debug: Error checking fallback2 key:', error);
-                            fallback2Usage = { usage: '?', limit: '?', status: 'error' };
-                        }
-                    }
-                }
-            } catch (error) {
-                logger.error('Twitter debug: Error checking primary key:', error);
-                primaryUsage = { usage: '?', limit: '?', status: 'error' };
-                
-                // Primary failed, try fallback
-                try {
-                    fallbackUsage = await getTwitterKeyUsage(fallback);
-                    
-                    // Store reset time if available
-                    if (fallbackUsage.resetTime) {
-                        twitterApiUsageCache.resetTimes.fallback = fallbackUsage.resetTime;
-                    }
-                    
-                    if (fallbackUsage.status !== '429') {
-                        currentKey = 'fallback';
-                        // Create placeholder for unchecked fallback2
-                        fallback2Usage = { usage: '?', limit: '?', status: 'unchecked' };
-                    } else {
-                        // Fallback is rate limited, try fallback2
-                        try {
-                            fallback2Usage = await getTwitterKeyUsage(fallback2);
-                            
-                            // Store reset time if available
-                            if (fallback2Usage.resetTime) {
-                                twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
-                            }
-                            
-                            if (fallback2Usage.status !== '429') {
-                                currentKey = 'fallback2';
-                            }
-                        } catch (error) {
-                            logger.error('Twitter debug: Error checking fallback2 key:', error);
-                            fallback2Usage = { usage: '?', limit: '?', status: 'error' };
-                        }
-                    }
-                } catch (error) {
-                    logger.error('Twitter debug: Error checking fallback key:', error);
-                    fallbackUsage = { usage: '?', limit: '?', status: 'error' };
-                    
-                    // Try fallback2 as last resort
-                    try {
-                        fallback2Usage = await getTwitterKeyUsage(fallback2);
-                        
-                        // Store reset time if available
-                        if (fallback2Usage.resetTime) {
-                            twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
-                        }
-                        
-                        if (fallback2Usage.status !== '429') {
-                            currentKey = 'fallback2';
-                        }
-                    } catch (error) {
-                        logger.error('Twitter debug: Error checking fallback2 key:', error);
-                        fallback2Usage = { usage: '?', limit: '?', status: 'error' };
-                    }
-                }
-            }
-        } 
-        // Normal mode: Check all three keys to get accurate usage info
-        else {
-            logger.debug('Twitter API: Normal mode - checking all keys for usage info');
-            
-            // Try to get usage for all three keys
-            try {
-                primaryUsage = await getTwitterKeyUsage(primary);
-            } catch (error) {
-                logger.error('Error checking primary Twitter API key:', error);
-                primaryUsage = { usage: '?', limit: '?', status: 'error' };
+            // Store reset time if available
+            if (primaryUsage.resetTime) {
+                twitterApiUsageCache.resetTimes.primary = primaryUsage.resetTime;
             }
             
-            try {
-                fallbackUsage = await getTwitterKeyUsage(fallback);
-            } catch (error) {
-                logger.error('Error checking fallback Twitter API key:', error);
-                fallbackUsage = { usage: '?', limit: '?', status: 'error' };
-            }
-            
-            try {
-                fallback2Usage = await getTwitterKeyUsage(fallback2);
-            } catch (error) {
-                logger.error('Error checking fallback2 Twitter API key:', error);
-                fallback2Usage = { usage: '?', limit: '?', status: 'error' };
-            }
-            
-            // Determine which key to use based on availability and usage
             if (primaryUsage.status !== '429' && primaryUsage.usage < 100) {
                 currentKey = 'primary';
-            } else if (fallbackUsage.status !== '429' && fallbackUsage.usage < 100) {
-                currentKey = 'fallback';
-            } else if (fallback2Usage.status !== '429' && fallback2Usage.usage < 100) {
-                currentKey = 'fallback2';
             }
+        } catch (error) {
+            logger.error('Error checking primary Twitter API key:', error.message);
+            primaryUsage = { 
+                usage: error.response?.status === 429 ? 100 : 0, 
+                limit: 100, 
+                status: error.response?.status === 429 ? '429' : 'error',
+                error: error.message
+            };
         }
         
-        // Ensure we have objects for all keys
-        primaryUsage = primaryUsage || { usage: '?', limit: '?', status: 'error' };
-        fallbackUsage = fallbackUsage || { usage: '?', limit: '?', status: 'error' };
-        fallback2Usage = fallback2Usage || { usage: '?', limit: '?', status: 'error' };
+        // Try fallback key
+        try {
+            fallbackUsage = await getTwitterKeyUsage(fallback);
+            
+            // Store reset time if available
+            if (fallbackUsage.resetTime) {
+                twitterApiUsageCache.resetTimes.fallback = fallbackUsage.resetTime;
+            }
+            
+            if (fallbackUsage.status !== '429' && fallbackUsage.usage < 100 && 
+                (primaryUsage.status === '429' || primaryUsage.usage >= 100 || primaryUsage.status === 'error')) {
+                currentKey = 'fallback';
+            }
+        } catch (error) {
+            logger.error('Error checking fallback Twitter API key:', error.message);
+            fallbackUsage = { 
+                usage: error.response?.status === 429 ? 100 : 0, 
+                limit: 100, 
+                status: error.response?.status === 429 ? '429' : 'error',
+                error: error.message
+            };
+        }
+        
+        // Try fallback2 key
+        try {
+            fallback2Usage = await getTwitterKeyUsage(fallback2);
+            
+            // Store reset time if available
+            if (fallback2Usage.resetTime) {
+                twitterApiUsageCache.resetTimes.fallback2 = fallback2Usage.resetTime;
+            }
+            
+            if (fallback2Usage.status !== '429' && fallback2Usage.usage < 100 && 
+                (primaryUsage.status === '429' || primaryUsage.usage >= 100 || primaryUsage.status === 'error') &&
+                (fallbackUsage.status === '429' || fallbackUsage.usage >= 100 || fallbackUsage.status === 'error')) {
+                currentKey = 'fallback2';
+            }
+        } catch (error) {
+            logger.error('Error checking fallback2 Twitter API key:', error.message);
+            fallback2Usage = { 
+                usage: error.response?.status === 429 ? 100 : 0, 
+                limit: 100, 
+                status: error.response?.status === 429 ? '429' : 'error',
+                error: error.message 
+            };
+        }
         
         // Update cache with all the information we've gathered
         twitterApiUsageCache = {
@@ -486,17 +390,17 @@ async function checkTwitterAPIUsage(forceCheck = false) {
         const primaryStatus = primaryUsage.status === '429' ? 
             `(rate limit${formatResetTime('primary')})` : 
             primaryUsage.status === 'unchecked' ? '(unchecked)' : 
-            primaryUsage.status === 'error' ? '(error)' : '';
+            primaryUsage.status === 'error' ? `(error: ${primaryUsage.error || 'unknown'})` : '';
             
         const fallbackStatus = fallbackUsage.status === '429' ? 
             `(rate limit${formatResetTime('fallback')})` : 
             fallbackUsage.status === 'unchecked' ? '(unchecked)' : 
-            fallbackUsage.status === 'error' ? '(error)' : '';
+            fallbackUsage.status === 'error' ? `(error: ${fallbackUsage.error || 'unknown'})` : '';
             
         const fallback2Status = fallback2Usage.status === '429' ? 
             `(rate limit${formatResetTime('fallback2')})` : 
             fallback2Usage.status === 'unchecked' ? '(unchecked)' : 
-            fallback2Usage.status === 'error' ? '(error)' : '';
+            fallback2Usage.status === 'error' ? `(error: ${fallback2Usage.error || 'unknown'})` : '';
         
         // Log detailed object format
         logger.debug('Twitter API usage response', {
@@ -646,27 +550,23 @@ async function evaluateContent(content, previousContents, source, username = '',
             .replace('{previous_articles}', previousContent);
     }
 
-    // If justification is requested, modify the prompt to ask for it
-    if (includeJustification) {
-        prompt = prompt.replace('Retorne apenas a palavra "null"', 
-            'Retorne a palavra "null" seguida por um delimitador "::" e depois uma breve justificativa');
-        prompt = prompt.replace('Retorne a palavra "null"', 
-            'Retorne a palavra "null" seguida por um delimitador "::" e depois uma breve justificativa');
-        prompt = prompt.replace('Retorne a palavra "relevant"', 
-            'Retorne a palavra "relevant" seguida por um delimitador "::" e depois uma breve justificativa');
-    }
+    // Now prompts include justification by default, so we don't need to modify them
+    // Remove the previous modifications since prompts already include justification format
 
-    // Remove duplicate logging - openaiUtils already logs the prompt
+    // Get the OpenAI response
     const result = await runCompletion(prompt, 0.3);
     
     // Parse result for relevance and justification
-    let relevance, justification;
-    if (includeJustification && result.includes('::')) {
+    let relevance = "null", justification = "";
+    
+    // The new format has the format "relevant::justification" or "null::reason"
+    if (result.includes('::')) {
         [relevance, justification] = result.split('::').map(s => s.trim());
         relevance = relevance.toLowerCase();
     } else {
+        // Fallback for backward compatibility
         relevance = result.trim().toLowerCase();
-        justification = null;
+        justification = '';
     }
     
     const isRelevant = relevance === 'relevant';
@@ -1115,7 +1015,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                     
                     // Check if all keys are over limit
                     if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                        const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
+                        const message = `Twitter Monitor Disabled: All API keys are have reached 100% usage limit. ${formatTwitterApiUsage(
                             { primary: usage, fallback: usage, fallback2: usage }, 
                             twitterApiUsageCache.resetTimes, 
                             usage.currentKey
@@ -1124,7 +1024,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                         
                         // Disable Twitter monitor in config
                         config.NEWS_MONITOR.TWITTER_ENABLED = false;
-                        logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                        logger.info('Twitter monitor has been disabled due to all API keys reaching usage limit');
                         return; // Exit initialization
                     }
                     
@@ -1161,7 +1061,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     logger.info('Switched to fallback2 Twitter API key');
                                 } else {
                                     // All keys are over limit, disable Twitter monitor
-                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
+                                    const message = `Twitter Monitor Disabled: All API keys are have reached 100% usage limit. ${formatTwitterApiUsage(
                                         { primary: usage, fallback: usage, fallback2: usage }, 
                                         twitterApiUsageCache.resetTimes, 
                                         usage.currentKey
@@ -1170,7 +1070,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     
                                     // Disable Twitter monitor in config
                                     config.NEWS_MONITOR.TWITTER_ENABLED = false;
-                                    logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                                    logger.info('Twitter monitor has been disabled due to all API keys reaching usage limit');
                                     
                                     // Clear the interval
                                     clearInterval(twitterIntervalId);
@@ -1183,6 +1083,13 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                             try {
                                 // Fetch tweets for all accounts in one call
                                 const tweetsByUser = await fetchTweets(config.NEWS_MONITOR.TWITTER_ACCOUNTS);
+                                
+                                // Store fetched tweets in the cache for debug purposes
+                                lastFetchedTweetsCache = {
+                                    tweets: tweetsByUser,
+                                    lastUpdated: Date.now()
+                                };
+                                logger.debug(`Updated tweet cache with ${Object.keys(tweetsByUser).length} accounts`);
                                 
                                 // Process tweets for each account
                             for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
@@ -1201,74 +1108,109 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
 
                                         // Special handling for media tweets
                                         if (account.mediaOnly) {
-                                            // Process media tweet (with image)
-                                            try {
-                                                // Check if this account should use an account-specific prompt
-                                                if (account.promptSpecific) {
-                                                    // Run the account-specific evaluation
-                                                    const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
-                                                    if (!passed) {
-                                                        logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                            if (account.username === 'SITREP_artorias') {
+                                                // Specific handling for SITREP_artorias
+                                                try {
+                                                    let sitrepPassedEvaluation = false;
+                                                    if (account.promptSpecific) {
+                                                        const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                        if (!passed) {
+                                                            logger.debug(`Tweet from ${account.username} (SITREP_artorias) failed account-specific evaluation, skipping`);
+                                                            continue;
+                                                        }
+                                                        logger.debug(`Tweet from ${account.username} (SITREP_artorias) passed account-specific evaluation`);
+                                                        sitrepPassedEvaluation = true;
+                                                    } else {
+                                                        logger.warn(`SITREP_artorias account is mediaOnly but promptSpecific is not true in config. Skipping.`);
                                                         continue;
                                                     }
-                                                    logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
-                                                }
-                                                
-                                                // Standard evaluation if not skipping
-                                                let isRelevant = account.skipEvaluation || false;
-                                                
-                                                if (!account.skipEvaluation) {
-                                                    const evalResult = await evaluateContent(
-                                                        latestTweet.text, 
-                                                        previousTweets.map(t => t.text), 
-                                                        'twitter-media',
-                                                        account.username
-                                                    );
-                                                    isRelevant = evalResult.isRelevant;
-                                                }
-                                                
-                                                if (isRelevant && latestTweet.mediaObjects) {
-                                                    // Find the first photo in the media objects
-                                                    const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
-                                                    
-                                                    if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
-                                                        const imageUrl = photoMedia.url || photoMedia.preview_image_url;
-                                                        
-                                                        // Download the image
-                                                        const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-                                                        const imageBuffer = Buffer.from(response.data);
-                                                        
-                                                        // Create the media object
-                                                        const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
-                                                        
-                                                        // Translate tweet text if needed
-                                                        let translatedText = latestTweet.text || '';
-                                                        try {
-                                                            // Only translate if there's text
-                                                            if (translatedText) {
-                                                                // Assume English as source language
-                                                                translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en');
-                                                                logger.debug(`Translated media tweet from ${account.username}`);
+
+                                                    if (sitrepPassedEvaluation && latestTweet.mediaObjects) {
+                                                        const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                        if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                            const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                            const imageTextExtractionPrompt = config.NEWS_MONITOR.PROMPTS.PROCESS_SITREP_IMAGE_PROMPT;
+                                                            
+                                                            if (!imageTextExtractionPrompt) {
+                                                                logger.error('PROCESS_SITREP_IMAGE_PROMPT is not defined in config.NEWS_MONITOR.PROMPTS for SITREP_artorias');
+                                                                continue;
                                                             }
-                                                        } catch (translationError) {
-                                                            logger.error(`Error translating media tweet for ${account.username}:`, translationError);
-                                                            // Continue with original text if translation fails
+
+                                                            logger.info(`Processing image for SITREP_artorias tweet: ${latestTweet.id}`);
+                                                            const extractedImageText = await extractTextFromImageWithOpenAI(imageUrl, imageTextExtractionPrompt);
+
+                                                            if (extractedImageText && extractedImageText.toLowerCase().trim() !== "nenhum texto relevante detectado na imagem." && extractedImageText.toLowerCase().trim() !== "nenhum texto detectado na imagem.") {
+                                                                const tweetLink = `https://twitter.com/${account.username}/status/${latestTweet.id}`;
+                                                                const messageCaption = `*Breaking News* 🗞️\n\n${extractedImageText}\n\nFonte: @${account.username}\n${tweetLink}`;
+
+                                                                await targetGroup.sendMessage(messageCaption);
+                                                                const justification = "Texto extraído da imagem e formatado.";
+                                                                logger.info(`Sent processed image text from SITREP_artorias (@${account.username}): "${latestTweet.id}" - ${justification}`);
+                                                                recordSentTweet(latestTweet, account.username, justification);
+                                                            } else {
+                                                                logger.info(`No relevant text extracted from image for SITREP_artorias tweet ${latestTweet.id}. Original text: "${latestTweet.text || '[no text content in tweet]'}"`);
+                                                            }
+                                                        } else {
+                                                            logger.debug(`SITREP_artorias tweet ${latestTweet.id} from @${account.username} passed evaluation but no usable photo media found.`);
                                                         }
-                                                        
-                                                        // Format message text
-                                                        const caption = `*Breaking News* 🗞️\n\n${translatedText ? `${translatedText}\n\n` : ''}Source: @${account.username}`;
-                                                        
-                                                        // Send media with caption in a single message
-                                                        await targetGroup.sendMessage(media, { caption: caption });
-                                                        
-                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text?.substring(0, 50)}...`);
-                                        
-                                                        // Record that we sent this tweet
-                                                        recordSentTweet(latestTweet, account.username);
+                                                    } else if (sitrepPassedEvaluation) {
+                                                        logger.debug(`SITREP_artorias tweet ${latestTweet.id} from @${account.username} passed evaluation but no media objects found.`);
                                                     }
+                                                } catch (error) {
+                                                    logger.error(`Error processing SITREP_artorias media tweet for ${account.username}:`, error);
                                                 }
-                                } catch (error) {
-                                                logger.error(`Error processing media tweet for ${account.username}:`, error);
+                                            } else {
+                                                // Original mediaOnly logic for other accounts
+                                                try {
+                                                    if (account.promptSpecific) {
+                                                        const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                        if (!passed) {
+                                                            logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                                            continue;
+                                                        }
+                                                        logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
+                                                    }
+                                                    
+                                                    let isRelevant = account.skipEvaluation || false;
+                                                    let evalResult;
+                                                    
+                                                    if (!account.skipEvaluation) {
+                                                        evalResult = await evaluateContent(
+                                                            latestTweet.text, 
+                                                            previousTweets.map(t => t.text), 
+                                                            'twitter-media',
+                                                            account.username
+                                                        );
+                                                        isRelevant = evalResult.isRelevant;
+                                                    }
+                                                    
+                                                    if (isRelevant && latestTweet.mediaObjects) {
+                                                        const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                        
+                                                        if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                            const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                            const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                                                            const imageBuffer = Buffer.from(response.data);
+                                                            const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                                            let translatedText = latestTweet.text || '';
+                                                            try {
+                                                                if (translatedText) {
+                                                                    translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en');
+                                                                    logger.debug(`Translated media tweet from ${account.username}`);
+                                                                }
+                                                            } catch (translationError) {
+                                                                logger.error(`Error translating media tweet for ${account.username}:`, translationError);
+                                                            }
+                                                            const caption = `*Breaking News* 🗞️\n\n${translatedText ? `${translatedText}\n\n` : ''}Source: @${account.username}`;
+                                                            await targetGroup.sendMessage(media, { caption: caption });
+                                                            const justification = evalResult?.justification || (account.skipEvaluation ? 'Skipped Evaluation' : 'Relevante');
+                                                            logger.info(`Sent media tweet from ${account.username}: "${latestTweet.text?.substring(0, 80)}${latestTweet.text?.length > 80 ? '...' : ''}" - ${justification}`);
+                                                            recordSentTweet(latestTweet, account.username, justification);
+                                                        }
+                                                    }
+                                                } catch (error) {
+                                                    logger.error(`Error processing media tweet for ${account.username}:`, error);
+                                                }
                                             }
                                         } else {
                                             // Process regular tweet (text-based)
@@ -1331,27 +1273,42 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                 // Send media with caption in a single message
                                                                 await targetGroup.sendMessage(media, { caption: caption });
                                                                 
-                                                                logger.info(`Sent tweet with media from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                                                // Make sure evalResult is defined before accessing it
+                                                                const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                                logger.info(`Sent tweet with media from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                             } catch (mediaError) {
                                                                 logger.error(`Error attaching media for ${account.username}:`, mediaError);
                                                                 
                                                                 // Fallback to sending text-only message if media fails
                                                                 const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
                                                                 await targetGroup.sendMessage(message);
+                                                                
+                                                                // Make sure evalResult is defined before accessing it
+                                                                const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                                logger.info(`Sent text-only tweet from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                             }
                                                         } else {
                                                             // No photo media available, send text only
                                                             const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
                                                             await targetGroup.sendMessage(message);
+                                                            
+                                                            // Make sure evalResult is defined before accessing it
+                                                            const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                            logger.info(`Sent text-only tweet from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                         }
                                                     } else {
                                                         // No media, send text only
                                                         const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
                                                         await targetGroup.sendMessage(message);
+                                                        
+                                                        // Make sure evalResult is defined before accessing it
+                                                        const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                        logger.info(`Sent text-only tweet from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                     }
                                                     
                                                     // Record that we sent this tweet
-                                                    recordSentTweet(latestTweet, account.username);
+                                                    const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || null) : null;
+                                                    recordSentTweet(latestTweet, account.username, justification);
                                                 }
                                             } catch (error) {
                                                 logger.error(`Error processing tweet for ${account.username}:`, error);
@@ -1513,18 +1470,28 @@ async function initializeNewsMonitor() {
                 
                 // Check if all keys are over limit
                 if (usage.primary.usage >= 100 && usage.fallback.usage >= 100 && usage.fallback2.usage >= 100) {
-                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
-                        { primary: usage, fallback: usage, fallback2: usage }, 
-                        twitterApiUsageCache.resetTimes, 
-                        usage.currentKey
-                    )}`;
-                    logger.warn(message);
-                        
+                    // Only disable Twitter monitor if we've exhausted all retry attempts
+                    if (attempts === maxAttempts - 1) {
+                        const message = `Twitter Monitor Disabled: All API keys are have reached 100% usage limit. ${formatTwitterApiUsage(
+                            { primary: usage, fallback: usage, fallback2: usage }, 
+                            twitterApiUsageCache.resetTimes, 
+                            usage.currentKey
+                        )}`;
+                        logger.warn(message);
+                            
                         // Disable Twitter monitor in config
                         config.NEWS_MONITOR.TWITTER_ENABLED = false;
-                        logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                        logger.info('Twitter monitor has been disabled due to all API keys reaching usage limit');
                         break; // Exit retry loop if all keys are over limit
+                    } else {
+                        // Try again after waiting
+                        attempts++;
+                        const waitTime = waitTimes[attempts];
+                        logger.warn(`All Twitter API keys over limit (attempt ${attempts+1}/${maxAttempts}). Waiting ${waitTime/60000} minutes before retry...`);
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        continue; // Skip to next retry attempt
                     }
+                }
 
                     logger.info(`Twitter monitor initialized (${formatTwitterApiUsage(
                         usage, 
@@ -1565,7 +1532,7 @@ async function initializeNewsMonitor() {
                                     logger.info('Switched to fallback2 Twitter API key');
                                 } else {
                                     // All keys are over limit, disable Twitter monitor
-                                    const message = `Twitter Monitor Disabled: All API keys are over rate limit or returning 429 errors. ${formatTwitterApiUsage(
+                                    const message = `Twitter Monitor Disabled: All API keys are have reached 100% usage limit. ${formatTwitterApiUsage(
                                         { primary: usage, fallback: usage, fallback2: usage }, 
                                         twitterApiUsageCache.resetTimes, 
                                         usage.currentKey
@@ -1574,7 +1541,7 @@ async function initializeNewsMonitor() {
                                     
                                     // Disable Twitter monitor in config
                                     config.NEWS_MONITOR.TWITTER_ENABLED = false;
-                                    logger.info('Twitter monitor has been disabled due to all API keys being over rate limit');
+                                    logger.info('Twitter monitor has been disabled due to all API keys reaching usage limit');
                                     
                                     // Clear the interval
                                     clearInterval(twitterIntervalId);
@@ -1587,6 +1554,13 @@ async function initializeNewsMonitor() {
                             try {
                                 // Fetch tweets for all accounts in one call
                                 const tweetsByUser = await fetchTweets(config.NEWS_MONITOR.TWITTER_ACCOUNTS);
+                                
+                                // Store fetched tweets in the cache for debug purposes
+                                lastFetchedTweetsCache = {
+                                    tweets: tweetsByUser,
+                                    lastUpdated: Date.now()
+                                };
+                                logger.debug(`Updated tweet cache with ${Object.keys(tweetsByUser).length} accounts`);
                                 
                                 // Process tweets for each account
                             for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
@@ -1605,74 +1579,109 @@ async function initializeNewsMonitor() {
 
                                         // Special handling for media tweets
                                         if (account.mediaOnly) {
-                                            // Process media tweet (with image)
-                                            try {
-                                                // Check if this account should use an account-specific prompt
-                                                if (account.promptSpecific) {
-                                                    // Run the account-specific evaluation
-                                                    const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
-                                                    if (!passed) {
-                                                        logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                            if (account.username === 'SITREP_artorias') {
+                                                // Specific handling for SITREP_artorias
+                                                try {
+                                                    let sitrepPassedEvaluation = false;
+                                                    if (account.promptSpecific) {
+                                                        const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                        if (!passed) {
+                                                            logger.debug(`Tweet from ${account.username} (SITREP_artorias) failed account-specific evaluation, skipping`);
+                                                            continue;
+                                                        }
+                                                        logger.debug(`Tweet from ${account.username} (SITREP_artorias) passed account-specific evaluation`);
+                                                        sitrepPassedEvaluation = true;
+                                                    } else {
+                                                        logger.warn(`SITREP_artorias account is mediaOnly but promptSpecific is not true in config. Skipping.`);
                                                         continue;
                                                     }
-                                                    logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
-                                                }
-                                                
-                                                // Standard evaluation if not skipping
-                                                let isRelevant = account.skipEvaluation || false;
-                                                
-                                                if (!account.skipEvaluation) {
-                                                    const evalResult = await evaluateContent(
-                                                        latestTweet.text, 
-                                                        previousTweets.map(t => t.text), 
-                                                        'twitter-media',
-                                                        account.username
-                                                    );
-                                                    isRelevant = evalResult.isRelevant;
-                                                }
-                                                
-                                                if (isRelevant && latestTweet.mediaObjects) {
-                                                    // Find the first photo in the media objects
-                                                    const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
-                                                    
-                                                    if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
-                                                        const imageUrl = photoMedia.url || photoMedia.preview_image_url;
-                                                        
-                                                        // Download the image
-                                                        const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-                                                        const imageBuffer = Buffer.from(response.data);
-                                                        
-                                                        // Create the media object
-                                                        const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
-                                                        
-                                                        // Translate tweet text if needed
-                                                        let translatedText = latestTweet.text || '';
-                                                        try {
-                                                            // Only translate if there's text
-                                                            if (translatedText) {
-                                                                // Assume English as source language
-                                                                translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en');
-                                                                logger.debug(`Translated media tweet from ${account.username}`);
+
+                                                    if (sitrepPassedEvaluation && latestTweet.mediaObjects) {
+                                                        const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                        if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                            const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                            const imageTextExtractionPrompt = config.NEWS_MONITOR.PROMPTS.PROCESS_SITREP_IMAGE_PROMPT;
+                                                            
+                                                            if (!imageTextExtractionPrompt) {
+                                                                logger.error('PROCESS_SITREP_IMAGE_PROMPT is not defined in config.NEWS_MONITOR.PROMPTS for SITREP_artorias');
+                                                                continue;
                                                             }
-                                                        } catch (translationError) {
-                                                            logger.error(`Error translating media tweet for ${account.username}:`, translationError);
-                                                            // Continue with original text if translation fails
+
+                                                            logger.info(`Processing image for SITREP_artorias tweet: ${latestTweet.id}`);
+                                                            const extractedImageText = await extractTextFromImageWithOpenAI(imageUrl, imageTextExtractionPrompt);
+
+                                                            if (extractedImageText && extractedImageText.toLowerCase().trim() !== "nenhum texto relevante detectado na imagem." && extractedImageText.toLowerCase().trim() !== "nenhum texto detectado na imagem.") {
+                                                                const tweetLink = `https://twitter.com/${account.username}/status/${latestTweet.id}`;
+                                                                const messageCaption = `*Breaking News* 🗞️\n\n${extractedImageText}\n\nFonte: @${account.username}\n${tweetLink}`;
+
+                                                                await targetGroup.sendMessage(messageCaption);
+                                                                const justification = "Texto extraído da imagem e formatado.";
+                                                                logger.info(`Sent processed image text from SITREP_artorias (@${account.username}): "${latestTweet.id}" - ${justification}`);
+                                                                recordSentTweet(latestTweet, account.username, justification);
+                                                            } else {
+                                                                logger.info(`No relevant text extracted from image for SITREP_artorias tweet ${latestTweet.id}. Original text: "${latestTweet.text || '[no text content in tweet]'}"`);
+                                                            }
+                                                        } else {
+                                                            logger.debug(`SITREP_artorias tweet ${latestTweet.id} from @${account.username} passed evaluation but no usable photo media found.`);
                                                         }
-                                                        
-                                                        // Format message text
-                                                        const caption = `*Breaking News* 🗞️\n\n${translatedText ? `${translatedText}\n\n` : ''}Source: @${account.username}`;
-                                                        
-                                                        // Send media with caption in a single message
-                                                        await targetGroup.sendMessage(media, { caption: caption });
-                                                        
-                                                        logger.info(`Sent media tweet from ${account.username}: ${latestTweet.text?.substring(0, 50)}...`);
-                                        
-                                                        // Record that we sent this tweet
-                                                        recordSentTweet(latestTweet, account.username);
+                                                    } else if (sitrepPassedEvaluation) {
+                                                        logger.debug(`SITREP_artorias tweet ${latestTweet.id} from @${account.username} passed evaluation but no media objects found.`);
                                                     }
+                                                } catch (error) {
+                                                    logger.error(`Error processing SITREP_artorias media tweet for ${account.username}:`, error);
                                                 }
-                                } catch (error) {
-                                                logger.error(`Error processing media tweet for ${account.username}:`, error);
+                                            } else {
+                                                // Original mediaOnly logic for other accounts
+                                                try {
+                                                    if (account.promptSpecific) {
+                                                        const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                                                        if (!passed) {
+                                                            logger.debug(`Tweet from ${account.username} failed account-specific evaluation, skipping`);
+                                                            continue;
+                                                        }
+                                                        logger.debug(`Tweet from ${account.username} passed account-specific evaluation`);
+                                                    }
+                                                    
+                                                    let isRelevant = account.skipEvaluation || false;
+                                                    let evalResult;
+                                                    
+                                                    if (!account.skipEvaluation) {
+                                                        evalResult = await evaluateContent(
+                                                            latestTweet.text, 
+                                                            previousTweets.map(t => t.text), 
+                                                            'twitter-media',
+                                                            account.username
+                                                        );
+                                                        isRelevant = evalResult.isRelevant;
+                                                    }
+                                                    
+                                                    if (isRelevant && latestTweet.mediaObjects) {
+                                                        const photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                                                        
+                                                        if (photoMedia && (photoMedia.url || photoMedia.preview_image_url)) {
+                                                            const imageUrl = photoMedia.url || photoMedia.preview_image_url;
+                                                            const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                                                            const imageBuffer = Buffer.from(response.data);
+                                                            const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                                            let translatedText = latestTweet.text || '';
+                                                            try {
+                                                                if (translatedText) {
+                                                                    translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en');
+                                                                    logger.debug(`Translated media tweet from ${account.username}`);
+                                                                }
+                                                            } catch (translationError) {
+                                                                logger.error(`Error translating media tweet for ${account.username}:`, translationError);
+                                                            }
+                                                            const caption = `*Breaking News* 🗞️\n\n${translatedText ? `${translatedText}\n\n` : ''}Source: @${account.username}`;
+                                                            await targetGroup.sendMessage(media, { caption: caption });
+                                                            const justification = evalResult?.justification || (account.skipEvaluation ? 'Skipped Evaluation' : 'Relevante');
+                                                            logger.info(`Sent media tweet from ${account.username}: "${latestTweet.text?.substring(0, 80)}${latestTweet.text?.length > 80 ? '...' : ''}" - ${justification}`);
+                                                            recordSentTweet(latestTweet, account.username, justification);
+                                                        }
+                                                    }
+                                                } catch (error) {
+                                                    logger.error(`Error processing media tweet for ${account.username}:`, error);
+                                                }
                                             }
                                         } else {
                                             // Process regular tweet (text-based)
@@ -1735,27 +1744,42 @@ async function initializeNewsMonitor() {
                                                                 // Send media with caption in a single message
                                                                 await targetGroup.sendMessage(media, { caption: caption });
                                                                 
-                                                                logger.info(`Sent tweet with media from ${account.username}: ${latestTweet.text.substring(0, 50)}...`);
+                                                                // Make sure evalResult is defined before accessing it
+                                                                const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                                logger.info(`Sent tweet with media from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                             } catch (mediaError) {
                                                                 logger.error(`Error attaching media for ${account.username}:`, mediaError);
                                                                 
                                                                 // Fallback to sending text-only message if media fails
                                                                 const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
                                                                 await targetGroup.sendMessage(message);
+                                                                
+                                                                // Make sure evalResult is defined before accessing it
+                                                                const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                                logger.info(`Sent text-only tweet from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                             }
                                                         } else {
                                                             // No photo media available, send text only
                                                             const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
                                                             await targetGroup.sendMessage(message);
+                                                            
+                                                            // Make sure evalResult is defined before accessing it
+                                                            const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                            logger.info(`Sent text-only tweet from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                         }
                                                     } else {
                                                         // No media, send text only
                                                         const message = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
                                                         await targetGroup.sendMessage(message);
+                                                        
+                                                        // Make sure evalResult is defined before accessing it
+                                                        const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || 'Relevante') : 'Relevante';
+                                                        logger.info(`Sent text-only tweet from ${account.username}: "${latestTweet.text.substring(0, 80)}${latestTweet.text.length > 80 ? '...' : ''}" - ${justification}`);
                                                     }
                                                     
                                                     // Record that we sent this tweet
-                                                    recordSentTweet(latestTweet, account.username);
+                                                    const justification = typeof evalResult !== 'undefined' ? (evalResult?.justification || null) : null;
+                                                    recordSentTweet(latestTweet, account.username, justification);
                                                 }
                                             } catch (error) {
                                                 logger.error(`Error processing tweet for ${account.username}:`, error);
@@ -1783,8 +1807,13 @@ async function initializeNewsMonitor() {
                     attempts++;
                     
                     if (error.response && error.response.status === 429) {
-                        if (attempts === maxAttempts) {
-                            logger.error('Twitter monitor initialization failed after 3 attempts due to rate limiting');
+                        // Only exit retry loop if we've exhausted all attempts
+                        if (attempts >= maxAttempts) {
+                            logger.error('Twitter monitor initialization failed after all attempts due to rate limiting');
+                            
+                            // Disable Twitter monitor in config after exhausting retries
+                            config.NEWS_MONITOR.TWITTER_ENABLED = false;
+                            logger.info('Twitter monitor has been disabled due to rate limiting after all retry attempts');
                             break;
                         }
                         
@@ -1793,7 +1822,7 @@ async function initializeNewsMonitor() {
                         const isLastAttempt = attempts === maxAttempts - 1;
                         
                         if (isLastAttempt) {
-                            // Use error to ensure admin notification
+                            // Use warn to ensure admin notification
                             logger.warn(`Twitter API rate limit reached (final attempt ${attempts+1}/${maxAttempts}). Waiting ${waitTime/60000} minutes before final retry...`);
                         } else {
                             // Use warn for intermediate attempts
@@ -1804,6 +1833,12 @@ async function initializeNewsMonitor() {
                     } else {
                         // If it's not a rate limit error, log and break
                 logger.error('Twitter monitor initialization failed:', error.message);
+                        
+                        // Only disable on critical errors, not on temporary failures
+                        if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.message.includes('authentication')) {
+                            config.NEWS_MONITOR.TWITTER_ENABLED = false;
+                            logger.info('Twitter monitor has been disabled due to critical API error');
+                        }
                         break;
                     }
                 }
@@ -1874,7 +1909,7 @@ async function initializeNewsMonitor() {
                                     articlesSent++;
                                     
                                     // Log that we sent an article with brief justification
-                                    logger.info(`Sent article from ${feed.name}: "${article.title.substring(0, 80)}${article.title.length > 80 ? '...' : ''}"\n- ${article.relevanceJustification || 'Relevante'}`);
+                                    logger.info(`Sent article from ${feed.name}: "${article.title.substring(0, 80)}${article.title.length > 80 ? '...' : ''}" - ${article.relevanceJustification || 'Relevante'}`);
                                     } catch (error) {
                                         logger.error(`Error sending article "${article.title}": ${error.message}`);
                                     }
@@ -1890,7 +1925,7 @@ async function initializeNewsMonitor() {
                     }
                 }, config.NEWS_MONITOR.RSS_CHECK_INTERVAL);
                 
-                logger.info(`RSS monitor initialized with ${config.NEWS_MONITOR.FEEDS.length} feeds`);
+                logger.info(`RSS monitor restarted with ${config.NEWS_MONITOR.FEEDS.length} feeds`);
             } else {
                 logger.warn('RSS monitor enabled but no feeds configured');
             }
@@ -1979,7 +2014,23 @@ async function debugTwitterFunctionality(message) {
                 
                 await message.reply(responseMsg);
                 return;
+            } else if (command === 'cache') {
+                // Show tweet cache info
+                const cacheInfo = lastFetchedTweetsCache.lastUpdated ? 
+                    `Tweet cache last updated: ${new Date(lastFetchedTweetsCache.lastUpdated).toLocaleString()}\n` +
+                    `Accounts in cache: ${Object.keys(lastFetchedTweetsCache.tweets).length}\n` +
+                    `Total tweets: ${Object.values(lastFetchedTweetsCache.tweets).reduce((sum, tweets) => sum + tweets.length, 0)}\n\n` +
+                    `Accounts: ${Object.keys(lastFetchedTweetsCache.tweets).join(', ')}` :
+                    'Tweet cache is empty';
+                
+                await message.reply(cacheInfo);
+                return;
             }
+        }
+        
+        // Show notice if Twitter monitor is disabled but still continue
+        if (!config.NEWS_MONITOR.TWITTER_ENABLED) {
+            await message.reply('⚠️ WARNING: Twitter monitor is currently DISABLED. Debug info will still be shown, and you can use "!twitterdebug on" to enable it.');
         }
         
         // Check Twitter API credentials
@@ -2036,16 +2087,58 @@ async function debugTwitterFunctionality(message) {
             }))
         });
         
-        // Fetch tweets for all accounts in one API call
-        logger.debug('Twitter debug: Starting fetchTweets for all accounts');
-        const allTweetsByUser = await fetchTweets(config.NEWS_MONITOR.TWITTER_ACCOUNTS);
-        logger.debug('Twitter debug: fetchTweets completed', {
-            usersWithTweets: Object.keys(allTweetsByUser),
-            tweetCounts: Object.entries(allTweetsByUser).map(([username, tweets]) => ({
-                username,
-                count: tweets?.length || 0
-            }))
-        });
+        // Use cached tweets if available and not too old (last 15 minutes)
+        let allTweetsByUser = {};
+        const cacheMaxAge = 15 * 60 * 1000; // 15 minutes in milliseconds
+        
+        if (lastFetchedTweetsCache.lastUpdated && 
+            (Date.now() - lastFetchedTweetsCache.lastUpdated < cacheMaxAge) && 
+            Object.keys(lastFetchedTweetsCache.tweets).length > 0) {
+            // Use cached tweets
+            allTweetsByUser = lastFetchedTweetsCache.tweets;
+            logger.debug('Twitter debug: Using cached tweets from last fetch', {
+                cacheAge: Math.floor((Date.now() - lastFetchedTweetsCache.lastUpdated) / 1000 / 60) + ' minutes',
+                userCount: Object.keys(allTweetsByUser).length,
+                totalTweets: Object.values(allTweetsByUser).reduce((sum, tweets) => sum + tweets.length, 0)
+            });
+            
+            // Add notice that we're using cached data
+            await message.reply('Using cached tweets from the last run (within 15 minutes). This avoids hitting API rate limits.');
+        } else {
+            // Need to fetch tweets for all accounts in one API call
+            try {
+                logger.debug('Twitter debug: No recent cached tweets, making new API call');
+                await message.reply('Fetching new tweets from Twitter API (no recent cached data available)...');
+                allTweetsByUser = await fetchTweets(config.NEWS_MONITOR.TWITTER_ACCOUNTS);
+                
+                // Update cache
+                lastFetchedTweetsCache = {
+                    tweets: allTweetsByUser,
+                    lastUpdated: Date.now()
+                };
+                
+                logger.debug('Twitter debug: fetchTweets completed and cached', {
+                    usersWithTweets: Object.keys(allTweetsByUser),
+                    tweetCounts: Object.entries(allTweetsByUser).map(([username, tweets]) => ({
+                        username,
+                        count: tweets?.length || 0
+                    }))
+                });
+            } catch (error) {
+                logger.error('Twitter debug: Error fetching tweets:', error);
+                
+                // If we have older cached data, use it as a fallback
+                if (lastFetchedTweetsCache.lastUpdated && Object.keys(lastFetchedTweetsCache.tweets).length > 0) {
+                    allTweetsByUser = lastFetchedTweetsCache.tweets;
+                    const cacheAge = Math.floor((Date.now() - lastFetchedTweetsCache.lastUpdated) / 1000 / 60);
+                    logger.debug(`Twitter debug: Using older cached tweets (${cacheAge} minutes old) as fallback`);
+                    await message.reply(`Error fetching tweets: ${error.message}\nUsing older cached tweets (${cacheAge} minutes old) as fallback.`);
+                } else {
+                    await message.reply(`Error fetching tweets: ${error.message}\nNo cached tweets available. Try again later.`);
+                    return;
+                }
+            }
+        }
         
         // Show debug mode status and API info
         const isDebugMode = config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG === true;
@@ -2059,7 +2152,8 @@ async function debugTwitterFunctionality(message) {
   - Currently Using: ${usage.currentKey} key
 - Status: ${config.NEWS_MONITOR.TWITTER_ENABLED ? 'Enabled' : 'Disabled'}
 - Running: ${twitterIntervalId !== null ? 'Yes' : 'No'}
-- Checking Interval: ${config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL/60000} minutes\n`;
+- Checking Interval: ${config.NEWS_MONITOR.TWITTER_CHECK_INTERVAL/60000} minutes
+- Tweet Data: ${lastFetchedTweetsCache.lastUpdated ? 'Using cached tweets from ' + new Date(lastFetchedTweetsCache.lastUpdated).toLocaleString() : 'Freshly fetched'}\n`;
         
         // Information for each account
         let accountInfos = [];
@@ -2070,12 +2164,9 @@ async function debugTwitterFunctionality(message) {
             const tweets = allTweetsByUser[account.username] || [];
             const tweetCount = tweets.length;
             
-            let accountInfo = `\n==== ACCOUNT ${i+1}: @${account.username} ====
-- Account Type: ${account.mediaOnly ? 'Media Only' : 'Regular'}
-- Skip Evaluation: ${account.skipEvaluation ? 'Yes' : 'No'}
-- Account-Specific Prompt: ${account.promptSpecific ? 'Yes' : 'No'}
-- Tweets Found: ${tweetCount}
-- Last Tweet ID: ${account.lastTweetId || 'Not set'}`;
+            let accountInfo = `\nACCOUNT ${i+1}: @${account.username}`;
+            let finalDecision = "DO NOT SEND (default)";
+            let groupMessage = "No message would be sent.";
 
             if (tweetCount === 0) {
                 accountInfo += `\n- Status: No tweets found for this account`;
@@ -2083,115 +2174,172 @@ async function debugTwitterFunctionality(message) {
                 continue;
             }
             
-            // Sort tweets by creation date (newest first)
             tweets.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            
-            // Get the latest tweet and previous tweets
             const [latestTweet, ...previousTweets] = tweets;
         
-            // Use the appropriate evaluation method based on account type
-            const sourceType = account.mediaOnly ? 'twitter-media' : 'twitter';
-            
-            // Check for account-specific evaluation first
-            let accountSpecificResult = null;
-            if (account.promptSpecific) {
-                // Test the account-specific evaluation
-                const passed = await evaluateAccountSpecific(latestTweet.text, account.username);
-                accountSpecificResult = {
-                    passed: passed,
-                    promptName: `${account.username}_PROMPT`
-                };
+            accountInfo += `\n- Last Tweet ID (in config): ${account.lastTweetId || 'Not set'}`;
+            accountInfo += `\n- Latest Tweet ID (fetched): ${latestTweet.id}`;
+            accountInfo += `\n- Tweet Creation: ${new Date(latestTweet.created_at).toLocaleString()}`;
+            accountInfo += `\n- Latest Tweet Text: "${latestTweet.text?.substring(0, 100)}${latestTweet.text?.length > 100 ? '...' : ''}"`;
+            accountInfo += `\n- Would Process: ${latestTweet.id !== account.lastTweetId ? 'Yes' : 'No (Already Processed)'}`;
+
+            if (latestTweet.id === account.lastTweetId && !args.includes('force')) { // Added force flag bypass
+                finalDecision = "DO NOT SEND (Already Processed - use 'force' to re-evaluate)";
+                accountInfo += `\n- Final Decision: ${finalDecision}`;
+                accountInfo += `\n\nMessage that would be sent:\n${groupMessage}`;
+                accountInfos.push(accountInfo);
+                continue;
             }
-            
-            // Skip evaluation if the account is configured to do so
-            let evalResult = { isRelevant: account.skipEvaluation, justification: 'Skip evaluation flag is enabled' };
-            
-            // If not skipping evaluation, actually evaluate the tweet
-            if (!account.skipEvaluation) {
-                evalResult = await evaluateContent(
-                    latestTweet.text, 
-                    previousTweets.map(t => t.text), 
-                    sourceType, 
-                    account.username,
-                    true
-                );
-            }
-            
-            // Media information
+
             let mediaInfo = 'No media attached';
-            let hasMedia = false;
-            let photoMedia = null;
-            
+            // let hasMedia = false; // Not strictly needed if we just check photoMediaObj
+            let photoMediaObj = null; 
+
             if (latestTweet.mediaObjects && latestTweet.mediaObjects.length > 0) {
-                photoMedia = latestTweet.mediaObjects.find(media => media.type === 'photo');
-                
-                if (photoMedia) {
-                    hasMedia = true;
-                    mediaInfo = `Has Image: Yes (${photoMedia.type})`;
-                    
-                    // If result is relevant and we should send this tweet, download the image
-                    if (evalResult.isRelevant && latestTweet.id !== account.lastTweetId) {
-                        try {
-                            const imageUrl = photoMedia.url || photoMedia.preview_image_url;
-                            const imagePromise = axios.get(imageUrl, { responseType: 'arraybuffer' })
-                                .then(response => {
-                                    const imageBuffer = Buffer.from(response.data);
-                                    const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
-                                    return message.reply(media, null, { 
-                                        caption: `(Debug) Image for @${account.username} tweet` 
-                                    });
-                                })
-                                .catch(error => {
-                                    logger.error(`Error downloading image for @${account.username}:`, error);
-                                });
-                            
-                            imagePromises.push(imagePromise);
-                        } catch (error) {
-                            mediaInfo += ` (Error downloading: ${error.message})`;
-                        }
-                    }
+                photoMediaObj = latestTweet.mediaObjects.find(media => media.type === 'photo');
+                if (photoMediaObj) {
+                    // hasMedia = true;
+                    mediaInfo = `Has Image: Yes (type: ${photoMediaObj.type}, URL: ${photoMediaObj.url || photoMediaObj.preview_image_url})`;
                 } else {
                     mediaInfo = `Has Media: Yes (${latestTweet.mediaObjects.map(m => m.type).join(', ')}, but no photos)`;
                 }
             }
-            
-            // Format the message as it would be sent to the group
-            let groupMessage;
-            if (account.mediaOnly) {
-                groupMessage = `*Breaking News* 🗞️`;
-                if (latestTweet.text) {
-                    groupMessage += `\n\n${latestTweet.text}`;
+            accountInfo += `\n- Media: ${mediaInfo}`;
+
+            //SITREP_artorias Specific Processing
+            if (account.username === 'SITREP_artorias' && account.mediaOnly) {
+                accountInfo += `\n- Account Type: Media Only (SITREP_artorias - Image to Text Flow)`;
+                accountInfo += `\n- Account-Specific Prompt Config: ${account.promptSpecific ? 'Yes' : 'No'}`;
+
+                let passedAccountSpecific = false;
+                if (account.promptSpecific) {
+                    const sitrepPromptName = `${account.username}_PROMPT`;
+                    passedAccountSpecific = await evaluateAccountSpecific(latestTweet.text, account.username);
+                    accountInfo += `\n- Account-Specific Evaluation (using ${sitrepPromptName}): ${passedAccountSpecific ? 'PASSED' : 'FAILED'}`;
+                } else {
+                     accountInfo += `\n- Account-Specific Evaluation: Skipped (promptSpecific is false in config)`;
+                     passedAccountSpecific = false; // Crucial for SITREP, if not specific, it fails this path.
                 }
-                groupMessage += `\n\nSource: @${account.username}`;
+
+                if (passedAccountSpecific && photoMediaObj) {
+                    const imageTextExtractionPromptLabel = "PROCESS_SITREP_IMAGE_PROMPT";
+                    const imageTextExtractionPrompt = config.NEWS_MONITOR.PROMPTS.PROCESS_SITREP_IMAGE_PROMPT;
+
+                    if (!imageTextExtractionPrompt) {
+                        accountInfo += `\n- Image Text Extraction: SKIPPED (${imageTextExtractionPromptLabel} not found in config)`;
+                        finalDecision = "DO NOT SEND (config error for image prompt)";
+                    } else {
+                        const imageUrl = photoMediaObj.url || photoMediaObj.preview_image_url;
+                        accountInfo += `\n- Image Text Extraction: CALLING extractTextFromImageWithOpenAI with ${imageTextExtractionPromptLabel} for image: ${imageUrl}`;
+                        try {
+                            const actualExtractedText = await extractTextFromImageWithOpenAI(imageUrl, imageTextExtractionPrompt);
+                            accountInfo += `\n- Actual Extracted Text: \"${actualExtractedText}\"`;
+
+                            if (actualExtractedText && actualExtractedText.toLowerCase().trim() !== "nenhum texto relevante detectado na imagem." && actualExtractedText.toLowerCase().trim() !== "nenhum texto detectado na imagem.") {
+                                const tweetLink = `https://twitter.com/${account.username}/status/${latestTweet.id}`;
+                                groupMessage = `*Breaking News* 🗞️\n\n${actualExtractedText}\n\nFonte: @${account.username}\n${tweetLink}`;
+                                finalDecision = "SEND (processed text from image)";
+                            } else {
+                                accountInfo += `\n- Image Text Extraction Result: No relevant text detected by AI.`;
+                                finalDecision = "DO NOT SEND (no relevant text from image)";
+                            }
+                        } catch (error) {
+                            logger.error(`Debug: Error calling extractTextFromImageWithOpenAI for @${account.username} tweet ${latestTweet.id}:`, error.message);
+                            accountInfo += `\n- Image Text Extraction: FAILED (${error.message})`;
+                            finalDecision = "DO NOT SEND (image extraction API error)";
+                        }
+                    }
+                } else if (passedAccountSpecific && !photoMediaObj) {
+                    accountInfo += `\n- Image Text Extraction: Skipped (no photo media found for SITREP_artorias).`;
+                    finalDecision = "DO NOT SEND (SITREP_artorias: no photo for image-to-text)";
+                } else if (!passedAccountSpecific) {
+                    finalDecision = `DO NOT SEND (SITREP_artorias: failed account-specific eval)`;
+                } else {
+                    finalDecision = `DO NOT SEND (SITREP_artorias: unknown condition, check logic)`; // Fallback
+                }
             } else {
-                groupMessage = `*Breaking News* 🗞️\n\n${latestTweet.text}\n\nSource: @${account.username}`;
+                // Existing logic for other mediaOnly or regular accounts
+                accountInfo += `\n- Account Type: ${account.mediaOnly ? 'Media Only (Standard Image Flow)' : 'Regular (Text Flow)'}`;
+                accountInfo += `\n- Skip Evaluation Config: ${account.skipEvaluation ? 'Yes' : 'No'}`;
+                accountInfo += `\n- Account-Specific Prompt Config: ${account.promptSpecific ? 'Yes' : 'No'}`;
+
+                let accountSpecificPassed = true; 
+                if (account.promptSpecific) {
+                    const specificPromptName = `${account.username}_PROMPT`;
+                    accountSpecificPassed = await evaluateAccountSpecific(latestTweet.text, account.username);
+                    accountInfo += `\n- Account-Specific Evaluation (using ${specificPromptName}): ${accountSpecificPassed ? 'PASSED' : 'FAILED'}`;
+                }
+
+                let standardEvalResult = { isRelevant: account.skipEvaluation, justification: account.skipEvaluation ? 'Evaluation skipped by config' : 'Needs standard evaluation' };
+                if (!account.skipEvaluation && accountSpecificPassed) {
+                    const sourceType = account.mediaOnly ? 'twitter-media' : 'twitter';
+                    standardEvalResult = await evaluateContent(
+                        latestTweet.text,
+                        previousTweets.map(t => t.text),
+                        sourceType,
+                        account.username,
+                        true
+                    );
+                    accountInfo += `\n- Standard Evaluation: ${standardEvalResult.isRelevant ? 'RELEVANT' : 'NOT RELEVANT'}`;
+                    accountInfo += `\n- Justification: ${standardEvalResult.justification || 'No justification provided'}`;
+                } else if (account.skipEvaluation) {
+                     accountInfo += `\n- Standard Evaluation: Skipped (as per config).`;
+                } else if (!accountSpecificPassed) {
+                    accountInfo += `\n- Standard Evaluation: Skipped (failed account-specific eval).`;
+                }
+                
+                const overallRelevance = accountSpecificPassed && standardEvalResult.isRelevant;
+
+                if (overallRelevance) {
+                    if (account.mediaOnly && photoMediaObj) {
+                        finalDecision = "SEND (image + caption)";
+                        let translatedText = latestTweet.text || '';
+                        // translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en'); // Simulate for debug
+                        groupMessage = `*Breaking News* 🗞️\n\n${translatedText ? `${translatedText}\n\n` : ''}Source: @${account.username}`;
+                        groupMessage += `\n\n🔍 *Relevância:* ${standardEvalResult.justification || 'N/A - Skipped or no justification'}`;
+                        groupMessage += `\n[With attached image: ${photoMediaObj.url || photoMediaObj.preview_image_url}]`;
+
+                        if (args.includes('sendimage')) { // Command to actually send debug image
+                            try {
+                                const imageUrl = photoMediaObj.url || photoMediaObj.preview_image_url;
+                                const imagePromise = axios.get(imageUrl, { responseType: 'arraybuffer' })
+                                    .then(response_1 => {
+                                        const imageBuffer = Buffer.from(response_1.data);
+                                        const media = new MessageMedia('image/jpeg', imageBuffer.toString('base64'));
+                                        return message.reply(media, { 
+                                            caption: `(Debug Image) For @${account.username} tweet: ${latestTweet.id}` 
+                                        });
+                                    })
+                                    .catch(error => {
+                                        logger.error(`Debug: Error downloading/sending image for @${account.username}:`, error.message);
+                                        message.reply(`Debug: Failed to download/send image for @${account.username}: ${error.message}`);
+                                    });
+                                imagePromises.push(imagePromise);
+                            } catch (error) {
+                               accountInfo += `\n- Debug Image Send Error: ${error.message}`;
+                            }
+                        }
+
+                    } else if (!account.mediaOnly) {
+                        finalDecision = "SEND (text only)";
+                        let translatedText = latestTweet.text;
+                        // translatedText = await require('../utils/newsUtils').translateToPortuguese(translatedText, 'en'); // Simulate for debug
+                        groupMessage = `*Breaking News* 🗞️\n\n${translatedText}\n\nSource: @${account.username}`;
+                        groupMessage += `\n\n🔍 *Relevância:* ${standardEvalResult.justification || 'N/A'}`;
+                         if (photoMediaObj) { // Text tweet that happens to have an image
+                            groupMessage += `\n[Also has image: ${photoMediaObj.url || photoMediaObj.preview_image_url}]`;
+                        }
+                    } else {
+                        // mediaOnly account but no photo, or some other edge case
+                        finalDecision = "DO NOT SEND (mediaOnly but no usable photo, or failed eval)";
+                    }
+                } else {
+                    finalDecision = "DO NOT SEND (failed evaluation or specific check)";
+                }
             }
             
-            accountInfo += `
-- Latest Tweet: "${latestTweet.text.substring(0, 100)}${latestTweet.text.length > 100 ? '...' : ''}"
-- Tweet Creation: ${new Date(latestTweet.created_at).toLocaleString()}
-- Tweet ID: ${latestTweet.id}
-- Would Process: ${latestTweet.id !== account.lastTweetId ? 'Yes' : 'No (Already Processed)'}
-- Media: ${mediaInfo}`;
-
-            // Add account-specific evaluation results if applicable
-            if (accountSpecificResult) {
-                accountInfo += `
-- Account-Specific Evaluation:
-  - Prompt: ${accountSpecificResult.promptName}
-  - Result: ${accountSpecificResult.passed ? 'PASSED (sim)' : 'FAILED (não)'}
-  - Would Continue: ${accountSpecificResult.passed ? 'Yes' : 'No'}`;
-            }
-
-            // Add standard evaluation results
-            accountInfo += `
-- Standard Evaluation Result: ${evalResult.isRelevant ? 'RELEVANT' : 'NOT RELEVANT'}
-- Justification: ${evalResult.justification || 'No justification provided'}
-- Final Decision: ${(accountSpecificResult ? accountSpecificResult.passed : true) && evalResult.isRelevant && latestTweet.id !== account.lastTweetId ? 'SEND' : 'DO NOT SEND'}
-
-Message that would be sent (if relevant):
-${groupMessage}${hasMedia ? '\n[With attached image]' : ''}`;
-
+            accountInfo += `\n- Final Decision: ${finalDecision}`;
+            accountInfo += `\n\nMessage that would be sent:\n${groupMessage}`;
             accountInfos.push(accountInfo);
         }
         
@@ -2238,6 +2386,11 @@ async function debugRssFunctionality(message) {
                 logger.info('RSS monitor disabled by admin command');
                 return;
             }
+        }
+        
+        // Show notice if RSS monitor is disabled but still continue
+        if (!config.NEWS_MONITOR.RSS_ENABLED) {
+            await message.reply('⚠️ WARNING: RSS monitor is currently DISABLED. Debug info will still be shown, and you can use "!rssdebug on" to enable it.');
         }
         
         if (!config.NEWS_MONITOR.FEEDS || config.NEWS_MONITOR.FEEDS.length === 0) {
@@ -2746,7 +2899,7 @@ ${finalRelevantArticles && finalRelevantArticles.length > 0 ? formattedExamples.
 function formatNewsArticle(article) {
     const title = article.title || 'No Title';
     const link = article.link || '';
-    const justification = article.relevanceJustification || '';
+    const justification = article.relevanceJustification || article.justification || '';
     
     // Format date if available
     let dateStr = '';
@@ -2763,8 +2916,12 @@ function formatNewsArticle(article) {
         }
     }
     
-    // Build the formatted message with justification always included
-    return `📰 *${title}*\n\n${dateStr ? `🕒 ${dateStr}\n\n` : ''}🔍 *Relevância:* ${justification || 'Notícia relevante'}\n\n🔗 ${link}`;
+    // Build the formatted message without the placeholder text
+    // Only include relevance section if we have an actual justification
+    const relevanceSection = justification && justification.trim() !== '' ? 
+        `🔍 *Relevância:* ${justification}\n\n` : '';
+    
+    return `📰 *${title}*\n\n${dateStr ? `🕒 ${dateStr}\n\n` : ''}${relevanceSection}🔗 ${link}`;
 }
 
 /**
@@ -3249,8 +3406,12 @@ async function evaluateAccountSpecific(content, username) {
         const result = await runCompletion(formattedPrompt, 0.3);
         
         // Parse the result (expecting 'sim' or 'não')
-        const lowerResult = result.trim().toLowerCase();
-        const passed = lowerResult === 'sim';
+        let processedResult = result.trim().toLowerCase();
+        // Remove trailing period or single quote
+        if (processedResult.endsWith('.') || processedResult.endsWith("'")) {
+            processedResult = processedResult.slice(0, -1);
+        }
+        const passed = processedResult === 'sim';
         
         logger.debug(`Account-specific evaluation for @${username}: ${passed ? 'Passed' : 'Failed'} (response: "${result}")`);
         
