@@ -18,9 +18,9 @@ const SYSTEM = {
     ENABLE_STARTUP_CACHE_CLEARING: true,
     MAX_RECONNECT_ATTEMPTS: 5,
     OPENAI_MODELS: {
-        DEFAULT: "gpt-4o-mini",
-        VOICE: "whisper-1",  // Model for voice transcription
-        VISION_DEFAULT: "gpt-4o-mini" // Added default vision model
+        DEFAULT: 'gpt-4o-mini',
+        VOICE: 'whisper-1', // Model for voice transcription
+        VISION_DEFAULT: 'gpt-4o-mini', // Added default vision model
     },
     // Logging and notification settings
     CONSOLE_LOG_LEVELS: {
@@ -32,7 +32,7 @@ const SYSTEM = {
         STARTUP: true,
         SHUTDOWN: true,
         PROMPT: false,
-        COMMAND: true
+        COMMAND: true,
     },
     NOTIFICATION_LEVELS: {
         ERROR: true,
@@ -43,10 +43,10 @@ const SYSTEM = {
         STARTUP: true,
         SHUTDOWN: true,
         PROMPT: false,
-        COMMAND: false
+        COMMAND: false,
     },
     ADMIN_NOTIFICATION_CHAT: CREDENTIALS.ADMIN_WHATSAPP_ID,
-    PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js'] // Files to stash before git pull
+    PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js'], // Files to stash before git pull
 };
 
 // Export all configurations
@@ -57,5 +57,5 @@ module.exports = {
     get PERIODIC_SUMMARY() {
         return PERIODIC_SUMMARY;
     },
-    CREDENTIALS
+    CREDENTIALS,
 };

@@ -7,7 +7,7 @@ async function handleDesenho(message, command, input = []) {
     // Ensure input is an array
     const inputArray = Array.isArray(input) ? input : message.body.split(' ');
     const promptInput = inputArray.slice(1).join(' ');
-    
+
     if (!promptInput) {
         const errorMessage = await message.reply(command.errorMessages.noPrompt);
         await handleAutoDelete(errorMessage, command, true);
@@ -38,4 +38,4 @@ async function handleDesenho(message, command, input = []) {
     }
 }
 
-module.exports = handleDesenho; 
+module.exports = handleDesenho;

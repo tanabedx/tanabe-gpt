@@ -3,9 +3,7 @@ const path = require('path');
 const logger = require('../utils/logger');
 
 // Cache directories to clear
-const CACHE_DIRS = [
-    '.wwebjs_cache'
-];
+const CACHE_DIRS = ['.wwebjs_cache'];
 
 /**
  * Clears WhatsApp Web.js and Puppeteer caches while preserving authentication
@@ -29,10 +27,11 @@ async function performCacheClearing(maxAgeInDays = 5) {
                     if (file.includes('session') || file.includes('auth')) {
                         continue;
                     }
-                    
+
                     // Check file age if maxAgeInDays > 0, otherwise clear all files
-                    const shouldClear = maxAgeInDays === 0 || (now - stats.mtime.getTime() > maxAgeMs);
-                    
+                    const shouldClear =
+                        maxAgeInDays === 0 || now - stats.mtime.getTime() > maxAgeMs;
+
                     if (stats.isFile() && shouldClear) {
                         await fs.unlink(filePath);
                         clearedFiles++;
@@ -52,5 +51,5 @@ async function performCacheClearing(maxAgeInDays = 5) {
 }
 
 module.exports = {
-    performCacheClearing
-}; 
+    performCacheClearing,
+};

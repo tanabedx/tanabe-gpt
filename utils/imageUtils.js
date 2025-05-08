@@ -25,7 +25,7 @@ async function searchGoogleForImage(query) {
 // Function to download an image
 async function downloadImage(url) {
     const filePath = path.join(__dirname, '..', `image_${Date.now()}.jpeg`);
-    
+
     try {
         if (url.startsWith('data:image')) {
             const base64Data = url.split('base64,')[1];
@@ -35,7 +35,7 @@ async function downloadImage(url) {
             const response = await axios({
                 url,
                 method: 'GET',
-                responseType: 'arraybuffer'
+                responseType: 'arraybuffer',
             });
             const buffer = Buffer.from(response.data, 'binary');
             await fsPromises.writeFile(filePath, buffer);
@@ -49,5 +49,5 @@ async function downloadImage(url) {
 
 module.exports = {
     searchGoogleForImage,
-    downloadImage
-}; 
+    downloadImage,
+};

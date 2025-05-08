@@ -29,4 +29,4 @@ FIM DAS ÚLTIMAS {maxMessages} MENSAGENS.
         `,
 };
 
-module.exports = CHAT_GPT; 
+module.exports = CHAT_GPT;

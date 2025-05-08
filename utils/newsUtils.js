@@ -6,7 +6,6 @@ const config = require('../configs');
 
 // Get the excluded states from config or use empty array if not configured
 const EXCLUDED_STATES = config.NEWS_MONITOR?.CONTENT_FILTERING?.EXCLUDED_STATES || [];
-const INCLUDED_SPECIAL_URLS = config.NEWS_MONITOR?.CONTENT_FILTERING?.INCLUDED_SPECIAL_URLS || [];
 // Get additional paths to exclude from config
 const EXCLUDED_PATHS = config.NEWS_MONITOR?.CONTENT_FILTERING?.EXCLUDED_PATHS || [];
 
@@ -19,7 +18,7 @@ function isLocalNews(url) {
     try {
         // Skip if URL is missing
         if (!url) return false;
-        
+
         // Parse the URL to extract path segments
         let urlObj;
         try {
@@ -28,22 +27,22 @@ function isLocalNews(url) {
             logger.error(`Invalid URL: ${e.message}`);
             return false;
         }
-        
+
         // Only process G1 URLs
         if (!urlObj.hostname.includes('g1.globo.com')) return false;
-        
+
         // Split the path into segments
         const pathSegments = urlObj.pathname.split('/').filter(segment => segment.length > 0);
-        
+
         // Check if any segment matches the excluded paths
         if (pathSegments.some(segment => EXCLUDED_PATHS.includes(segment.toLowerCase()))) {
             return true; // Exclude URLs with excluded paths (e.g., podcast)
         }
-        
+
         // Check if the first segment is a Brazilian state code that should be excluded
         if (pathSegments.length > 0) {
             const firstSegment = pathSegments[0].toLowerCase();
-            
+
             // Special case for São Paulo
             if (firstSegment === 'sp') {
                 // Check if it's the specific São Paulo city URL we want to allow
@@ -55,13 +54,13 @@ function isLocalNews(url) {
                     return true;
                 }
             }
-            
+
             // For other states, just check if they're in the excluded list
             if (EXCLUDED_STATES.includes(firstSegment)) {
                 return true;
             }
         }
-        
+
         // Not in excluded states or paths
         return false;
     } catch (error) {
@@ -77,48 +76,120 @@ function isLocalNews(url) {
  */
 function filterOutLocalNews(articles) {
     if (!Array.isArray(articles)) return [];
-    
+
     const filteredArticles = articles.filter(article => {
         const url = article.link;
         const isLocal = isLocalNews(url);
         return !isLocal;
     });
-    
-    logger.debug(`Filtered ${articles.length - filteredArticles.length} local news articles out of ${articles.length} total`);
+
+    logger.debug(
+        `Filtered ${articles.length - filteredArticles.length} local news articles out of ${
+            articles.length
+        } total`
+    );
     return filteredArticles;
 }
 
 // Function to scrape news
 async function scrapeNews() {
+    // Import puppeteer at the top level to avoid loading it unless needed
+    const puppeteer = require('puppeteer');
+    let browser = null;
+
     try {
-        const url = 'https://www.newsminimalist.com/';
-        const response = await axios.get(url);
+        logger.debug('Launching puppeteer browser for news scraping');
 
-        if (response.status !== 200) {
-            logger.error(`Failed to load page`);
-            return [];
-        }
+        // Launch browser with minimal resource usage
+        browser = await puppeteer.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu',
+            ],
+            defaultViewport: { width: 1280, height: 800 },
+        });
 
-        const $ = cheerio.load(response.data);
-        const newsElements = $('div.mr-auto');
+        const page = await browser.newPage();
 
-        if (!newsElements.length) {
-            logger.debug(`No news elements found`);
-            return [];
-        }
-
-        const news = [];
-        newsElements.each((index, element) => {
-            if (index < 5) {
-                const headline = $(element).find('span').first().text().trim();
-                const source = $(element).find('span.text-xs.text-slate-400').text().trim();
-                news.push(`${headline} ${source}`);
+        // Block unnecessary resources to save bandwidth and CPU
+        await page.setRequestInterception(true);
+        page.on('request', req => {
+            const resourceType = req.resourceType();
+            if (resourceType === 'image' || resourceType === 'font' || resourceType === 'media') {
+                req.abort();
+            } else {
+                req.continue();
             }
         });
 
+        // Set user agent to appear as a regular browser
+        await page.setUserAgent(
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        );
+
+        logger.debug('Navigating to newsminimalist.com');
+        await page.goto('https://www.newsminimalist.com/', {
+            waitUntil: 'networkidle2',
+            timeout: 30000,
+        });
+
+        // Wait for the news content to load
+        logger.debug('Waiting for news content to load');
+        await page.waitForSelector('div.mr-auto', { timeout: 10000 });
+
+        // Extract the news items
+        const news = await page.evaluate(() => {
+            const newsItems = [];
+            const elements = document.querySelectorAll('div.mr-auto');
+
+            // Get the first 5 news items
+            for (let i = 0; i < Math.min(elements.length, 5); i++) {
+                const element = elements[i];
+                const headline =
+                    element.querySelector('span:first-child')?.textContent?.trim() || '';
+                const source =
+                    element.querySelector('span.text-xs.text-slate-400')?.textContent?.trim() || '';
+                newsItems.push(`${headline} ${source}`);
+            }
+
+            return newsItems;
+        });
+
+        logger.debug(`Scraped ${news.length} news items successfully`);
         return news;
     } catch (error) {
-        logger.error(`An error occurred while scraping news:`, error.message);
+        logger.error(`An error occurred while scraping news with puppeteer:`, error.message);
+
+        if (error.message.includes('timeout')) {
+            logger.error('Puppeteer timeout - page may be loading slowly or structure changed');
+        }
+
+        // Return empty array on error
+        return [];
+    } finally {
+        // Always close the browser to free resources
+        if (browser) {
+            logger.debug('Closing puppeteer browser');
+            await browser.close();
+        }
+    }
+}
+
+// Helper function to convert scrapeNews2 results to the same format as scrapeNews
+async function scrapeNews2ForFallback() {
+    try {
+        const footballNews = await scrapeNews2();
+        // Convert to the same format as scrapeNews
+        return footballNews.map(item => `${item.title} - ${item.summary || ''}`);
+    } catch (error) {
+        logger.error('Error in fallback news scraping:', error.message);
         return [];
     }
 }
@@ -158,7 +229,7 @@ async function searchNews(searchTerm) {
         const response = await axios.get(url);
         const xmlString = response.data;
         const newsItems = parseXML(xmlString).slice(0, 5);
-        
+
         return newsItems.map(item => {
             const date = new Date(item.pubDate);
             const relativeTime = getRelativeTime(date);
@@ -182,24 +253,27 @@ async function translateToPortuguese(text, fromLanguage = 'en') {
             const newsText = text.join('\n');
             const prompt = `Translate the following news to Portuguese. Keep the format and any source information in parentheses:\n\n${newsText}`;
             const completion = await runCompletion(prompt, 1);
-            return completion.trim().split('\n').filter(item => item.trim() !== '');
+            return completion
+                .trim()
+                .split('\n')
+                .filter(item => item.trim() !== '');
         } catch (error) {
             logger.error(`[ERROR] Translation failed:`, error.message);
             return text;
         }
     }
-    
+
     // Handle a single text input
     try {
         if (!text || text.trim() === '') {
             return text;
         }
-        
+
         // Skip translation if already in Portuguese
         if (fromLanguage === 'pt') {
             return text;
         }
-        
+
         const prompt = `Translate the following text from ${fromLanguage} to Portuguese. Maintain formatting and any special characters:
 
 ${text}
@@ -247,7 +321,7 @@ function getRelativeTime(date) {
  */
 function formatCompactDate(date) {
     if (!date || isNaN(date)) return '';
-    return `${date.getMonth()+1}/${date.getDate()}/${String(date.getFullYear()).substring(2)}`;
+    return `${date.getMonth() + 1}/${date.getDate()}/${String(date.getFullYear()).substring(2)}`;
 }
 
 /**
@@ -259,9 +333,9 @@ function formatCompactDate(date) {
  */
 function formatTwitterApiUsage(usage, resetTimes, currentKey) {
     if (!usage || !usage.primary) return 'API usage data unavailable';
-    
+
     // Format API rate limit reset times (from 429 responses)
-    const formatRateLimitReset = (keyName) => {
+    const formatRateLimitReset = keyName => {
         const resetTime = resetTimes && resetTimes[keyName];
         if (resetTime) {
             const resetDate = new Date(resetTime);
@@ -269,35 +343,35 @@ function formatTwitterApiUsage(usage, resetTimes, currentKey) {
         }
         return '';
     };
-    
+
     // Format billing cycle reset day (from cap_reset_day)
-    const formatBillingReset = (keyData) => {
+    const formatBillingReset = keyData => {
         if (keyData && keyData.capResetDay) {
             // Get current date to construct full reset date
             const now = new Date();
             const currentMonth = now.getMonth();
             const currentYear = now.getFullYear();
-            
+
             // Create date object for the reset day in the current month
             let resetDate = new Date(currentYear, currentMonth, keyData.capResetDay);
-            
+
             // If reset day has passed this month, show next month
             if (now > resetDate) {
                 resetDate = new Date(currentYear, currentMonth + 1, keyData.capResetDay);
             }
-            
+
             return ` (resets ${formatCompactDate(resetDate)})`;
         }
         return '';
     };
-    
+
     // Format statuses for each key
     const formatKeyStatus = (keyData, keyName) => {
         if (!keyData) return '?/? (unknown)';
-        
+
         const usage = keyData.usage || '?';
         const limit = keyData.limit || '?';
-        
+
         if (keyData.status === '429') {
             return `${usage}/${limit} (rate limit${formatRateLimitReset(keyName)})`;
         } else if (keyData.status === 'unchecked') {
@@ -305,16 +379,18 @@ function formatTwitterApiUsage(usage, resetTimes, currentKey) {
         } else if (keyData.status === 'error') {
             return `${usage}/${limit} (error)`;
         }
-        
+
         // Add billing cycle reset info for non-error keys
         return `${usage}/${limit}${formatBillingReset(keyData)}`;
     };
-    
+
     // Create the formatted message
-    return `Primary: ${formatKeyStatus(usage.primary, 'primary')}, ` +
-           `Fallback: ${formatKeyStatus(usage.fallback, 'fallback')}, ` +
-           `Fallback2: ${formatKeyStatus(usage.fallback2, 'fallback2')}, ` +
-           `using ${currentKey} key`;
+    return (
+        `Primary: ${formatKeyStatus(usage.primary, 'primary')}, ` +
+        `Fallback: ${formatKeyStatus(usage.fallback, 'fallback')}, ` +
+        `Fallback2: ${formatKeyStatus(usage.fallback2, 'fallback2')}, ` +
+        `using ${currentKey} key`
+    );
 }
 
 module.exports = {
@@ -327,5 +403,5 @@ module.exports = {
     isLocalNews,
     filterOutLocalNews,
     formatCompactDate,
-    formatTwitterApiUsage
-}; 
+    formatTwitterApiUsage,
+};

@@ -9,7 +9,7 @@ const LOG_LEVELS = {
     DEBUG: 'DEBUG',
     SUMMARY: 'SUMMARY',
     PROMPT: 'PROMPT',
-    STARTUP: 'STARTUP'
+    STARTUP: 'STARTUP',
 };
 
 // Log file configuration
@@ -26,7 +26,7 @@ const COLORS = {
     PURPLE: '\x1b[35m',
     GREY: '\x1b[90m',
     BOLD: '\x1b[1m',
-    RESET: '\x1b[0m'
+    RESET: '\x1b[0m',
 };
 
 // Spinner configuration
@@ -37,9 +37,11 @@ let isSpinnerActive = false;
 
 // Function to check if running under systemd
 function isSystemdEnvironment() {
-    return process.env.INVOCATION_ID !== undefined || 
-           process.env.JOURNAL_STREAM !== undefined ||
-           process.env.SYSTEMD_EXEC_PID !== undefined;
+    return (
+        process.env.INVOCATION_ID !== undefined ||
+        process.env.JOURNAL_STREAM !== undefined ||
+        process.env.SYSTEMD_EXEC_PID !== undefined
+    );
 }
 
 // Function to start the spinner
@@ -88,7 +90,7 @@ function showSpinner() {
 
 // Override console.log to handle spinner
 const originalConsoleLog = console.log;
-console.log = function(...args) {
+console.log = function (...args) {
     hideSpinner();
     originalConsoleLog.apply(console, args);
     showSpinner();
@@ -96,7 +98,7 @@ console.log = function(...args) {
 
 // Override console.error to handle spinner
 const originalConsoleError = console.error;
-console.error = function(...args) {
+console.error = function (...args) {
     hideSpinner();
     originalConsoleError.apply(console, args);
     showSpinner();
@@ -104,7 +106,7 @@ console.error = function(...args) {
 
 // Override console.warn to handle spinner
 const originalConsoleWarn = console.warn;
-console.warn = function(...args) {
+console.warn = function (...args) {
     hideSpinner();
     originalConsoleWarn.apply(console, args);
     showSpinner();
@@ -114,17 +116,19 @@ console.warn = function(...args) {
 function formatError(error) {
     if (!error) return 'Unknown error';
     if (typeof error === 'string') return error;
-    
+
     // Get the first line of the stack trace that isn't from node_modules
-    const stackLine = error.stack?.split('\n')
-        .find(line => line.includes('at') && !line.includes('node_modules'))
-        ?.trim()
-        ?.split('at ')[1] || 'unknown location';
-    
+    const stackLine =
+        error.stack
+            ?.split('\n')
+            .find(line => line.includes('at') && !line.includes('node_modules'))
+            ?.trim()
+            ?.split('at ')[1] || 'unknown location';
+
     // Extract just the file name and line number
     const match = stackLine.match(/[^/]*\.js:\d+/);
     const location = match ? match[0] : stackLine;
-    
+
     return `${error.message} (${location})`;
 }
 
@@ -132,23 +136,23 @@ function formatError(error) {
 function getCallerLocation() {
     const error = new Error();
     const stack = error.stack.split('\n');
-    
+
     // Skip the first 3 lines (Error, getCallerLocation, log function)
     // and find the first line that's not from logger.js
     const callerLine = stack.slice(3).find(line => !line.includes('logger.js'));
-    
+
     if (!callerLine) return '';
-    
+
     // Extract file path and line number
     const match = callerLine.match(/\((.+):(\d+):\d+\)/) || callerLine.match(/at (.+):(\d+):\d+/);
     if (!match) return '';
-    
+
     const fullPath = match[1];
     const line = match[2];
-    
+
     // Extract just the filename from the path
     const filename = fullPath.split('/').pop();
-    
+
     return ` ${COLORS.GREY}[${filename}:${line}]${COLORS.RESET}`;
 }
 
@@ -160,32 +164,36 @@ function formatLogWithTimestamp(level, message, error = null) {
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
-        hour12: false
+        hour12: false,
     });
-    
+
     let prefix = `[${timestamp}] [${level}]`;
     let formattedMessage = message;
     let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
-    
+
     // Show location for all log types when DEBUG is enabled in config
     const showLocation = config.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG === true;
-    
+
     // Get caller location if needed
     const location = showLocation ? getCallerLocation() : '';
-    
+
     // In test mode, don't use colors
     if (process.env.TEST_MODE === 'true') {
         return `${prefix} ${message}${error ? `: ${formatError(error)}` : ''}${location}`;
     }
-    
-    switch(level) {
+
+    switch (level) {
         case LOG_LEVELS.ERROR:
             prefix = `${COLORS.BOLD}${COLORS.RED}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${
+                COLORS.RESET
+            }`;
             break;
         case LOG_LEVELS.WARN:
             prefix = `${COLORS.YELLOW}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${
+                COLORS.RESET
+            }`;
             break;
         case LOG_LEVELS.INFO:
             prefix = `[${timestamp}] ${COLORS.GREEN}[${level}]${COLORS.RESET}`;
@@ -208,34 +216,37 @@ function formatLogWithTimestamp(level, message, error = null) {
             formattedMessage = `${COLORS.BOLD}${COLORS.GREEN}${message}${COLORS.RESET}${location}`;
             break;
     }
-    
+
     // Handle multi-line messages
     if (typeof formattedMessage === 'string') {
         // Remove empty lines and normalize line endings
-        formattedMessage = formattedMessage.replace(/\r\n/g, '\n')
+        formattedMessage = formattedMessage
+            .replace(/\r\n/g, '\n')
             .split('\n')
             .filter(line => line.trim() !== '') // Remove empty lines
             .join('\n');
-            
+
         if (formattedMessage.includes('\n')) {
             const lines = formattedMessage.split('\n');
-            formattedMessage = lines.map((line, index) => {
-                if (index === 0) return line;
-                return `${indent}${line}`;
-            }).join('\n');
+            formattedMessage = lines
+                .map((line, index) => {
+                    if (index === 0) return line;
+                    return `${indent}${line}`;
+                })
+                .join('\n');
         }
     }
-    
+
     let logMessage = `${prefix} ${formattedMessage}`;
-    
+
     return logMessage;
 }
 
 // Function to format admin notification message
-function formatAdminMessage(level, message, error = null) {
+function formatAdminMessage(message, error = null) {
     // Skip the log level prefix entirely
     let logMessage = message;
-    
+
     if (error) {
         const errorMsg = formatError(error);
         // Only include the error message if it's not already part of the message
@@ -243,7 +254,7 @@ function formatAdminMessage(level, message, error = null) {
             logMessage += `: ${errorMsg}`;
         }
     }
-    
+
     // Remove any double colons that might appear from error formatting
     return logMessage.replace(/:+/g, ':');
 }
@@ -252,7 +263,7 @@ function formatAdminMessage(level, message, error = null) {
 async function checkAndRotateLog() {
     try {
         const stats = await fs.stat(LOG_FILE).catch(() => ({ size: 0 }));
-        
+
         if (stats.size >= MAX_LOG_SIZE) {
             // Backup existing log file
             await fs.rename(LOG_FILE, BACKUP_LOG_FILE).catch(() => {});
@@ -286,7 +297,7 @@ async function notifyAdmin(message) {
         }
 
         const adminContact = `${config.CREDENTIALS.ADMIN_NUMBER}@c.us`;
-        
+
         try {
             await global.client.sendMessage(adminContact, message);
         } catch (error) {
@@ -303,19 +314,18 @@ async function notifyAdmin(message) {
 // Core logging function
 async function log(level, message, error = null, shouldNotifyAdmin = false) {
     // Check if this log level is enabled in console settings
-    if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || 
-        config.SYSTEM.CONSOLE_LOG_LEVELS[level] !== true) {
+    if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || config.SYSTEM.CONSOLE_LOG_LEVELS[level] !== true) {
         return;
     }
 
     // Format the message for console/file
     const formattedMessage = formatLogWithTimestamp(level, message, error);
-    
+
     // Write to log file
     await writeToLogFile(formattedMessage);
-    
+
     // Use appropriate console method based on level
-    switch(level) {
+    switch (level) {
         case LOG_LEVELS.ERROR:
             console.error(formattedMessage);
             break;
@@ -337,9 +347,12 @@ async function log(level, message, error = null, shouldNotifyAdmin = false) {
     }
 
     // Check if this log level should be sent to admin
-    if (shouldNotifyAdmin && config.SYSTEM?.NOTIFICATION_LEVELS && 
-        config.SYSTEM.NOTIFICATION_LEVELS[level] === true) {
-        const adminMessage = formatAdminMessage(level, message, error);
+    if (
+        shouldNotifyAdmin &&
+        config.SYSTEM?.NOTIFICATION_LEVELS &&
+        config.SYSTEM.NOTIFICATION_LEVELS[level] === true
+    ) {
+        const adminMessage = formatAdminMessage(message, error);
         await notifyAdmin(adminMessage);
     }
 }
@@ -347,92 +360,106 @@ async function log(level, message, error = null, shouldNotifyAdmin = false) {
 // Convenience methods for different log levels
 const logger = {
     error: (message, error = null) => log(LOG_LEVELS.ERROR, message, error, true),
-    warn: (message, error = null, shouldNotifyAdmin = true) => log(LOG_LEVELS.WARN, message, error, shouldNotifyAdmin),
-    info: (message) => log(LOG_LEVELS.INFO, message, null, true),
+    warn: (message, error = null, shouldNotifyAdmin = true) =>
+        log(LOG_LEVELS.WARN, message, error, shouldNotifyAdmin),
+    info: message => log(LOG_LEVELS.INFO, message, null, true),
     debug: (message, obj = null) => {
         // Only proceed if DEBUG is explicitly set to true
-        if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || 
-            config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG !== true) {
+        if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG !== true) {
             return;
         }
-        
+
         // Format the log message for console output
         let formattedMessage;
         if (obj) {
             // If an object is provided, log both the message and the object
             formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message);
             console.log(formattedMessage);
-            console.log(formatLogWithTimestamp(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`));
+            console.log(
+                formatLogWithTimestamp(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`)
+            );
         } else if (typeof message === 'object') {
             // If message is an object, stringify it
-            formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, JSON.stringify(message, null, 2));
+            formattedMessage = formatLogWithTimestamp(
+                LOG_LEVELS.DEBUG,
+                JSON.stringify(message, null, 2)
+            );
             console.log(formattedMessage);
         } else {
             // Otherwise just log the message
             formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message);
             console.log(formattedMessage);
         }
-        
+
         // Write to log file in the background (don't wait for it to complete)
         // This ensures chronological order in console while still writing to file
-        writeToLogFile(formattedMessage).catch(err => 
+        writeToLogFile(formattedMessage).catch(err =>
             console.error('Error writing log to file:', err)
         );
     },
-    summary: (message) => log(LOG_LEVELS.SUMMARY, message, null, true),
+    summary: message => log(LOG_LEVELS.SUMMARY, message, null, true),
     prompt: (message, promptText) => {
         // Only proceed if PROMPT is explicitly set to true
-        if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || 
-            config.SYSTEM.CONSOLE_LOG_LEVELS.PROMPT !== true) {
+        if (
+            !config.SYSTEM?.CONSOLE_LOG_LEVELS ||
+            config.SYSTEM.CONSOLE_LOG_LEVELS.PROMPT !== true
+        ) {
             return;
         }
-        
+
         // Handle undefined promptText
         if (promptText === undefined) {
             console.warn(formatLogWithTimestamp('WARN', 'Undefined prompt text received'));
             promptText = 'UNDEFINED PROMPT';
         }
-        
+
         // Format the prompt text to remove extra whitespace and normalize line endings
-        promptText = promptText.replace(/\r\n/g, '\n')
+        promptText = promptText
+            .replace(/\r\n/g, '\n')
             .split('\n')
             .map(line => line.trim())
             .filter(line => line !== '')
             .join('\n');
-        
+
         // Format the prompt header and text together
-        const formattedPrompt = formatLogWithTimestamp(LOG_LEVELS.PROMPT, `${message}\n${promptText}`);
-        
+        const formattedPrompt = formatLogWithTimestamp(
+            LOG_LEVELS.PROMPT,
+            `${message}\n${promptText}`
+        );
+
         // Temporarily disable spinner for prompt output
         hideSpinner();
         console.log(formattedPrompt);
         showSpinner();
-        
+
         // Also write to log file
-        writeToLogFile(formattedPrompt)
-            .catch(err => console.error('Error writing prompt to log file:', err));
-        
-        if (config.SYSTEM?.NOTIFICATION_LEVELS && 
-            config.SYSTEM.NOTIFICATION_LEVELS.PROMPT === true) {
-            notifyAdmin(`[PROMPT] ${message}\n\n${promptText}`).catch(error => 
+        writeToLogFile(formattedPrompt).catch(err =>
+            console.error('Error writing prompt to log file:', err)
+        );
+
+        if (
+            config.SYSTEM?.NOTIFICATION_LEVELS &&
+            config.SYSTEM.NOTIFICATION_LEVELS.PROMPT === true
+        ) {
+            notifyAdmin(`[PROMPT] ${message}\n\n${promptText}`).catch(error =>
                 console.error('Failed to notify admin of prompt:', formatError(error))
             );
         }
     },
-    
+
     // Specific event loggers
-    startup: (message) => {
+    startup: message => {
         log('STARTUP', message, null, true);
         startSpinner();
     },
-    shutdown: (message) => {
+    shutdown: message => {
         stopSpinner();
         log('SHUTDOWN', message, null, true);
     },
     command: (command, user) => log(LOG_LEVELS.INFO, `Command: ${command} by ${user}`, null, true),
-    
+
     // Export notifyAdmin for external use
-    notifyAdmin
+    notifyAdmin,
 };
 
-module.exports = logger; 
+module.exports = logger;

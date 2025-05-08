@@ -1,24 +1,91 @@
-// index.js 
+// index.js
 
 process.removeAllListeners('warning');
-process.on('warning', (warning) => {
-  if (warning.name === 'DeprecationWarning' && warning.message.includes('punycode')) {
-    return;
-  }
-  console.warn(warning.name, warning.message);
+process.on('warning', warning => {
+    if (warning.name === 'DeprecationWarning' && warning.message.includes('punycode')) {
+        return;
+    }
+    console.warn(warning.name, warning.message);
 });
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const config = require('./configs');
 const { setupListeners } = require('./core/listener');
-const { runPeriodicSummary } = require('./commands/periodicSummary');
 const { initializeMessageLog } = require('./utils/messageLogger');
 const { initializeNewsMonitor } = require('./commands/newsMonitor');
-const commandManager = require('./core/CommandManager');
+const { scheduleNextSummary: schedulePeriodicSummary } = require('./utils/periodicSummaryUtils');
+const { performStartupGitPull } = require('./utils/gitUtils');
 const logger = require('./utils/logger');
 const path = require('path');
 const fs = require('fs');
+
+// Memory management: Setup forced garbage collection
+let memoryUsageLog = [];
+const MAX_MEMORY_LOGS = 10;
+
+function logMemoryUsage() {
+    const memUsage = process.memoryUsage();
+    const memoryInfo = {
+        timestamp: new Date().toISOString(),
+        rss: Math.round(memUsage.rss / 1024 / 1024), // RSS in MB
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024), // Heap total in MB
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024), // Heap used in MB
+        external: Math.round(memUsage.external / 1024 / 1024), // External in MB
+    };
+
+    memoryUsageLog.push(memoryInfo);
+    if (memoryUsageLog.length > MAX_MEMORY_LOGS) {
+        memoryUsageLog.shift();
+    }
+
+    logger.debug(
+        `Memory usage: RSS: ${memoryInfo.rss}MB, Heap: ${memoryInfo.heapUsed}/${memoryInfo.heapTotal}MB`
+    );
+
+    // Check if memory usage is increasing rapidly
+    if (memoryUsageLog.length >= 3) {
+        const oldUsage = memoryUsageLog[0].heapUsed;
+        const currentUsage = memoryInfo.heapUsed;
+        const increaseMB = currentUsage - oldUsage;
+
+        if (increaseMB > 50) {
+            // If heap increased by more than 50MB
+            logger.warn(`Memory increase detected: +${increaseMB}MB. Forcing garbage collection.`);
+            forceGarbageCollection();
+        }
+    }
+}
+
+function forceGarbageCollection() {
+    try {
+        if (global.gc) {
+            const beforeGC = process.memoryUsage().heapUsed / 1024 / 1024;
+            global.gc();
+            const afterGC = process.memoryUsage().heapUsed / 1024 / 1024;
+            logger.info(
+                `Garbage collection complete: freed ${Math.round(
+                    beforeGC - afterGC
+                )}MB. Current heap: ${Math.round(afterGC)}MB`
+            );
+        } else {
+            logger.warn('Garbage collection not available. Run with --expose-gc flag.');
+        }
+    } catch (error) {
+        logger.error('Error during garbage collection:', error);
+    }
+}
+
+// Set up regular memory monitoring and garbage collection
+const MEMORY_CHECK_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
+setInterval(() => {
+    logMemoryUsage();
+    // Force GC every hour or when memory increases too quickly (handled in logMemoryUsage)
+    if (global.gc && Date.now() % (60 * 60 * 1000) < MEMORY_CHECK_INTERVAL) {
+        logger.debug('Performing scheduled garbage collection');
+        forceGarbageCollection();
+    }
+}, MEMORY_CHECK_INTERVAL);
 
 // Check if testing environment variables are set and force debug/prompt logging
 if (process.env.FORCE_DEBUG_LOGS === 'true' && config.SYSTEM?.CONSOLE_LOG_LEVELS) {
@@ -32,7 +99,7 @@ if (process.env.FORCE_PROMPT_LOGS === 'true' && config.SYSTEM?.CONSOLE_LOG_LEVEL
 }
 
 // Add global error handlers
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
     logger.error('Uncaught Exception:', error);
     process.exit(1);
 });
@@ -51,7 +118,9 @@ const RECONNECT_DELAY = 5000; // 5 seconds
 
 async function reconnectClient() {
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        logger.warn(`Attempting to reconnect (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        logger.warn(
+            `Attempting to reconnect (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`
+        );
         try {
             reconnectAttempts++;
             await initializeBot();
@@ -61,148 +130,11 @@ async function reconnectClient() {
             setTimeout(reconnectClient, RECONNECT_DELAY);
         }
     } else {
-        logger.error(`Failed to reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts. Shutting down...`);
+        logger.error(
+            `Failed to reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts. Shutting down...`
+        );
         process.exit(1);
     }
-}
-
-function getNextSummaryInfo() {
-    // If PERIODIC_SUMMARY exists and is explicitly disabled, return null
-    if (config.PERIODIC_SUMMARY?.enabled === false) {
-        return null;
-    }
-
-    // Get groups and apply defaults
-    const groups = Object.entries(config.PERIODIC_SUMMARY?.groups || {})
-        .map(([groupName, groupConfig]) => {
-            // Use defaults for any missing settings
-            const defaults = config.PERIODIC_SUMMARY?.defaults || {};
-            const groupSettings = {
-                name: groupName,
-                config: {
-                    enabled: groupConfig?.enabled !== false, // enabled by default unless explicitly false
-                    intervalHours: groupConfig?.intervalHours || defaults.intervalHours,
-                    quietTime: groupConfig?.quietTime || defaults.quietTime,
-                    promptPath: groupConfig?.promptPath || defaults.promptPath
-                }
-            };
-            return groupSettings;
-        })
-        .filter(group => group.config.enabled);
-    
-    if (groups.length === 0) {
-        return null;
-    }
-
-    let nextSummaryTime = Infinity;
-    let selectedGroup = null;
-    let selectedInterval = null;
-
-    const now = new Date();
-    
-    // Helper function to check if a time is between two times
-    function isTimeBetween(time, start, end) {
-        // Convert times to comparable format (minutes since midnight)
-        const getMinutes = (timeStr) => {
-            const [hours, minutes] = timeStr.split(':').map(Number);
-            return hours * 60 + minutes;
-        };
-
-        const timeMinutes = getMinutes(time);
-        const startMinutes = getMinutes(start);
-        const endMinutes = getMinutes(end);
-
-        // Handle cases where quiet time spans across midnight
-        if (startMinutes > endMinutes) {
-            return timeMinutes >= startMinutes || timeMinutes <= endMinutes;
-        }
-        return timeMinutes >= startMinutes && timeMinutes <= endMinutes;
-    }
-
-    // Helper function to check if a time is during quiet hours for a group
-    function isQuietTimeForGroup(groupName, time) {
-        const groupConfig = config.PERIODIC_SUMMARY.groups[groupName];
-        const defaults = config.PERIODIC_SUMMARY.defaults || {};
-        const quietTime = groupConfig?.quietTime || defaults.quietTime;
-        
-        if (!quietTime?.start || !quietTime?.end) {
-            return false;
-        }
-
-        const timeStr = time.toLocaleTimeString('pt-BR', { 
-            timeZone: 'America/Sao_Paulo',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-        
-        return isTimeBetween(timeStr, quietTime.start, quietTime.end);
-    }
-    
-    for (const group of groups) {
-        // Calculate initial next time
-        let nextTime = new Date(now.getTime() + group.config.intervalHours * 60 * 60 * 1000);
-        
-        // If current time is in quiet hours, adjust the next time
-        while (isQuietTimeForGroup(group.name, nextTime)) {
-            nextTime = new Date(nextTime.getTime() + 60 * 60 * 1000); // Add 1 hour and check again
-        }
-
-        if (nextTime.getTime() < nextSummaryTime) {
-            nextSummaryTime = nextTime.getTime();
-            selectedGroup = group.name;
-            selectedInterval = group.config.intervalHours;
-        }
-    }
-
-    if (!selectedGroup) {
-        return null;
-    }
-
-    const nextTime = new Date(nextSummaryTime);
-    return {
-        group: selectedGroup,
-        interval: selectedInterval,
-        nextValidTime: nextTime
-    };
-}
-
-async function scheduleNextSummary() {
-    logger.debug('Checking periodic summary configuration:', {
-        enabled: config.PERIODIC_SUMMARY?.enabled,
-        groups: Object.keys(config.PERIODIC_SUMMARY?.groups || {})
-    });
-    
-    const nextSummaryInfo = getNextSummaryInfo();
-    if (!nextSummaryInfo) {
-        // Try again in 1 hour if we couldn't schedule now
-        setTimeout(scheduleNextSummary, 60 * 60 * 1000);
-        return;
-    }
-
-    const { group, interval, nextValidTime } = nextSummaryInfo;
-    const now = new Date();
-    const delayMs = nextValidTime.getTime() - now.getTime();
-
-    // Log summary schedule without sending to chat
-    logger.summary(`Next summary scheduled for ${group} at ${nextValidTime.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (interval: ${interval}h)`);
-
-    // Schedule the next summary
-    setTimeout(async () => {
-        try {
-            logger.summary(`Running scheduled summary for group ${group}`);
-            const result = await runPeriodicSummary(group);
-            if (result) {
-                logger.summary(`Successfully completed summary for group ${group}`);
-            } else {
-                logger.warn(`Summary for group ${group} completed but may have had issues`);
-            }
-        } catch (error) {
-            logger.error(`Error running periodic summary for group ${group}:`, error);
-        } finally {
-            // Schedule the next summary regardless of whether this one succeeded
-            scheduleNextSummary();
-        }
-    }, delayMs);
 }
 
 // Initialize bot components
@@ -223,12 +155,12 @@ async function initializeBot() {
 
         // Initialize WhatsApp client
         logger.debug('Starting WhatsApp client initialization...');
-        
+
         // Determine auth path and client ID
         const authPath = process.env.USE_AUTH_DIR || path.join(__dirname, 'wwebjs/auth_main');
         const clientId = process.env.USE_CLIENT_ID || 'tanabe-gpt-client';
         logger.debug(`Using authentication path: ${authPath} with client ID: ${clientId}`);
-        
+
         // Check if the session folder exists
         const sessionFolder = path.join(authPath, `session-${clientId}`);
         if (fs.existsSync(sessionFolder)) {
@@ -236,11 +168,37 @@ async function initializeBot() {
         } else {
             logger.warn(`Session folder not found: ${sessionFolder}. A new one will be created.`);
         }
-        
+
+        // Cleanup function to manage browser resources
+        const browserCleanup = {
+            closePages: async browser => {
+                try {
+                    if (!browser) return;
+                    const pages = await browser.pages();
+
+                    // Keep only the main WhatsApp page, close all others
+                    if (pages.length > 1) {
+                        logger.debug(`Found ${pages.length} browser pages, cleaning up extras...`);
+                        for (let i = 1; i < pages.length; i++) {
+                            try {
+                                await pages[i].close();
+                                logger.debug(`Closed extra page ${i}`);
+                            } catch (err) {
+                                logger.debug(`Error closing page ${i}: ${err.message}`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    logger.warn(`Error during browser page cleanup: ${err.message}`);
+                }
+            },
+        };
+
+        // Enhanced client configuration
         const client = new Client({
             authStrategy: new LocalAuth({
                 clientId: clientId,
-                dataPath: authPath
+                dataPath: authPath,
             }),
             puppeteer: {
                 headless: true,
@@ -252,31 +210,94 @@ async function initializeBot() {
                     '--no-first-run',
                     '--no-zygote',
                     '--single-process',
-                    '--disable-gpu'
-                ]
+                    '--disable-gpu',
+                    '--js-flags="--max-old-space-size=128"',
+                    '--disable-extensions',
+                    '--disable-default-apps',
+                    '--disable-translate',
+                    '--disable-sync',
+                    '--disable-site-isolation-trials',
+                    '--mute-audio',
+                    '--disable-background-networking',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-breakpad',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+                    '--disable-ipc-flooding-protection',
+                    '--disable-renderer-backgrounding',
+                ],
+                defaultViewport: { width: 800, height: 600 },
+                ignoreHTTPSErrors: true,
+                timeout: 120000,
             },
             restartOnAuthFail: true,
             qrMaxRetries: 5,
             qrTimeoutMs: 60000,
             authTimeoutMs: 60000,
             takeoverOnConflict: true,
-            takeoverTimeoutMs: 60000
+            takeoverTimeoutMs: 60000,
         });
 
         // Store client globally for use in other modules
         global.client = client;
         logger.debug('Storing client globally...');
 
+        // Automatic browser resource management
+        let browserInstance = null;
+        let pageCleanupInterval = null;
+
+        client.on('ready', async () => {
+            try {
+                // Store reference to browser instance
+                browserInstance = client.pupBrowser;
+
+                // Schedule periodic browser cleanup to prevent memory leaks
+                pageCleanupInterval = setInterval(async () => {
+                    if (browserInstance) {
+                        await browserCleanup.closePages(browserInstance);
+                        // Force garbage collection after browser cleanup
+                        if (global.gc) {
+                            global.gc();
+                        }
+                    }
+                }, 30 * 60 * 1000); // Every 30 minutes
+
+                logger.debug('Browser cleanup scheduled every 30 minutes');
+            } catch (err) {
+                logger.error('Error setting up browser management:', err);
+            }
+        });
+
+        // Clean up resources on disconnection
+        client.on('disconnected', async () => {
+            if (pageCleanupInterval) {
+                clearInterval(pageCleanupInterval);
+                pageCleanupInterval = null;
+            }
+
+            try {
+                if (browserInstance) {
+                    await browserCleanup.closePages(browserInstance);
+                    browserInstance = null;
+                }
+            } catch (err) {
+                logger.warn('Error during browser cleanup on disconnection:', err);
+            }
+        });
+
         // Set up QR code handling
         let qrAttempts = 0;
-        client.on('qr', (qr) => {
+        client.on('qr', qr => {
             qrAttempts++;
             logger.info(`QR Code received (attempt ${qrAttempts}/5), scan to authenticate:`);
             qrcode.generate(qr, { small: true });
-            
+
             // Log additional instructions
             if (qrAttempts === 1) {
-                logger.info('To authenticate: Open WhatsApp on your phone, go to Settings > Linked Devices > Link a Device');
+                logger.info(
+                    'To authenticate: Open WhatsApp on your phone, go to Settings > Linked Devices > Link a Device'
+                );
             }
         });
 
@@ -284,25 +305,29 @@ async function initializeBot() {
         client.on('loading_screen', (percent, message) => {
             logger.debug('WhatsApp loading screen:', {
                 percent,
-                message
+                message,
             });
         });
 
         client.on('authenticated', () => {
             logger.debug('Client authenticated successfully');
             qrAttempts = 0;
-            logger.info('WhatsApp authentication successful! Session will be saved for future use.');
+            logger.info(
+                'WhatsApp authentication successful! Session will be saved for future use.'
+            );
         });
 
-        client.on('auth_failure', (msg) => {
+        client.on('auth_failure', msg => {
             logger.error('Authentication failed:', msg);
-            logger.info('Please try again. If the problem persists, delete the wwebjs/auth_main directory and restart.');
+            logger.info(
+                'Please try again. If the problem persists, delete the wwebjs/auth_main directory and restart.'
+            );
             throw new Error(`Authentication failed: ${msg}`);
         });
 
-        client.on('disconnected', (reason) => {
+        client.on('disconnected', reason => {
             logger.error('Client was disconnected:', reason);
-            throw new Error(`WhatsApp disconnected: ${reason}`);
+            reconnectClient();
         });
 
         // Create a promise that resolves when the client is ready
@@ -311,7 +336,7 @@ async function initializeBot() {
             const timeout = setTimeout(() => {
                 reject(new Error('WhatsApp client initialization timed out after 2 minutes'));
             }, 120000); // 2 minutes timeout
-            
+
             client.on('ready', () => {
                 logger.debug('WhatsApp client is ready and authenticated!');
                 clearTimeout(timeout); // Clear the timeout
@@ -321,22 +346,22 @@ async function initializeBot() {
 
         // Start the client initialization
         logger.debug('Starting WhatsApp client and waiting for authentication...');
-        
+
         // Initialize the client (this starts the authentication process)
         await client.initialize().catch(error => {
             logger.error('Error initializing WhatsApp client:', error);
             throw error;
         });
-        
+
         // Wait for the client to be ready (fully authenticated)
         logger.debug('Waiting for WhatsApp client to be fully ready...');
         await readyPromise;
-        
+
         logger.debug('WhatsApp client authenticated and initialized successfully!');
 
         // Now that we're authenticated and ready, set up the rest of the components
         logger.debug('Setting up command handlers and listeners...');
-        
+
         // Register command handlers
         logger.debug('Registering command handlers...');
         setupListeners(client);
@@ -350,16 +375,19 @@ async function initializeBot() {
 
         // Initialize news monitor (handles both Twitter and RSS)
         try {
-            logger.debug('Initializing news monitor...');
+            logger.debug('About to call initializeNewsMonitor...');
             await initializeNewsMonitor();
+            logger.debug('Returned from initializeNewsMonitor successfully.');
         } catch (error) {
-            logger.error('Failed to initialize news monitor:', error);
+            logger.error('Failed to initialize news monitor (caught in initializeBot):', error);
             // Continue even if news monitor fails
         }
-        
+
+        logger.debug(
+            'Proceeding after news monitor block in initializeBot. About to log line 224.'
+        );
         logger.info('Bot initialization completed successfully!');
         return client;
-
     } catch (error) {
         logger.error('Error during bot initialization:', error);
         throw error;
@@ -372,64 +400,7 @@ async function main() {
         logger.debug('Starting bot...');
 
         // Perform git pull unconditionally before full initialization
-        try {
-            logger.info('Attempting to update bot via git pull...');
-            const { execSync } = require('child_process');
-
-            // Log current commit
-            try {
-                const recentGitLogs = execSync('git log -1 --pretty=format:"%h - %s (%cr)"').toString().trim();
-                logger.info('Latest commit before pull:', recentGitLogs);
-            } catch (logError) {
-                logger.debug('Could not get latest commit info before pull:', logError.message.split('\n')[0]);
-            }
-
-            const output = execSync('git pull').toString().trim();
-            if (output === '' || output.includes('Already up to date') || output.includes('Already up-to-date')) {
-                logger.info('Git pull completed: No changes detected or already up to date.');
-            } else {
-                logger.info('Git pull result:', output);
-                logger.info('Update complete. If critical files were changed, a manual restart might be needed if issues occur.');
-            }
-        } catch (error) {
-            logger.error('Error performing git pull during startup:', error.message.split('\n')[0]);
-            logger.warn('Proceeding with current version due to git pull error.');
-            // Decide if you want to exit here or continue:
-            // process.exit(1); // or throw error;
-        }
-        
-        // Perform git pull if running in production
-        /*
-        if (process.env.NODE_ENV === 'production') {
-            try {
-                const { execSync } = require('child_process');
-                
-                // Only check for git log if not running through start.sh
-                if (!process.env.GIT_PULL_STATUS) {
-                    // Check for recent git pull results in system logs
-                    try {
-                        const recentGitLogs = execSync('git log -1 --pretty=format:"%h - %s (%cr)"').toString().trim();
-                        logger.info('Latest commit:', recentGitLogs);
-                    } catch (logError) {
-                        logger.debug('Could not get latest commit info:', logError.message);
-                    }
-                    
-                    // Perform git pull directly
-                    logger.info('Performing git pull...');
-                    const output = execSync('git pull').toString().trim();
-                    
-                    if (output === '' || output.includes('Already up to date')) {
-                        logger.info('Git pull completed: No changes detected (already up to date)');
-                    } else {
-                        logger.info('Git pull result:', output);
-                    }
-                }
-            } catch (error) {
-                logger.error('Error performing git pull:', error.message);
-                // Continue even if git pull fails
-            }
-        }
-        */
+        await performStartupGitPull();
 
         logger.debug('Initializing bot...');
         // Initialize the bot
@@ -437,17 +408,21 @@ async function main() {
         logger.debug('Bot initialization completed.');
         // Start the spinner after initialization is complete
         logger.startup('🤖 Bot has been started successfully!');
-                
+
+        // Schedule periodic summaries
+        schedulePeriodicSummary();
     } catch (error) {
         logger.error('Error in main function:', error);
-        
+
         // Provide specific guidance based on the error
         if (error.message && error.message.includes('auth')) {
             logger.error('Authentication error detected. Try the following:');
             logger.error('1. Delete the wwebjs/auth_main directory: rm -rf wwebjs/auth_main');
             logger.error('2. Restart the bot: node index.js');
             logger.error('3. Scan the QR code with your WhatsApp');
-            logger.info('Authentication error detected. Try deleting the wwebjs/auth_main directory and restarting the bot.');
+            logger.info(
+                'Authentication error detected. Try deleting the wwebjs/auth_main directory and restarting the bot.'
+            );
         } else if (error.message && error.message.includes('timeout')) {
             logger.error('Timeout error detected. Try the following:');
             logger.error('1. Check your internet connection');
@@ -459,4 +434,3 @@ async function main() {
 main().catch(error => {
     logger.error('UNHANDLED ERROR IN MAIN:', error);
 });
-

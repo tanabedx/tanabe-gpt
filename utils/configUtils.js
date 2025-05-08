@@ -12,8 +12,14 @@ setTimeout(() => {
 
 async function savePeriodicSummaryConfig(periodicSummaryConfig) {
     try {
-        const configPath = path.join(__dirname, '..', 'configs', 'periodicSummary.config.js');
-        
+        const configPath = path.join(
+            __dirname,
+            '..',
+            'configs',
+            'commandConfigs',
+            'periodicSummary.config.js'
+        );
+
         // Format the groups configuration with proper indentation
         const groupsConfig = Object.entries(periodicSummaryConfig.groups || {})
             .map(([name, settings]) => {
@@ -26,7 +32,10 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
                 }
 
                 // Only include intervalHours if different from default
-                if (settings.intervalHours !== undefined && settings.intervalHours !== defaults.intervalHours) {
+                if (
+                    settings.intervalHours !== undefined &&
+                    settings.intervalHours !== defaults.intervalHours
+                ) {
                     customConfig.intervalHours = settings.intervalHours;
                 }
 
@@ -45,7 +54,10 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
                 }
 
                 // Only include deleteAfter if different from default
-                if (settings.deleteAfter !== undefined && settings.deleteAfter !== defaults.deleteAfter) {
+                if (
+                    settings.deleteAfter !== undefined &&
+                    settings.deleteAfter !== defaults.deleteAfter
+                ) {
                     customConfig.deleteAfter = settings.deleteAfter;
                 }
 
@@ -55,7 +67,8 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
                 }
 
                 // If there are no custom configs, just save enabled: true
-                const configToSave = Object.keys(customConfig).length > 0 ? customConfig : { enabled: true };
+                const configToSave =
+                    Object.keys(customConfig).length > 0 ? customConfig : { enabled: true };
 
                 // Format the configuration
                 const configLines = Object.entries(configToSave)
@@ -81,20 +94,20 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
                     if (name.startsWith('dm.')) {
                         baseGroupName = name.substring(3);
                     }
-                    
+
                     // Generate abbreviation from first letters of words in group name
                     const abbreviation = baseGroupName
                         .split(/\s+/)
                         .map(word => word[0].toUpperCase())
                         .join('');
-                    
+
                     // Add the group to environment variables
                     envMapper.addNewGroup(baseGroupName, abbreviation);
                 }
 
                 // Get the environment variable key for the group
                 const groupKey = envMapper ? envMapper.getGroupKey(name) : null;
-                
+
                 // Use the environment variable in the configuration if available
                 if (groupKey) {
                     return `        [process.env.${groupKey}]: {\n${configLines}\n        }`;
@@ -104,13 +117,13 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
             })
             .join(',\n');
 
-        const periodicSummaryContent = `// periodicSummary.config.js
-require('dotenv').config({ path: './configs/.env' });
+        const periodicSummaryContent = `// periodicSummary.config.js in commandConfigs directory
+require('dotenv').config({ path: '../.env' });
 
 // Avoid circular dependency with envMapper
 let envMapper;
 setTimeout(() => {
-    envMapper = require('../utils/envMapper');
+    envMapper = require('../../utils/envMapper');
 }, 0);
 
 const PERIODIC_SUMMARY = {
@@ -120,7 +133,11 @@ const PERIODIC_SUMMARY = {
             start: '${periodicSummaryConfig.defaults.quietTime.start}',
             end: '${periodicSummaryConfig.defaults.quietTime.end}'
         },
-        deleteAfter: ${periodicSummaryConfig.defaults.deleteAfter === null ? 'null' : periodicSummaryConfig.defaults.deleteAfter},
+        deleteAfter: ${
+            periodicSummaryConfig.defaults.deleteAfter === null
+                ? 'null'
+                : periodicSummaryConfig.defaults.deleteAfter
+        },
         promptPath: '${periodicSummaryConfig.defaults.promptPath}'
     },
     groups: {
@@ -224,5 +241,5 @@ module.exports = ${JSON.stringify(config, null, 2)};`;
 }
 
 module.exports = {
-    saveConfig
-}; 
+    saveConfig,
+};

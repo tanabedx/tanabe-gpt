@@ -11,7 +11,7 @@ async function unshortenLink(url) {
     try {
         const response = await axios.head(url, {
             maxRedirects: 5,
-            timeout: config.RESUMO?.linkSettings?.timeout || 10000
+            timeout: config.RESUMO?.linkSettings?.timeout || 10000,
         });
         return response.request.res.responseUrl || url;
     } catch (error) {
@@ -28,8 +28,9 @@ async function getPageContent(url) {
         const response = await axios.get(url, {
             timeout: settings.timeout,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            },
         });
 
         // Extract text content from HTML
@@ -43,7 +44,9 @@ async function getPageContent(url) {
 
         // Limit content length
         if (content.length > settings.maxCharacters) {
-            logger.debug(`Trimming content from ${content.length} to ${settings.maxCharacters} characters`);
+            logger.debug(
+                `Trimming content from ${content.length} to ${settings.maxCharacters} characters`
+            );
             content = content.substring(0, settings.maxCharacters);
         }
 
@@ -57,5 +60,5 @@ async function getPageContent(url) {
 module.exports = {
     extractLinks,
     unshortenLink,
-    getPageContent
-}; 
+    getPageContent,
+};

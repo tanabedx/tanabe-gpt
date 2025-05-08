@@ -16,7 +16,7 @@ const AUDIO_CONFIG = {
         invalidFormat: 'Formato de áudio inválido.',
     },
     useGroupPersonality: false,
-    model: '',  // Using specific model for voice transcription
+    model: '', // Using specific model for voice transcription
 };
 
-module.exports = AUDIO_CONFIG; 
+module.exports = AUDIO_CONFIG;

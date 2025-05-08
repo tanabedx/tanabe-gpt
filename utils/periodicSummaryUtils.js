@@ -1,9 +1,6 @@
 // periodicSummaryUtils.js
-
-let config;
-setTimeout(() => {
-    config = require('../configs');
-}, 0);
+const config = require('../configs');
+const logger = require('./logger'); // Corrected path and synchronous loading
 
 // Helper function to get all groups with periodic summaries enabled
 function getPeriodicSummaryGroups(configObj) {
@@ -16,7 +13,7 @@ function getPeriodicSummaryGroups(configObj) {
 // Helper function to check if a time is between two times
 function isTimeBetween(time, start, end) {
     // Convert times to comparable format (minutes since midnight)
-    const getMinutes = (timeStr) => {
+    const getMinutes = timeStr => {
         const [hours, minutes] = timeStr.split(':').map(Number);
         return hours * 60 + minutes;
     };
@@ -38,26 +35,22 @@ function isQuietTimeForGroup(groupName, time) {
     const groupConfig = config.PERIODIC_SUMMARY.groups[groupName];
     const defaults = config.PERIODIC_SUMMARY.defaults || {};
     const quietTime = groupConfig?.quietTime || defaults.quietTime;
-    
+
     if (!quietTime?.start || !quietTime?.end) {
         return false;
     }
 
-    const timeStr = time.toLocaleTimeString('pt-BR', { 
+    const timeStr = time.toLocaleTimeString('pt-BR', {
         timeZone: 'America/Sao_Paulo',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
     });
-    
+
     return isTimeBetween(timeStr, quietTime.start, quietTime.end);
 }
 
 function getNextSummaryInfo() {
     if (!config) return null;
-    // If PERIODIC_SUMMARY exists and is explicitly disabled, return null
-    if (config.PERIODIC_SUMMARY?.enabled === false) {
-        return null;
-    }
 
     // Get groups and apply defaults
     const groups = Object.entries(config.PERIODIC_SUMMARY?.groups || {})
@@ -70,13 +63,13 @@ function getNextSummaryInfo() {
                     enabled: groupConfig?.enabled !== false, // enabled by default unless explicitly false
                     intervalHours: groupConfig?.intervalHours || defaults.intervalHours,
                     quietTime: groupConfig?.quietTime || defaults.quietTime,
-                    promptPath: groupConfig?.promptPath || defaults.promptPath
-                }
+                    promptPath: groupConfig?.promptPath || defaults.promptPath,
+                },
             };
             return groupSettings;
         })
         .filter(group => group.config.enabled);
-    
+
     if (groups.length === 0) {
         return null;
     }
@@ -86,11 +79,11 @@ function getNextSummaryInfo() {
     let selectedInterval = null;
 
     const now = new Date();
-    
+
     for (const group of groups) {
         // Calculate initial next time
         let nextTime = new Date(now.getTime() + group.config.intervalHours * 60 * 60 * 1000);
-        
+
         // If current time is in quiet hours, adjust the next time
         while (isQuietTimeForGroup(group.name, nextTime)) {
             nextTime = new Date(nextTime.getTime() + 60 * 60 * 1000); // Add 1 hour and check again
@@ -111,18 +104,17 @@ function getNextSummaryInfo() {
     return {
         group: selectedGroup,
         interval: selectedInterval,
-        nextValidTime: nextTime
+        nextValidTime: nextTime,
     };
 }
 
 async function scheduleNextSummary() {
-    if (!config) return;
-    const logger = require('../logger');
+    // if (!config) return; // No longer needed with synchronous config loading
+    // const logger = require('../logger'); // Moved to top
     logger.debug('Checking periodic summary configuration:', {
-        enabled: config.PERIODIC_SUMMARY?.enabled,
-        groups: Object.keys(config.PERIODIC_SUMMARY?.groups || {})
+        groups: Object.keys(config.PERIODIC_SUMMARY?.groups || {}),
     });
-    
+
     const nextSummaryInfo = getNextSummaryInfo();
     if (!nextSummaryInfo) {
         // Try again in 1 hour if we couldn't schedule now
@@ -134,7 +126,11 @@ async function scheduleNextSummary() {
     const now = new Date();
     const delayMs = nextValidTime.getTime() - now.getTime();
 
-    logger.summary(`Next summary scheduled for ${group} at ${nextValidTime.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (interval: ${interval}h)`);
+    logger.summary(
+        `Next summary scheduled for ${group} at ${nextValidTime.toLocaleString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+        })} (interval: ${interval}h)`
+    );
 
     // Schedule the next summary
     setTimeout(async () => {
@@ -159,5 +155,5 @@ async function scheduleNextSummary() {
 module.exports = {
     getPeriodicSummaryGroups,
     getNextSummaryInfo,
-    scheduleNextSummary
-}; 
+    scheduleNextSummary,
+};

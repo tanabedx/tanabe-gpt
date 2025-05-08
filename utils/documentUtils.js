@@ -11,7 +11,7 @@ const pdf = require('pdf-parse');
 const DEFAULT_SETTINGS = {
     maxCharacters: 5000,
     supportedFormats: ['.pdf', '.docx', '.doc', '.txt', '.rtf'],
-    tempDir: '.'
+    tempDir: '.',
 };
 
 // MIME type to extension mapping
@@ -20,7 +20,7 @@ const MIME_TO_EXT = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
     'application/msword': '.doc',
     'text/plain': '.txt',
-    'application/rtf': '.rtf'
+    'application/rtf': '.rtf',
 };
 
 function getDocumentSettings() {
@@ -31,26 +31,26 @@ async function extractTextFromPDF(filePath) {
     try {
         // Temporarily redirect logger.warn to suppress PDF warnings
         const originalWarn = logger.warn;
-        logger.warn = function(msg) {
+        logger.warn = function (msg) {
             // Only suppress TT warnings from pdf-parse
             if (!msg.includes('TT: undefined function')) {
                 originalWarn.apply(console, arguments);
             }
         };
-        
+
         // Read file as buffer
         const dataBuffer = await fs.promises.readFile(filePath);
-        
+
         try {
             // Parse PDF using pdf-parse
             const data = await pdf(dataBuffer);
-            
+
             // Get text content
             let text = data.text || '';
-            
+
             // Clean up text
             text = text.replace(/\s+/g, ' ').trim();
-            
+
             return text || 'No readable text found in PDF';
         } finally {
             // Restore original logger.warn
@@ -67,17 +67,17 @@ async function extractTextFromDOCX(filePath) {
         // Extract document.xml directly to current directory
         const docxmlPath = path.join(path.dirname(filePath), 'document.xml');
         await execAsync(`unzip -p "${filePath}" word/document.xml > "${docxmlPath}"`);
-        
+
         // Read the XML and extract text content
         const xmlContent = await fs.promises.readFile(docxmlPath, 'utf8');
         const textContent = xmlContent
             .replace(/<[^>]+>/g, '') // Remove XML tags
-            .replace(/\s+/g, ' ')    // Normalize whitespace
+            .replace(/\s+/g, ' ') // Normalize whitespace
             .trim();
-        
+
         // Clean up the temporary XML file
         await fs.promises.unlink(docxmlPath).catch(() => {});
-        
+
         return textContent;
     } catch (error) {
         logger.error('Error extracting text from DOCX:', error);
@@ -88,7 +88,7 @@ async function extractTextFromDOCX(filePath) {
 async function extractTextFromDocument(filePath) {
     const ext = path.extname(filePath).toLowerCase();
     const settings = getDocumentSettings();
-    
+
     try {
         let text;
         switch (ext) {
@@ -106,12 +106,12 @@ async function extractTextFromDocument(filePath) {
             default:
                 throw new Error('Unsupported file format');
         }
-        
+
         // Limit text to maxCharacters
         if (text.length > settings.maxCharacters) {
             text = text.substring(0, settings.maxCharacters);
         }
-        
+
         return text;
     } catch (error) {
         logger.error('Error processing document:', error);
@@ -127,7 +127,7 @@ async function downloadAndProcessDocument(message) {
     if (!media) {
         throw new Error('Failed to download document');
     }
-    
+
     // Determine file extension from MIME type or filename
     let ext = '';
     if (media.mimetype && MIME_TO_EXT[media.mimetype]) {
@@ -136,28 +136,28 @@ async function downloadAndProcessDocument(message) {
         ext = path.extname(media.filename).toLowerCase();
     }
 
-    logger.debug('Processing document:', { 
+    logger.debug('Processing document:', {
         filename: media.filename,
         mimetype: media.mimetype,
-        determinedExtension: ext
+        determinedExtension: ext,
     });
-    
+
     if (!settings.supportedFormats.includes(ext)) {
         logger.error('Unsupported file format:', ext);
         throw new Error('Unsupported file format');
     }
-    
+
     // Save file to parent directory
     const filePath = path.join('.', `doc_${Date.now()}${ext}`);
     await fs.promises.writeFile(filePath, media.data, 'base64');
-    
+
     try {
         // Extract text
         const text = await extractTextFromDocument(filePath);
-        
+
         // Clean up
         await fs.promises.unlink(filePath);
-        
+
         return text;
     } catch (error) {
         // Clean up on error
@@ -167,5 +167,5 @@ async function downloadAndProcessDocument(message) {
 }
 
 module.exports = {
-    downloadAndProcessDocument
-}; 
+    downloadAndProcessDocument,
+};

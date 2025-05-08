@@ -31,7 +31,7 @@ O tweet é IRRELEVANTE (null) nos seguintes casos:
 Tweets Analisados Anteriormente (para Contexto):
 {previous_posts}
     `,
-    
+
     SITREP_artorias_PROMPT: `
 Tweet de SITREP_artorias para Avaliação:
 {post}
@@ -39,7 +39,7 @@ Tweet de SITREP_artorias para Avaliação:
 Instruções:
 Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Responda com apenas 'sim' ou 'não'.
     `,
-    
+
     EVALUATE_ARTICLE: `
 Artigo para Avaliação:
 {article}
@@ -70,7 +70,7 @@ O artigo é IRRELEVANTE (null) nos seguintes casos:
 Artigos Analisados Anteriormente (para Contexto):
 {previous_articles}
     `,
-    
+
     BATCH_EVALUATE_TITLES: `
 Lista de Títulos de Artigos para Avaliação em Lote:
 {titles}
@@ -97,7 +97,7 @@ Responda apenas com os números dos títulos que você considera RELEVANTES, sep
 Por exemplo: "1, 3, 5" (se os títulos 1, 3 e 5 forem relevantes).
 Se nenhum título for relevante, responda com "0".
     `,
-    
+
     SUMMARIZE_CONTENT: `
 Título: {title}
 
@@ -126,10 +126,10 @@ Analise a imagem no URL {image_url}.
 Extraia todo o texto contido nela.
 Formate o texto extraído de forma clara, estruturada e em português do Brasil, mantendo a intenção o máximo possível.
 Adicione um emoji da bandeira do primeiro país mencionado ao lado do nome do país. 
-Caso você for utilizar markdown, o utilize de acordo com os parametros do Whatsapp. 
+Caso você for utilizar markdown, o utilize de acordo com os parametros do Whatsapp, somente um asterisco ** para negrito e _ para italico. 
 Se não houver texto na imagem ou se o texto não for significativo para um "breaking news", responda com "Nenhum texto relevante detectado na imagem.".
 Apenas o texto em português formatado deve ser a sua resposta final.
-    `
+    `,
 };
 
-module.exports = NEWS_MONITOR; 
+module.exports = NEWS_MONITOR;

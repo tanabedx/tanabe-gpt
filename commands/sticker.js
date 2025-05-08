@@ -1,6 +1,5 @@
 const fs = require('fs').promises;
 const path = require('path');
-const config = require('../configs');
 const { handleAutoDelete } = require('../utils/messageUtils');
 const logger = require('../utils/logger');
 const { MessageMedia } = require('whatsapp-web.js');
@@ -13,7 +12,9 @@ async function handleSticker(message, command, input = []) {
         logger.debug('Converting media to sticker');
         logger.debug(`Processing sticker creation from user-supplied image`);
         const attachmentData = await message.downloadMedia();
-        const response = await message.reply(attachmentData, message.from, { sendMediaAsSticker: true });
+        const response = await message.reply(attachmentData, message.from, {
+            sendMediaAsSticker: true,
+        });
         await handleAutoDelete(response, command);
         return;
     }
@@ -26,11 +27,13 @@ async function handleSticker(message, command, input = []) {
         if (quotedMsg.hasMedia) {
             const attachmentData = await quotedMsg.downloadMedia();
             const imagePath = path.join(__dirname, `quoted_image_${Date.now()}.jpg`);
-            
+
             try {
                 await fs.writeFile(imagePath, attachmentData.data, 'base64');
                 const imageAsSticker = MessageMedia.fromFilePath(imagePath);
-                const response = await message.reply(imageAsSticker, message.from, { sendMediaAsSticker: true });
+                const response = await message.reply(imageAsSticker, message.from, {
+                    sendMediaAsSticker: true,
+                });
                 await handleAutoDelete(response, command);
             } catch (error) {
                 logger.error('Error processing quoted image:', error);
@@ -48,7 +51,9 @@ async function handleSticker(message, command, input = []) {
     }
 
     // Case 3: Command has keyword - search and create sticker
-    const query = Array.isArray(input) ? input.slice(1).join(' ') : message.body.split(' ').slice(1).join(' ');
+    const query = Array.isArray(input)
+        ? input.slice(1).join(' ')
+        : message.body.split(' ').slice(1).join(' ');
     if (query && /\S/.test(query)) {
         logger.debug(`Searching for image with query: ${query}`);
         logger.debug(`Processing sticker creation from search query: "${query}"`);
@@ -69,7 +74,9 @@ async function handleSticker(message, command, input = []) {
 
             try {
                 const imageAsSticker = MessageMedia.fromFilePath(imagePath);
-                const response = await message.reply(imageAsSticker, message.from, { sendMediaAsSticker: true });
+                const response = await message.reply(imageAsSticker, message.from, {
+                    sendMediaAsSticker: true,
+                });
                 await handleAutoDelete(response, command);
             } finally {
                 await deleteFile(imagePath);
@@ -88,5 +95,5 @@ async function handleSticker(message, command, input = []) {
 }
 
 module.exports = {
-    handleSticker
-}; 
+    handleSticker,
+};

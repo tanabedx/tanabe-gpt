@@ -1,6 +1,6 @@
 /**
  * Setup Authentication Directories
- * 
+ *
  * This script ensures that the authentication directories exist and have the correct permissions.
  * It also cleans up any incorrect directory structures.
  */
@@ -11,17 +11,17 @@ const { execSync } = require('child_process');
 
 // Simple logger that respects SILENT and DEBUG environment variables
 const logger = {
-    info: (msg) => {
+    info: msg => {
         // Always show info messages, even in silent mode
         console.log(msg);
     },
-    debug: (msg) => {
+    debug: msg => {
         // Only show debug messages if DEBUG is true and SILENT is false
         if (process.env.DEBUG === 'true' && process.env.SILENT !== 'true') {
             console.log(msg);
         }
     },
-    error: (msg) => console.error(msg)
+    error: msg => console.error(msg),
 };
 
 // Client IDs
@@ -32,12 +32,12 @@ const TEST_CLIENT_ID = 'test-client';
 const AUTH_DIRS = [
     {
         path: path.join(__dirname, '..', 'wwebjs/auth_main'),
-        clientId: MAIN_CLIENT_ID
+        clientId: MAIN_CLIENT_ID,
     },
     {
         path: path.join(__dirname, '..', 'wwebjs/auth_test'),
-        clientId: TEST_CLIENT_ID
-    }
+        clientId: TEST_CLIENT_ID,
+    },
 ];
 
 logger.info('Setting up authentication directories...');
@@ -49,7 +49,7 @@ logger.debug('Cleaning up incorrect directory structures...');
 AUTH_DIRS.forEach(dir => {
     const basePath = dir.path;
     const oldSessionPath = path.join(basePath, 'session');
-    
+
     // Remove the incorrect session directory if it exists
     if (fs.existsSync(oldSessionPath)) {
         logger.debug(`Removing incorrect session directory: ${oldSessionPath}`);
@@ -68,7 +68,7 @@ AUTH_DIRS.forEach(dir => {
 AUTH_DIRS.forEach(dir => {
     const basePath = dir.path;
     const sessionPath = path.join(basePath, `session-${dir.clientId}`);
-    
+
     // Create base directory
     if (!fs.existsSync(basePath)) {
         logger.debug(`Creating directory: ${basePath}`);
@@ -81,14 +81,14 @@ AUTH_DIRS.forEach(dir => {
     } else {
         logger.debug(`Directory already exists: ${basePath}`);
     }
-    
+
     // Create session directory with correct naming
     if (!fs.existsSync(sessionPath)) {
         logger.debug(`Creating session directory: ${sessionPath}`);
         try {
             fs.mkdirSync(sessionPath, { recursive: true });
             logger.debug(`Successfully created: ${sessionPath}`);
-            
+
             // Create Default directory inside session directory
             const defaultPath = path.join(sessionPath, 'Default');
             if (!fs.existsSync(defaultPath)) {
@@ -101,7 +101,7 @@ AUTH_DIRS.forEach(dir => {
         }
     } else {
         logger.debug(`Session directory already exists: ${sessionPath}`);
-        
+
         // Check if Default directory exists
         const defaultPath = path.join(sessionPath, 'Default');
         if (!fs.existsSync(defaultPath)) {
@@ -116,14 +116,14 @@ AUTH_DIRS.forEach(dir => {
             logger.debug(`Default directory already exists: ${defaultPath}`);
         }
     }
-    
+
     // Set permissions
     try {
         logger.debug(`Setting permissions for: ${basePath}`);
         fs.chmodSync(basePath, 0o755);
         if (fs.existsSync(sessionPath)) {
             fs.chmodSync(sessionPath, 0o755);
-            
+
             // Set permissions for Default directory
             const defaultPath = path.join(sessionPath, 'Default');
             if (fs.existsSync(defaultPath)) {
@@ -141,4 +141,4 @@ logger.info('Authentication directories setup complete.');
 // Only show this message if we're not already running as part of npm test
 if (!process.env.npm_lifecycle_event || process.env.npm_lifecycle_event !== 'pretest') {
     logger.info('You can now run the tests with: npm test');
-} 
+}

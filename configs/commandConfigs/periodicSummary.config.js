@@ -1,5 +1,5 @@
-// periodicSummary.config.js
-require('dotenv').config({ path: './configs/.env' });
+// periodicSummary.config.js in commandConfigs directory
+require('dotenv').config({ path: '../.env' });
 
 // Avoid circular dependency with envMapper
 let envMapper;
@@ -20,7 +20,7 @@ const PERIODIC_SUMMARY = {
     groups: {
         [process.env.GROUP_AG]: {
             enabled: false,
-            intervalHours: 1,
+            intervalHours: 2,
             quietTime: {
                 start: '01:00',
                 end: '01:30'

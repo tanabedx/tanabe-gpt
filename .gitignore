@@ -15,6 +15,7 @@ node_modules/
 *.swo
 .cursorignore
 .git
+.prettierrc
 
 # OS specific files
 .DS_Store

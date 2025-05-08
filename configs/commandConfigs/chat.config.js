@@ -5,7 +5,8 @@ const CHAT_PROMPT = require('../../prompts/chatgpt.prompt');
 
 const CHAT_CONFIG = {
     prefixes: ['#', '#!'],
-    description: 'Conversa com o ChatGPT. Mantém histórico de conversa, personalidades por grupo, e pode responder mensagens citadas. Use # para respostas normais ou #! para respostas com humor.',
+    description:
+        'Conversa com o ChatGPT. Mantém histórico de conversa, personalidades por grupo, e pode responder mensagens citadas. Use # para respostas normais ou #! para respostas com humor.',
     autoDelete: {
         errorMessages: true,
         commandMessages: false,
@@ -18,7 +19,7 @@ const CHAT_CONFIG = {
     useGroupPersonality: true,
     model: '',
     maxMessageFetch: 1000,
-    prompt: CHAT_PROMPT
+    prompt: CHAT_PROMPT,
 };
 
-module.exports = CHAT_CONFIG; 
+module.exports = CHAT_CONFIG;

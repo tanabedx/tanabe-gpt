@@ -9,14 +9,14 @@
 function getAvailableTagsForGroup(config, groupName) {
     const tagCommand = config.COMMANDS.TAG;
     const tags = [...Object.keys(tagCommand.specialTags)];
-    
+
     if (tagCommand.groupTags[groupName]) {
         tags.push(...Object.keys(tagCommand.groupTags[groupName]));
     }
-    
+
     return tags;
 }
 
 module.exports = {
-    getAvailableTagsForGroup
-}; 
+    getAvailableTagsForGroup,
+};

@@ -9,21 +9,27 @@ const { downloadAndProcessDocument } = require('../utils/documentUtils');
 async function handleQuotedMessage(message, command) {
     try {
         const quotedMsg = await message.getQuotedMessage();
-        
+
         // Check if quoted message has a document
         if (quotedMsg.hasMedia && quotedMsg.type === 'document') {
             logger.debug('Processing quoted document');
             try {
                 const text = await downloadAndProcessDocument(quotedMsg);
-                
+
                 // Get prompt template for document summarization
-                const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DOCUMENT_SUMMARY', {
-                    text
-                });
-                
+                const prompt = await getPromptWithContext(
+                    message,
+                    config,
+                    'RESUMO',
+                    'DOCUMENT_SUMMARY',
+                    {
+                        text,
+                    }
+                );
+
                 const summary = await runCompletion(prompt, 0.7);
                 const response = await quotedMsg.reply(summary);
-                
+
                 // Handle auto-deletion if configured
                 await handleAutoDelete(response, command);
                 await handleAutoDelete(message, command);
@@ -35,14 +41,14 @@ async function handleQuotedMessage(message, command) {
                 throw error;
             }
         }
-        
+
         // Handle other quoted message types (links, text, etc.)
         const quotedText = quotedMsg.body;
         const links = extractLinks(quotedText);
 
         logger.debug('Processing quoted message', {
             hasLinks: links.length > 0,
-            quotedTextLength: quotedText.length
+            quotedTextLength: quotedText.length,
         });
 
         if (links.length > 0) {
@@ -50,9 +56,15 @@ async function handleQuotedMessage(message, command) {
                 logger.debug('Found link in quoted message, processing');
                 const unshortenedLink = await unshortenLink(links[0]);
                 const pageContent = await getPageContent(unshortenedLink);
-                const prompt = await getPromptWithContext(message, config, 'RESUMO', 'LINK_SUMMARY', {
-                    pageContent
-                });
+                const prompt = await getPromptWithContext(
+                    message,
+                    config,
+                    'RESUMO',
+                    'LINK_SUMMARY',
+                    {
+                        pageContent,
+                    }
+                );
                 const summary = await runCompletion(prompt, 1);
                 const response = await quotedMsg.reply(summary);
                 await handleAutoDelete(response, command);
@@ -67,7 +79,7 @@ async function handleQuotedMessage(message, command) {
             const name = contact.name || 'Unknown';
             const prompt = await getPromptWithContext(message, config, 'RESUMO', 'QUOTED_MESSAGE', {
                 name,
-                quotedText
+                quotedText,
             });
             const result = await runCompletion(prompt, 1);
             const response = await quotedMsg.reply(result.trim());
@@ -79,41 +91,14 @@ async function handleQuotedMessage(message, command) {
     }
 }
 
-async function handleLastThreeHours(message) {
-    const chat = await message.getChat();
-    const messages = await chat.fetchMessages({ limit: 1000 });
-    const threeHoursAgo = Date.now() - 3 * 3600 * 1000;
-    const messagesLastThreeHours = messages.filter(m => 
-        m.timestamp * 1000 > threeHoursAgo && 
-        !m.fromMe && 
-        m.body.trim() !== ''
-    );
-
-    if (messagesLastThreeHours.length === 0) {
-        return await message.reply('Não há mensagens suficientes para gerar um resumo.');
-    }
-
-    const messageTexts = await Promise.all(messagesLastThreeHours.map(async msg => {
-        const contact = await msg.getContact();
-        const name = contact.name || 'Unknown';
-        return `>>${name}: ${msg.body}.\n`;
-    }));
-
-    const contact = await message.getContact();
-    const name = contact.name || 'Unknown';
-    const prompt = await getPromptWithContext(message, config, 'RESUMO', 'HOUR_SUMMARY', {
-        name,
-        messageTexts: messageTexts.join(' ')
-    });
-    const result = await runCompletion(prompt, 1);
-    return await message.reply(result.trim());
-}
-
 async function handleSpecificMessageCount(message, limit) {
     const chat = await message.getChat();
-    
+
     if (isNaN(limit)) {
-        return await message.reply('Por favor, forneça um número válido após "#resumo" para definir o limite de mensagens.')
+        return await message
+            .reply(
+                'Por favor, forneça um número válido após "#resumo" para definir o limite de mensagens.'
+            )
             .catch(error => logger.error('Failed to send message:', error.message));
     }
 
@@ -127,7 +112,7 @@ async function handleSpecificMessageCount(message, limit) {
             currentValidCount: allValidMessages.length,
             targetCount: limit,
             batchSize,
-            hasLastMessageId: !!lastMessageId
+            hasLastMessageId: !!lastMessageId,
         });
 
         // Fetch next batch of messages
@@ -143,10 +128,8 @@ async function handleSpecificMessageCount(message, limit) {
         }
 
         // Filter valid messages from this batch
-        const validMessagesInBatch = messages.filter(msg => 
-            !msg.fromMe && 
-            msg.body.trim() !== '' &&
-            !msg._data.isDeleted // Skip deleted messages
+        const validMessagesInBatch = messages.filter(
+            msg => !msg.fromMe && msg.body.trim() !== '' && !msg._data.isDeleted // Skip deleted messages
         );
 
         // Add valid messages to our collection
@@ -165,7 +148,8 @@ async function handleSpecificMessageCount(message, limit) {
     const messagesToSummarize = allValidMessages.slice(0, limit);
 
     if (messagesToSummarize.length === 0) {
-        return await message.reply('Não há mensagens suficientes para gerar um resumo')
+        return await message
+            .reply('Não há mensagens suficientes para gerar um resumo')
             .catch(error => logger.error('Failed to send message:', error.message));
     }
 
@@ -173,40 +157,43 @@ async function handleSpecificMessageCount(message, limit) {
     if (messagesToSummarize.length < limit) {
         logger.debug('Could not find enough valid messages', {
             requested: limit,
-            found: messagesToSummarize.length
+            found: messagesToSummarize.length,
         });
     }
 
-    const messageTexts = await Promise.all(messagesToSummarize.map(async msg => {
-        const contact = await msg.getContact();
-        const name = contact.name || 'Unknown';
-        return `>>${name}: ${msg.body}.\n`;
-    }));
+    const messageTexts = await Promise.all(
+        messagesToSummarize.map(async msg => {
+            const contact = await msg.getContact();
+            const name = contact.name || 'Unknown';
+            return `>>${name}: ${msg.body}.\n`;
+        })
+    );
 
     const contact = await message.getContact();
     const name = contact.name || 'Unknown';
     const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DEFAULT', {
         name,
         messageTexts: messageTexts.join(' '),
-        timeDescription: `as últimas ${limit} mensagens desta conversa`
+        timeDescription: `as últimas ${limit} mensagens desta conversa`,
     });
 
     const result = await runCompletion(prompt, 1);
-    return await message.reply(result.trim())
+    return await message
+        .reply(result.trim())
         .catch(error => logger.error('Failed to send message:', error.message));
 }
 
 function parseRelativeTime(input) {
     const now = Date.now();
     const inputLower = input.toLowerCase().trim();
-    
+
     // Handle "hoje" and "hj" (today)
     if (inputLower === 'hoje' || inputLower === 'hj') {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return { startTime: today.getTime(), timeDescription: 'as mensagens de hoje' };
     }
-    
+
     // Handle "ontem" (yesterday)
     if (inputLower === 'ontem') {
         const yesterday = new Date();
@@ -214,13 +201,23 @@ function parseRelativeTime(input) {
         yesterday.setHours(0, 0, 0, 0);
         return { startTime: yesterday.getTime(), timeDescription: 'as mensagens de ontem' };
     }
-    
+
     // Handle time units with abbreviations and without spaces
     const timeUnits = {
-        'hora': { multiplier: 3600 * 1000, singular: 'hora', plural: 'horas', regex: /(\d+)\s*(?:hora|horas|hr|hrs)/i },
-        'minuto': { multiplier: 60 * 1000, singular: 'minuto', plural: 'minutos', regex: /(\d+)\s*(?:minuto|minutos|min|mins)/i }
+        hora: {
+            multiplier: 3600 * 1000,
+            singular: 'hora',
+            plural: 'horas',
+            regex: /(\d+)\s*(?:hora|horas|hr|hrs)/i,
+        },
+        minuto: {
+            multiplier: 60 * 1000,
+            singular: 'minuto',
+            plural: 'minutos',
+            regex: /(\d+)\s*(?:minuto|minutos|min|mins)/i,
+        },
     };
-    
+
     // Try to match time expressions with or without spaces
     for (const [unit, config] of Object.entries(timeUnits)) {
         const match = inputLower.match(config.regex);
@@ -228,49 +225,49 @@ function parseRelativeTime(input) {
             const number = parseInt(match[1]);
             const timeDescription = number === 1 ? config.singular : config.plural;
             return {
-                startTime: now - (number * config.multiplier),
-                timeDescription: `as mensagens das últimas ${number} ${timeDescription}`
+                startTime: now - number * config.multiplier,
+                timeDescription: `as mensagens das últimas ${number} ${timeDescription}`,
             };
         }
     }
-    
+
     // If no time expression found, try to parse as a number of messages
     const numberMatch = inputLower.match(/^\d+$/);
     if (numberMatch) {
         return null; // Return null to indicate this should be handled as a message count
     }
-    
+
     return null;
 }
 
 async function handleTimeBasedSummary(message, timeInfo) {
     const chat = await message.getChat();
     const messages = await chat.fetchMessages({ limit: 1000 });
-    
-    const filteredMessages = messages.filter(m => 
-        m.timestamp * 1000 > timeInfo.startTime && 
-        !m.fromMe && 
-        m.body.trim() !== ''
+
+    const filteredMessages = messages.filter(
+        m => m.timestamp * 1000 > timeInfo.startTime && !m.fromMe && m.body.trim() !== ''
     );
 
     if (filteredMessages.length === 0) {
         return await message.reply('Não há mensagens suficientes para gerar um resumo.');
     }
 
-    const messageTexts = await Promise.all(filteredMessages.map(async msg => {
-        const contact = await msg.getContact();
-        const name = contact.name || 'Unknown';
-        return `>>${name}: ${msg.body}.\n`;
-    }));
+    const messageTexts = await Promise.all(
+        filteredMessages.map(async msg => {
+            const contact = await msg.getContact();
+            const name = contact.name || 'Unknown';
+            return `>>${name}: ${msg.body}.\n`;
+        })
+    );
 
     const contact = await message.getContact();
     const name = contact.name || 'Unknown';
     const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DEFAULT', {
         name,
         messageTexts: messageTexts.join(' '),
-        timeDescription: timeInfo.timeDescription
+        timeDescription: timeInfo.timeDescription,
     });
-    
+
     const result = await runCompletion(prompt, 1);
     return await message.reply(result.trim());
 }
@@ -281,7 +278,7 @@ async function handleResumo(message, command, input) {
         input: input,
         hasQuoted: message.hasQuotedMsg,
         hasMedia: message.hasMedia,
-        messageType: message.type
+        messageType: message.type,
     });
 
     try {
@@ -296,15 +293,21 @@ async function handleResumo(message, command, input) {
             logger.debug('Processing attached document');
             try {
                 const text = await downloadAndProcessDocument(message);
-                
+
                 // Get prompt template for document summarization
-                const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DOCUMENT_SUMMARY', {
-                    text
-                });
-                
+                const prompt = await getPromptWithContext(
+                    message,
+                    config,
+                    'RESUMO',
+                    'DOCUMENT_SUMMARY',
+                    {
+                        text,
+                    }
+                );
+
                 const summary = await runCompletion(prompt, 0.7);
                 const response = await message.reply(summary);
-                
+
                 // Handle auto-deletion if configured
                 await handleAutoDelete(response, command);
                 await handleAutoDelete(message, command);
@@ -327,14 +330,14 @@ async function handleResumo(message, command, input) {
                     logger.debug('Processing time-based summary:', trimmedInput);
                     return await handleTimeBasedSummary(message, timeInfo);
                 }
-                
+
                 // Then try to parse as a number
                 const limit = parseInt(trimmedInput);
                 if (!isNaN(limit)) {
                     logger.debug('Processing specific message count:', limit);
                     return await handleSpecificMessageCount(message, limit);
                 }
-                
+
                 // If neither time expression nor number, show error
                 logger.debug('Invalid input format:', trimmedInput);
                 const errorMessage = await message.reply(command.errorMessages.invalidFormat);
@@ -345,10 +348,10 @@ async function handleResumo(message, command, input) {
 
         // Default case: no input and no quoted message - show last 3 hours
         logger.debug('No input or quoted message, showing last 3 hours');
-        const threeHoursAgo = Date.now() - (3 * 3600 * 1000);
-        return await handleTimeBasedSummary(message, { 
-            startTime: threeHoursAgo, 
-            timeDescription: 'as mensagens das últimas 3 horas'
+        const threeHoursAgo = Date.now() - 3 * 3600 * 1000;
+        return await handleTimeBasedSummary(message, {
+            startTime: threeHoursAgo,
+            timeDescription: 'as mensagens das últimas 3 horas',
         });
     } catch (error) {
         logger.error('Error in handleResumo:', error);
@@ -358,5 +361,5 @@ async function handleResumo(message, command, input) {
 }
 
 module.exports = {
-    handleResumo
-}; 
+    handleResumo,
+};

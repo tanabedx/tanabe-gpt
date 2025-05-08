@@ -22,18 +22,18 @@ try {
 module.exports = {
     // Target group for testing
     TARGET_GROUP: 'Another Group',
-    
+
     // Admin number for admin-only tests (should match your WhatsApp number)
     ADMIN_NUMBER: adminNumber,
-    
+
     // Bot number for direct messaging
     BOT_NUMBER: botNumber,
-    
+
     // Test timing settings
     DELAY_BETWEEN_TESTS: 8000, // 8 seconds between tests
     RESPONSE_TIMEOUT: 60000, // 60 seconds to wait for a response
     BOT_STARTUP_WAIT: 15000, // 15 seconds to wait for bot to start
-    
+
     // WhatsApp client settings
     CLIENT_CONFIG: {
         clientId: TEST_CLIENT_ID,
@@ -48,45 +48,45 @@ module.exports = {
                 '--no-first-run',
                 '--no-zygote',
                 '--single-process',
-                '--disable-gpu'
-            ]
-        }
+                '--disable-gpu',
+            ],
+        },
     },
-    
+
     // Test categories
     TEST_CATEGORIES: {
-        SUMMARY: true,      // Test summary commands
-        NEWS: true,         // Test news commands
-        CHAT: true,         // Test chat commands
-        MEDIA: true,        // Test media commands
-        ADMIN: true,        // Test admin commands
-        MISC: true          // Test miscellaneous commands
+        SUMMARY: true, // Test summary commands
+        NEWS: true, // Test news commands
+        CHAT: true, // Test chat commands
+        MEDIA: true, // Test media commands
+        ADMIN: true, // Test admin commands
+        MISC: true, // Test miscellaneous commands
     },
-    
+
     // Whitelist verification
     VERIFY_WHITELIST: true,
-    
+
     // Sample files
     SAMPLES: {
         IMAGE: 'sample.jpg',
         PDF: 'sample.pdf',
         AUDIO: 'sample.ogg',
         RESUMO_STICKER: 'resumo.webp',
-        AYUB_STICKER: 'ayub.webp'
+        AYUB_STICKER: 'ayub.webp',
     },
-    
+
     // Language settings
     LANGUAGE: 'pt-BR',
-    
+
     // Text normalization for Portuguese
     NORMALIZE_TEXT: true,
-    
+
     // Test result messages
     RESULT_MESSAGES: {
         SUMMARY: {
             PASSED: 'Testes concluídos com sucesso',
             FAILED: 'Alguns testes falharam',
-            SKIPPED: 'Alguns testes foram ignorados'
-        }
-    }
-}; 
+            SKIPPED: 'Alguns testes foram ignorados',
+        },
+    },
+};

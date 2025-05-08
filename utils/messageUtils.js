@@ -4,9 +4,9 @@ const logger = require('./logger');
 async function handleAutoDelete(message, command, isError = false) {
     if (!command.autoDelete) return;
 
-    const shouldDelete = isError ? 
-        command.autoDelete.errorMessages : 
-        command.autoDelete.commandMessages;
+    const shouldDelete = isError
+        ? command.autoDelete.errorMessages
+        : command.autoDelete.commandMessages;
 
     if (shouldDelete) {
         const timeout = command.autoDelete.deleteTimeout || config.SYSTEM.MESSAGE_DELETE_TIMEOUT;
@@ -21,5 +21,5 @@ async function handleAutoDelete(message, command, isError = false) {
 }
 
 module.exports = {
-    handleAutoDelete
-}; 
+    handleAutoDelete,
+};

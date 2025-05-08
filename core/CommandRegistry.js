@@ -3,7 +3,14 @@ const { handleResumo } = require('../commands/resumo');
 const { handleAyub, handleAyubNewsFut } = require('../commands/ayub');
 const { handleSticker } = require('../commands/sticker');
 const handleDesenho = require('../commands/desenho');
-const { handleCacheClear, handleTwitterDebug, handleRssDebug, handleForceSummary, handleConfig, handleNewsStatus } = require('../commands/admin');
+const {
+    handleCacheClear,
+    handleTwitterDebug,
+    handleRssDebug,
+    handleDebugPeriodic,
+    handleConfig,
+    handleNewsStatus,
+} = require('../commands/admin');
 const { handleChat } = require('../commands/chat');
 const { handleTag } = require('../commands/tag');
 const { handleAudio } = require('../commands/audio');
@@ -26,7 +33,7 @@ function registerCommands() {
     commandManager.registerHandler('TWITTER_DEBUG', handleTwitterDebug);
     commandManager.registerHandler('RSS_DEBUG', handleRssDebug);
     commandManager.registerHandler('NEWS_STATUS', handleNewsStatus);
-    commandManager.registerHandler('FORCE_SUMMARY', handleForceSummary);
+    commandManager.registerHandler('DEBUG_PERIODIC', handleDebugPeriodic);
     commandManager.registerHandler('CONFIG', handleConfig);
     commandManager.registerHandler('AUDIO', handleAudio);
     commandManager.registerHandler('RESUMO_CONFIG', startWizard);
@@ -38,5 +45,5 @@ function registerCommands() {
 
 module.exports = {
     registerCommands,
-    commandManager
-}; 
+    commandManager,
+};

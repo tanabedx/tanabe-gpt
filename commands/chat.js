@@ -1,4 +1,3 @@
-const { Client, MessageMedia } = require('whatsapp-web.js');
 const config = require('../configs');
 const logger = require('../utils/logger');
 const { handleAutoDelete } = require('../utils/messageUtils');
@@ -7,7 +6,7 @@ const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUt
 const { getPromptWithContext } = require('../utils/promptUtils');
 const { getMessageHistory } = require('../utils/messageLogger');
 
-async function handleChat(message, command, input) {
+async function handleChat(message, command, _) {
     let name, groupName;
     try {
         const contact = await message.getContact();
@@ -15,7 +14,7 @@ async function handleChat(message, command, input) {
         const question = message.body.substring(1);
         const chat = await message.getChat();
         groupName = chat.isGroup ? chat.name : null;
-        
+
         // Format current timestamp in Portuguese
         const timestamp = new Date().toLocaleString('pt-BR', {
             timeZone: 'America/Sao_Paulo',
@@ -23,15 +22,15 @@ async function handleChat(message, command, input) {
             month: '2-digit',
             year: '2-digit',
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
         });
-        
+
         logger.debug('Processing ChatGPT command', {
             name,
             question,
             hasQuoted: message.hasQuotedMsg,
             groupName,
-            timestamp
+            timestamp,
         });
 
         let prompt;
@@ -46,24 +45,32 @@ async function handleChat(message, command, input) {
                     const pageContent = await getPageContent(unshortenedLink);
                     logger.debug('Got context from link', {
                         link: unshortenedLink,
-                        contentLength: pageContent.length
+                        contentLength: pageContent.length,
                     });
-                    prompt = await getPromptWithContext(message, config, 'CHAT_GPT', 'WITH_CONTEXT', {
-                        name,
-                        question,
-                        context: pageContent,
-                        maxMessages: config.SYSTEM.MAX_LOG_MESSAGES,
-                        messageHistory: await getMessageHistory(groupName),
-                        timestamp
-                    });
+                    prompt = await getPromptWithContext(
+                        message,
+                        config,
+                        'CHAT_GPT',
+                        'WITH_CONTEXT',
+                        {
+                            name,
+                            question,
+                            context: pageContent,
+                            maxMessages: config.SYSTEM.MAX_LOG_MESSAGES,
+                            messageHistory: await getMessageHistory(groupName),
+                            timestamp,
+                        }
+                    );
                 } catch (error) {
-                    const errorMessage = await message.reply('Não consegui acessar o link para fornecer contexto adicional.');
+                    const errorMessage = await message.reply(
+                        'Não consegui acessar o link para fornecer contexto adicional.'
+                    );
                     await handleAutoDelete(errorMessage, command, true);
                     return;
                 }
             } else {
                 logger.debug('Using quoted message as context', {
-                    quotedLength: quotedText.length
+                    quotedLength: quotedText.length,
                 });
                 prompt = await getPromptWithContext(message, config, 'CHAT_GPT', 'WITH_CONTEXT', {
                     name,
@@ -71,21 +78,21 @@ async function handleChat(message, command, input) {
                     context: quotedText,
                     maxMessages: config.SYSTEM.MAX_LOG_MESSAGES,
                     messageHistory: await getMessageHistory(groupName),
-                    timestamp
+                    timestamp,
                 });
             }
         } else {
             const messageHistory = await getMessageHistory(groupName);
             logger.debug('Using default prompt without context', {
                 messageHistoryLength: messageHistory?.length || 0,
-                groupName
+                groupName,
             });
             prompt = await getPromptWithContext(message, config, 'CHAT_GPT', 'DEFAULT', {
                 name,
                 question,
                 maxMessages: config.SYSTEM.MAX_LOG_MESSAGES,
                 messageHistory: messageHistory,
-                timestamp
+                timestamp,
             });
         }
 
@@ -98,12 +105,17 @@ async function handleChat(message, command, input) {
         const response = await message.reply(result.trim());
         await handleAutoDelete(response, command);
     } catch (error) {
-        logger.error(`Error in CHAT_GPT handler for ${name || 'Unknown'} in ${groupName || 'DM'}:`, error);
-        const errorMessage = await message.reply(command.errorMessages.error || 'An error occurred while processing your request.');
+        logger.error(
+            `Error in CHAT_GPT handler for ${name || 'Unknown'} in ${groupName || 'DM'}:`,
+            error
+        );
+        const errorMessage = await message.reply(
+            command.errorMessages.error || 'An error occurred while processing your request.'
+        );
         await handleAutoDelete(errorMessage, command);
     }
 }
 
 module.exports = {
-    handleChat
-}; 
+    handleChat,
+};

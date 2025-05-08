@@ -6,7 +6,8 @@ const RESUMO_PROMPT = require('../../prompts/resumo.prompt');
 // Main AYUB_NEWS configuration
 const AYUB_CONFIG = {
     prefixes: ['#ayubnews', '#ayub news', '#news', '#noticias', '#notícias'],
-    description: 'Busca e resume notícias. Use #ayubnews para últimas notícias, #ayubnews [tema] para buscar sobre um assunto específico, ou envie o sticker de notícias. Links compartilhados são automaticamente resumidos.',
+    description:
+        'Busca e resume notícias. Use #ayubnews para últimas notícias, #ayubnews [tema] para buscar sobre um assunto específico, ou envie o sticker de notícias. Links compartilhados são automaticamente resumidos.',
     stickerHash: '2ec460ac4810ace36065b5ef1fe279404ba812b04266ffb376a1c404dbdbd994',
     autoDelete: {
         errorMessages: true,
@@ -20,7 +21,7 @@ const AYUB_CONFIG = {
     },
     useGroupPersonality: true,
     model: '',
-    prompt: RESUMO_PROMPT
+    prompt: RESUMO_PROMPT,
 };
 
 // Football news configuration
@@ -38,10 +39,10 @@ const AYUB_FUT_CONFIG = {
         notAllowed: 'Você não tem permissão para usar este comando.',
     },
     useGroupPersonality: true,
-    model: ''
+    model: '',
 };
 
 module.exports = {
     AYUB_CONFIG,
-    AYUB_FUT_CONFIG
-}; 
+    AYUB_FUT_CONFIG,
+};

@@ -26,36 +26,40 @@ function addNewGroup(groupName, options = {}) {
         if (groupName.startsWith('dm.')) {
             baseGroupName = groupName.substring(3);
         }
-        
+
         // Generate abbreviation if not provided
-        const abbreviation = options.abbreviation || 
-            baseGroupName.split(/\s+/).map(word => word[0].toUpperCase()).join('');
-        
+        const abbreviation =
+            options.abbreviation ||
+            baseGroupName
+                .split(/\s+/)
+                .map(word => word[0].toUpperCase())
+                .join('');
+
         // Add to environment variables
         const envKey = envMapper.addNewGroup(baseGroupName, abbreviation);
-        
+
         if (!envKey) {
             return {
                 success: false,
-                message: `Failed to add group ${baseGroupName} to environment variables`
+                message: `Failed to add group ${baseGroupName} to environment variables`,
             };
         }
-        
+
         // Add to periodic summary if enabled
         if (options.enableSummary) {
             periodicSummary.addGroup(baseGroupName, options.summaryConfig || {});
         }
-        
+
         if (logger) {
             logger.info(`Successfully added new group: ${baseGroupName} (${envKey})`);
         } else {
             console.log(`Successfully added new group: ${baseGroupName} (${envKey})`);
         }
-        
+
         return {
             success: true,
             message: `Successfully added group ${baseGroupName}`,
-            envKey
+            envKey,
         };
     } catch (error) {
         if (logger) {
@@ -65,7 +69,7 @@ function addNewGroup(groupName, options = {}) {
         }
         return {
             success: false,
-            message: `Error adding group: ${error.message}`
+            message: `Error adding group: ${error.message}`,
         };
     }
 }
@@ -82,31 +86,31 @@ function removeGroup(groupName) {
         if (groupName.startsWith('dm.')) {
             baseGroupName = groupName.substring(3);
         }
-        
+
         // Remove from periodic summary if it exists
         if (periodicSummary.groups && periodicSummary.groups[baseGroupName]) {
             delete periodicSummary.groups[baseGroupName];
         }
-        
+
         // Remove from environment variables
         const envRemoved = envMapper.removeGroup(baseGroupName);
-        
+
         if (!envRemoved) {
             return {
                 success: false,
-                message: `Failed to remove group ${baseGroupName} from environment variables`
+                message: `Failed to remove group ${baseGroupName} from environment variables`,
             };
         }
-        
+
         if (logger) {
             logger.info(`Successfully removed group: ${baseGroupName}`);
         } else {
             console.log(`Successfully removed group: ${baseGroupName}`);
         }
-        
+
         return {
             success: true,
-            message: `Successfully removed group ${baseGroupName}`
+            message: `Successfully removed group ${baseGroupName}`,
         };
     } catch (error) {
         if (logger) {
@@ -116,7 +120,7 @@ function removeGroup(groupName) {
         }
         return {
             success: false,
-            message: `Error removing group: ${error.message}`
+            message: `Error removing group: ${error.message}`,
         };
     }
 }
@@ -131,24 +135,24 @@ function addNewPhone(phoneNumber, abbreviation) {
     try {
         // Add to environment variables
         const envKey = envMapper.addNewGroup(phoneNumber, abbreviation, 'PHONE');
-        
+
         if (!envKey) {
             return {
                 success: false,
-                message: `Failed to add phone ${phoneNumber} to environment variables`
+                message: `Failed to add phone ${phoneNumber} to environment variables`,
             };
         }
-        
+
         if (logger) {
             logger.info(`Successfully added new phone: ${phoneNumber} (${envKey})`);
         } else {
             console.log(`Successfully added new phone: ${phoneNumber} (${envKey})`);
         }
-        
+
         return {
             success: true,
             message: `Successfully added phone ${phoneNumber}`,
-            envKey
+            envKey,
         };
     } catch (error) {
         if (logger) {
@@ -158,7 +162,7 @@ function addNewPhone(phoneNumber, abbreviation) {
         }
         return {
             success: false,
-            message: `Error adding phone: ${error.message}`
+            message: `Error adding phone: ${error.message}`,
         };
     }
 }
@@ -166,5 +170,5 @@ function addNewPhone(phoneNumber, abbreviation) {
 module.exports = {
     addNewGroup,
     removeGroup,
-    addNewPhone
-}; 
+    addNewPhone,
+};

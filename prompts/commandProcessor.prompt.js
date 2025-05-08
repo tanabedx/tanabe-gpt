@@ -70,7 +70,7 @@ Examples:
 
 IMPORTANT: For tag commands, return ONLY the tag name (e.g., "@all", "@admin", "@team1"), nothing else.
 
-Respond with ONLY the command format, no additional text or explanations.`
+Respond with ONLY the command format, no additional text or explanations.`,
 };
 
-module.exports = COMMAND_PROCESSOR; 
+module.exports = COMMAND_PROCESSOR;

@@ -12,7 +12,7 @@ function getOpenAIClient() {
         throw new Error('Configuration not yet loaded');
     }
     return new OpenAI({
-        apiKey: config.CREDENTIALS.OPENAI_API_KEY
+        apiKey: config.CREDENTIALS.OPENAI_API_KEY,
     });
 }
 
@@ -28,7 +28,7 @@ const runCompletion = async (prompt, temperature = 1, model = null) => {
         const completion = await openai.chat.completions.create({
             model: model || config.SYSTEM.OPENAI_MODELS.DEFAULT,
             messages: [{ role: 'user', content: prompt }],
-            temperature: temperature
+            temperature: temperature,
         });
 
         const result = completion.choices[0].message.content;
@@ -59,7 +59,10 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
         }
 
         if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
-            logger.debug('Sending image URL directly to OpenAI Vision', { model: effectiveModel, imageUrl });
+            logger.debug('Sending image URL directly to OpenAI Vision', {
+                model: effectiveModel,
+                imageUrl,
+            });
         }
 
         const openai = getOpenAIClient();
@@ -94,7 +97,7 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
         logger.error('Error in extractTextFromImageWithOpenAI (using URL):', {
             message: error.message,
             // stack: error.stack, // Stack might be less relevant now, optional
-            ...(error.response?.data && { apiErrorData: error.response.data })
+            ...(error.response?.data && { apiErrorData: error.response.data }),
         });
         throw error;
     }
@@ -103,5 +106,5 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
 module.exports = {
     getOpenAIClient,
     runCompletion,
-    extractTextFromImageWithOpenAI
-}; 
+    extractTextFromImageWithOpenAI,
+};

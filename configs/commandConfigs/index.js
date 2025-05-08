@@ -10,7 +10,14 @@ const COMMAND_LIST_CONFIG = require('./commandList.config');
 const AUDIO_CONFIG = require('./audio.config');
 const { AYUB_CONFIG, AYUB_FUT_CONFIG } = require('./ayub.config');
 const WIZARD_CONFIG = require('./wizard.config');
-const { TWITTER_DEBUG_CONFIG, RSS_DEBUG_CONFIG, NEWS_STATUS_CONFIG, FORCE_SUMMARY_CONFIG, CACHE_CLEAR_CONFIG, CONFIG_CONFIG } = require('./admin.config');
+const {
+    TWITTER_DEBUG_CONFIG,
+    RSS_DEBUG_CONFIG,
+    NEWS_STATUS_CONFIG,
+    DEBUG_PERIODIC_CONFIG,
+    CACHE_CLEAR_CONFIG,
+    CONFIG_CONFIG,
+} = require('./admin.config');
 
 // Export all command configurations
 const COMMANDS = {
@@ -27,9 +34,9 @@ const COMMANDS = {
     TWITTER_DEBUG: TWITTER_DEBUG_CONFIG,
     RSS_DEBUG: RSS_DEBUG_CONFIG,
     NEWS_STATUS: NEWS_STATUS_CONFIG,
-    FORCE_SUMMARY: FORCE_SUMMARY_CONFIG,
+    DEBUG_PERIODIC: DEBUG_PERIODIC_CONFIG,
     CACHE_CLEAR: CACHE_CLEAR_CONFIG,
-    CONFIG: CONFIG_CONFIG
+    CONFIG: CONFIG_CONFIG,
 };
 
-module.exports = COMMANDS; 
+module.exports = COMMANDS;

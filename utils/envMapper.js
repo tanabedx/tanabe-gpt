@@ -12,10 +12,10 @@ setTimeout(() => {
 
 // Map of environment variable keys to their values
 const groupMap = {
-    'GROUP_LF': process.env.GROUP_LF,
-    'GROUP_AG': process.env.GROUP_AG,
-    'PHONE_DS1': process.env.PHONE_DS1,
-    'PHONE_DS2': process.env.PHONE_DS2
+    GROUP_LF: process.env.GROUP_LF,
+    GROUP_AG: process.env.GROUP_AG,
+    PHONE_DS1: process.env.PHONE_DS1,
+    PHONE_DS2: process.env.PHONE_DS2,
 };
 
 // Reverse map for looking up keys by values
@@ -67,7 +67,7 @@ function addNewGroup(groupName, abbreviation, type = 'GROUP') {
     if (groupName.startsWith('dm.')) {
         baseGroupName = groupName.substring(3);
     }
-    
+
     // Check if group already exists
     if (getGroupKey(baseGroupName)) {
         return getGroupKey(baseGroupName);
@@ -75,7 +75,7 @@ function addNewGroup(groupName, abbreviation, type = 'GROUP') {
 
     // Create new key
     const newKey = `${type}_${abbreviation}`;
-    
+
     // Update maps
     groupMap[newKey] = baseGroupName;
     reverseGroupMap[baseGroupName] = newKey;
@@ -83,26 +83,26 @@ function addNewGroup(groupName, abbreviation, type = 'GROUP') {
     if (type === 'GROUP') {
         reverseGroupMap[`dm.${baseGroupName}`] = newKey;
     }
-    
+
     // Update .env file
     try {
         const envPath = path.resolve('./configs/.env');
         let envContent = fs.readFileSync(envPath, 'utf8');
-        
+
         // Add new line if it doesn't end with a newline
         if (!envContent.endsWith('\n')) {
             envContent += '\n';
         }
-        
+
         // Add new environment variable
         envContent += `${newKey}=${baseGroupName}\n`;
-        
+
         // Write back to file
         fs.writeFileSync(envPath, envContent);
-        
+
         // Update process.env
         process.env[newKey] = baseGroupName;
-        
+
         if (logger) {
             logger.info(`Added new ${type} mapping: ${newKey}=${baseGroupName}`);
         } else {
@@ -131,7 +131,7 @@ function removeGroup(groupName) {
         if (groupName.startsWith('dm.')) {
             baseGroupName = groupName.substring(3);
         }
-        
+
         // Get the environment variable key for the group
         const groupKey = getGroupKey(baseGroupName);
         if (!groupKey) {
@@ -142,57 +142,61 @@ function removeGroup(groupName) {
             }
             return false;
         }
-        
+
         // Get the abbreviation from the key (e.g., 'LF' from 'GROUP_LF')
         const abbreviation = groupKey.split('_')[1];
-        
+
         // Find all related environment variables (group, members, etc.)
         const relatedKeys = [];
-        
+
         // Add the group key itself
         relatedKeys.push(groupKey);
-        
+
         // Add member keys (MEMBER_XX1, MEMBER_XX2, etc.)
         Object.keys(process.env).forEach(key => {
             if (key.startsWith(`MEMBER_${abbreviation}`)) {
                 relatedKeys.push(key);
             }
         });
-        
+
         // Add personality key if it exists
         if (process.env[`${groupKey}_PERSONALITY`]) {
             relatedKeys.push(`${groupKey}_PERSONALITY`);
         }
-        
+
         // Update the .env file
         const envPath = path.resolve('./configs/.env');
         let envContent = fs.readFileSync(envPath, 'utf8');
-        
+
         // Remove each related key from the .env file
         relatedKeys.forEach(key => {
             const regex = new RegExp(`^${key}=.*$\\n?`, 'm');
             envContent = envContent.replace(regex, '');
-            
+
             // Also remove from process.env and our maps
             delete process.env[key];
             delete groupMap[key];
         });
-        
+
         // Remove from reverseGroupMap
         delete reverseGroupMap[baseGroupName];
         if (baseGroupName !== groupName) {
             delete reverseGroupMap[groupName]; // Remove dm. version if it exists
         }
-        
+
         // Write back to file
         fs.writeFileSync(envPath, envContent);
-        
+
         if (logger) {
-            logger.info(`Removed group ${baseGroupName} and ${relatedKeys.length} related environment variables`);
+            logger.info(
+                `Removed group ${baseGroupName} and ${relatedKeys.length} related environment variables`
+            );
         } else {
-            console.log(`Removed group ${baseGroupName} and ${relatedKeys.length} related environment variables`);
+            console.log(
+                `Removed group ${baseGroupName} and ${relatedKeys.length} related environment variables`
+            );
         }
-        
+
         return true;
     } catch (error) {
         if (logger) {
@@ -220,5 +224,5 @@ module.exports = {
     getGroupKey,
     addNewGroup,
     removeGroup,
-    getAllGroupsByType
-}; 
+    getAllGroupsByType,
+};

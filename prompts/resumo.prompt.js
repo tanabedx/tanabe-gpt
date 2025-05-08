@@ -35,7 +35,7 @@ Forneça um resumo que capture a essência do conteúdo.`,
 Texto para resumir:
 {text}
 
-Por favor, forneça um resumo estruturado e coeso.`
+Por favor, forneça um resumo estruturado e coeso.`,
 };
 
-module.exports = RESUMO; 
+module.exports = RESUMO;

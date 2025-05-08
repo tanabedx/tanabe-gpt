@@ -7,7 +7,7 @@ async function transcribeAudio(audioPath) {
     try {
         logger.debug('Starting audio transcription', { audioPath });
         const openai = getOpenAIClient();
-        
+
         // Verify file exists and is readable
         if (!fs.existsSync(audioPath)) {
             throw new Error(`Audio file not found at path: ${audioPath}`);
@@ -18,13 +18,13 @@ async function transcribeAudio(audioPath) {
 
         const transcription = await openai.audio.transcriptions.create({
             file: fileStream,
-            model: "whisper-1",
-            language: "pt"
+            model: 'whisper-1',
+            language: 'pt',
         });
 
         logger.debug('Transcription completed', {
             textLength: transcription.text.length,
-            sampleText: transcription.text.substring(0, 50) + '...'
+            sampleText: transcription.text.substring(0, 50) + '...',
         });
 
         return transcription.text;
@@ -35,5 +35,5 @@ async function transcribeAudio(audioPath) {
 }
 
 module.exports = {
-    transcribeAudio
-}; 
+    transcribeAudio,
+};

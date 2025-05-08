@@ -6,4 +6,4 @@ You are an AI assistant specialized in improving image generation prompts for an
         `,
 };
 
-module.exports = DESENHO; 
+module.exports = DESENHO;

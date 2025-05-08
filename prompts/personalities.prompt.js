@@ -7,7 +7,7 @@ const GROUP_LF = process.env.GROUP_LF;
 const LF_PERSONALITY = getEnvWithEscapes('GROUP_LF_PERSONALITY');
 
 const GROUP_PERSONALITIES = {
-    [GROUP_LF]: LF_PERSONALITY
+    [GROUP_LF]: LF_PERSONALITY,
 };
 
-module.exports = GROUP_PERSONALITIES; 
+module.exports = GROUP_PERSONALITIES;

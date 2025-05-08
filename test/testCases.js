@@ -11,10 +11,10 @@ const TEST_CASES = {
         {
             name: 'Basic Summary',
             command: '#resumo',
-            expectedResponseContains: ['últimas', 'horas', 'três', '3','hora','resumo'],
+            expectedResponseContains: ['últimas', 'horas', 'três', '3', 'hora', 'resumo'],
             description: 'Should summarize the last 3 hours',
             category: 'SUMMARY',
-            extraDelay: 5000 // Extra delay for summary commands
+            extraDelay: 5000, // Extra delay for summary commands
         },
         {
             name: 'Summary with Quote',
@@ -25,7 +25,7 @@ const TEST_CASES = {
             expectedResponseContains: ['Dylan', 'Thomas'],
             description: 'Should summarize only the quoted poem',
             category: 'SUMMARY',
-            extraDelay: 10000 // Longer delay for processing
+            extraDelay: 10000, // Longer delay for processing
         },
         {
             name: 'Summary with Link',
@@ -36,15 +36,15 @@ const TEST_CASES = {
             expectedResponseContains: ['BBC', 'Mark Carney'],
             description: 'Should summarize the quoted link',
             category: 'SUMMARY',
-            extraDelay: 15000 // Longer delay for link processing
+            extraDelay: 15000, // Longer delay for link processing
         },
         {
             name: 'Summary with Specific Count',
             command: '#resumo 10',
-            expectedResponseContains: ['últimas', 'mensagens', 'dez', '10','resumo'],
+            expectedResponseContains: ['últimas', 'mensagens', 'dez', '10', 'resumo'],
             description: 'Should summarize only the last 10 messages',
             category: 'SUMMARY',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'Summary with Document',
@@ -56,7 +56,7 @@ const TEST_CASES = {
             description: 'Should summarize the attached PDF document',
             category: 'SUMMARY',
             extraDelay: 15000, // Much longer delay for document processing
-            preDelay: 5000 // Wait before sending the command
+            preDelay: 5000, // Wait before sending the command
         },
         {
             name: 'Direct Attachment Summary',
@@ -73,13 +73,13 @@ const TEST_CASES = {
             command: '',
             attachment: config.SAMPLES.RESUMO_STICKER,
             isSticker: true, // Send as sticker
-            expectedResponseContains: ['últimas', 'horas','hora','resumo'],
+            expectedResponseContains: ['últimas', 'horas', 'hora', 'resumo'],
             description: 'Should summarize using the summary sticker',
             category: 'SUMMARY',
-            extraDelay: 5000
-        }
+            extraDelay: 5000,
+        },
     ],
-    
+
     // News command tests
     NEWS: [
         {
@@ -88,7 +88,7 @@ const TEST_CASES = {
             expectedResponseContains: ['notícias'],
             description: 'Should fetch the latest news',
             category: 'NEWS',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'Football News',
@@ -96,7 +96,7 @@ const TEST_CASES = {
             expectedResponseContains: ['futebol'],
             description: 'Should fetch the latest football news',
             category: 'NEWS',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'News Search',
@@ -104,7 +104,7 @@ const TEST_CASES = {
             expectedResponseContains: ['Trump'],
             description: 'Should search for news about Trump',
             category: 'NEWS',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'News Sticker',
@@ -114,7 +114,7 @@ const TEST_CASES = {
             expectedResponseContains: ['notícias'],
             description: 'Should fetch news using the news sticker',
             category: 'NEWS',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'Link Auto Summary',
@@ -123,10 +123,10 @@ const TEST_CASES = {
             description: 'Should automatically summarize a shared link',
             category: 'NEWS',
             extraDelay: 15000, // Longer delay for link processing
-            useBotChat: true // Use direct chat with bot for auto summary
-        }
+            useBotChat: true, // Use direct chat with bot for auto summary
+        },
     ],
-    
+
     // Chat command tests
     CHAT: [
         {
@@ -135,7 +135,7 @@ const TEST_CASES = {
             expectedResponseContains: ['Paris'],
             description: 'Should answer a simple question in Portuguese',
             category: 'CHAT',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'ChatGPT with Quote',
@@ -146,7 +146,7 @@ const TEST_CASES = {
             expectedResponseContains: ['Einstein', 'energia', 'massa'],
             description: 'Should explain the quoted formula in Portuguese',
             category: 'CHAT',
-            extraDelay: 10000 // Longer delay for processing
+            extraDelay: 10000, // Longer delay for processing
         },
         {
             name: 'ChatGPT with Personality and History',
@@ -158,10 +158,10 @@ const TEST_CASES = {
             useBotChat: true,
             checkPrompt: true,
             preDelay: 10000, // Longer wait before sending the message to ensure logs are captured
-            optional: false // Make this test required
-        }
+            optional: false, // Make this test required
+        },
     ],
-    
+
     // Media command tests
     MEDIA: [
         {
@@ -171,7 +171,7 @@ const TEST_CASES = {
             expectMedia: true,
             description: 'Should generate an image of a cat',
             category: 'MEDIA',
-            extraDelay: 10000 // Longer delay for image generation
+            extraDelay: 10000, // Longer delay for image generation
         },
         {
             name: 'Sticker Creation',
@@ -181,7 +181,7 @@ const TEST_CASES = {
             expectMedia: true,
             description: 'Should create a sticker from the image',
             category: 'MEDIA',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'Sticker Search',
@@ -190,7 +190,7 @@ const TEST_CASES = {
             expectMedia: true,
             description: 'Should search for a cat sticker',
             category: 'MEDIA',
-            extraDelay: 5000
+            extraDelay: 5000,
         },
         {
             name: 'Audio Transcription',
@@ -199,20 +199,21 @@ const TEST_CASES = {
             expectedResponseContains: ['transcrição'],
             description: 'Should transcribe the voice note',
             category: 'MEDIA',
-            extraDelay: 10000 // Longer delay for audio processing
-        }
+            extraDelay: 10000, // Longer delay for audio processing
+        },
     ],
-    
+
     // Admin command tests
     ADMIN: [
         {
-            name: 'Force Summary',
-            command: '!forcesummary',
-            expectedResponseContains: ['summary', 'scheduling'],
-            description: 'Should force a summary to be generated',
+            name: 'Debug Periodic Summary',
+            command: '!debugperiodic',
+            expectedResponseContains: ['link', 'poema', 'BBC'],
+            description: 'Should generate and send summaries to admin for all groups',
             category: 'ADMIN',
             adminOnly: true,
-            extraDelay: 5000
+            useAdminChat: true,
+            extraDelay: 10000,
         },
         {
             name: 'Twitter Debug',
@@ -221,7 +222,8 @@ const TEST_CASES = {
             description: 'Should show Twitter debug information',
             category: 'ADMIN',
             adminOnly: true,
-            extraDelay: 5000
+            useAdminChat: true,
+            extraDelay: 5000,
         },
         {
             name: 'RSS Debug',
@@ -230,7 +232,8 @@ const TEST_CASES = {
             description: 'Should show RSS debug information',
             category: 'ADMIN',
             adminOnly: true,
-            extraDelay: 5000
+            useAdminChat: true,
+            extraDelay: 5000,
         },
         {
             name: 'Cache Clear',
@@ -239,10 +242,11 @@ const TEST_CASES = {
             description: 'Should clear the cache',
             category: 'ADMIN',
             adminOnly: true,
-            extraDelay: 2000
-        }
+            useAdminChat: true,
+            extraDelay: 2000,
+        },
     ],
-    
+
     // Miscellaneous command tests
     MISC: [
         {
@@ -251,7 +255,7 @@ const TEST_CASES = {
             expectedResponseContains: ['comandos'],
             description: 'Should list all available commands',
             category: 'MISC',
-            extraDelay: 3000
+            extraDelay: 3000,
         },
         {
             name: 'Tag Command',
@@ -259,7 +263,7 @@ const TEST_CASES = {
             expectedResponseContains: ['@'],
             description: 'Should tag everyone in the group',
             category: 'MISC',
-            extraDelay: 3000
+            extraDelay: 3000,
         },
         {
             name: 'Wizard Command',
@@ -269,7 +273,7 @@ const TEST_CASES = {
             category: 'MISC',
             extraDelay: 3000,
             followUpCommand: 'cancelar', // Send "cancelar" after testing the wizard
-            followUpDelay: 3000 // Wait 3 seconds before sending the follow-up command
+            followUpDelay: 3000, // Wait 3 seconds before sending the follow-up command
         },
         {
             name: 'Bot Message Reaction Delete',
@@ -278,9 +282,9 @@ const TEST_CASES = {
             description: 'Should delete bot message when thumbs up reaction is added',
             category: 'MISC',
             extraDelay: 5000,
-            checkBotMessageDeletion: true // Check if bot's message is deleted on reaction
-        }
-    ]
+            checkBotMessageDeletion: true, // Check if bot's message is deleted on reaction
+        },
+    ],
 };
 
 // Function to get all test cases or filter by category
@@ -291,23 +295,23 @@ function getTestCases(categories = null, includeOptional = false) {
             .filter(([_, enabled]) => enabled)
             .map(([category]) => category);
     }
-    
+
     // Flatten all test cases from enabled categories
     let allTests = [];
     categories.forEach(category => {
         if (TEST_CASES[category]) {
             // Filter out optional tests unless explicitly included
-            const tests = includeOptional 
-                ? TEST_CASES[category] 
+            const tests = includeOptional
+                ? TEST_CASES[category]
                 : TEST_CASES[category].filter(test => !test.optional);
             allTests = [...allTests, ...tests];
         }
     });
-    
+
     return allTests;
 }
 
 module.exports = {
     TEST_CASES,
-    getTestCases
-}; 
+    getTestCases,
+};

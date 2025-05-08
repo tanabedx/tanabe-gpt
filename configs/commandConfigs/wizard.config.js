@@ -18,9 +18,12 @@ const WIZARD_CONFIG = {
     errorMessages: {
         error: 'Erro ao configurar o resumo periódico.',
         notAllowed: 'Você não tem permissão para usar este comando.',
+        timeout:
+            '⏰ A sessão de configuração expirou devido a inatividade. Por favor, inicie novamente.',
     },
     useGroupPersonality: false,
-    prompt: RESUMO_CONFIG_PROMPT
+    prompt: RESUMO_CONFIG_PROMPT,
+    wizardTimeout: 300000, // 5 minutes default timeout
 };
 
-module.exports = WIZARD_CONFIG; 
+module.exports = WIZARD_CONFIG;

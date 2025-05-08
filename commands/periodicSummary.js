@@ -3,7 +3,7 @@ const { runCompletion } = require('../utils/openaiUtils');
 const logger = require('../utils/logger');
 
 // Helper function to get group config with defaults
-function getGroupConfig(groupName, groupConfig) {
+function getGroupConfig(groupConfig) {
     const defaults = config.PERIODIC_SUMMARY.defaults;
     return {
         enabled: groupConfig?.enabled ?? true,
@@ -11,13 +11,13 @@ function getGroupConfig(groupName, groupConfig) {
         quietTime: groupConfig?.quietTime ?? defaults.quietTime,
         deleteAfter: groupConfig?.deleteAfter ?? defaults.deleteAfter,
         prompt: groupConfig?.prompt ?? defaults.prompt,
-        model: groupConfig?.model ?? defaults.model
+        model: groupConfig?.model ?? defaults.model,
     };
 }
 
 // Helper function to check if current time is within quiet hours
 function isQuietTime(quietTime) {
-    const now = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const currentTime = currentHour * 100 + currentMinute;
@@ -35,15 +35,16 @@ function isQuietTime(quietTime) {
 }
 
 // Main periodic summary function
-async function runPeriodicSummary(groupName) {
-    if (!config.PERIODIC_SUMMARY?.enabled) {
+async function runPeriodicSummary(groupName, forceRun = false) {
+    // Only check global enabled status if not forced
+    if (!forceRun && !config.PERIODIC_SUMMARY?.enabled) {
         logger.debug('Periodic summary disabled in config');
         return false;
     }
 
     logger.debug('Running periodic summary for group:', groupName);
     const chats = await global.client.getChats();
-    
+
     // Get group config
     const rawGroupConfig = config.PERIODIC_SUMMARY.groups[groupName];
     if (!rawGroupConfig) {
@@ -51,10 +52,11 @@ async function runPeriodicSummary(groupName) {
         return false;
     }
 
-    const groupConfig = getGroupConfig(groupName, rawGroupConfig);
+    const groupConfig = getGroupConfig(rawGroupConfig);
     logger.debug('Group config:', { groupName, config: groupConfig });
-    
-    if (!groupConfig.enabled) {
+
+    // Only check group enabled status if not forced
+    if (!forceRun && !groupConfig.enabled) {
         logger.debug(`Summary disabled for group ${groupName}`);
         return false;
     }
@@ -65,8 +67,8 @@ async function runPeriodicSummary(groupName) {
         return false;
     }
 
-    // Check if it's quiet time
-    if (groupConfig.quietTime && isQuietTime(groupConfig.quietTime)) {
+    // Check if it's quiet time (but ignore if forced)
+    if (!forceRun && groupConfig.quietTime && isQuietTime(groupConfig.quietTime)) {
         logger.debug(`Skipping summary for ${groupName} - currently in quiet time`);
         return false;
     }
@@ -78,13 +80,16 @@ async function runPeriodicSummary(groupName) {
         logger.debug(`Fetched ${messages.length} messages for group ${groupName}`);
 
         const cutoffTime = new Date(Date.now() - intervalMs);
-        const validMessages = messages.filter(message => 
-            !message.fromMe && 
-            message.body.trim() !== '' &&
-            new Date(message.timestamp * 1000) > cutoffTime
+        const validMessages = messages.filter(
+            message =>
+                !message.fromMe &&
+                message.body.trim() !== '' &&
+                new Date(message.timestamp * 1000) > cutoffTime
         );
 
-        logger.debug(`Found ${validMessages.length} valid messages within interval for ${groupName}`);
+        logger.debug(
+            `Found ${validMessages.length} valid messages within interval for ${groupName}`
+        );
 
         if (validMessages.length === 0) {
             logger.debug(`No valid messages to summarize for ${groupName}`);
@@ -92,11 +97,13 @@ async function runPeriodicSummary(groupName) {
         }
 
         // Format messages for the summary
-        const messageTexts = await Promise.all(validMessages.map(async message => {
-            const contact = await message.getContact();
-            const name = contact.pushname || contact.name || contact.number;
-            return `>>${name}: ${message.body}.\n`;
-        }));
+        const messageTexts = await Promise.all(
+            validMessages.map(async message => {
+                const contact = await message.getContact();
+                const name = contact.pushname || contact.name || contact.number;
+                return `>>${name}: ${message.body}.\n`;
+            })
+        );
 
         logger.debug(`Formatted ${messageTexts.length} messages for summary in ${groupName}`);
 
@@ -104,7 +111,7 @@ async function runPeriodicSummary(groupName) {
         const PERIODIC_SUMMARY = require('../prompts/periodicSummary.prompt');
         const promptToUse = groupConfig.prompt || PERIODIC_SUMMARY.DEFAULT;
         const summaryText = await runCompletion(promptToUse + '\n\n' + messageTexts.join(''), 0.7);
-        
+
         logger.debug(`Generated summary for ${groupName}:`, summaryText);
 
         // Only send if summary is not null
@@ -123,4 +130,4 @@ async function runPeriodicSummary(groupName) {
 }
 
 // Export the functions
-module.exports = { runPeriodicSummary }; 
+module.exports = { runPeriodicSummary };

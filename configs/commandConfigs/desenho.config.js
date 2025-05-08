@@ -5,7 +5,8 @@ const DESENHO_PROMPT = require('../../prompts/desenho.prompt');
 
 const DESENHO_CONFIG = {
     prefixes: ['#desenho'],
-    description: 'Gera imagens com IA. Use #desenho [descrição] para criar uma imagem. A descrição é aprimorada automaticamente para gerar melhores resultados.',
+    description:
+        'Gera imagens com IA. Use #desenho [descrição] para criar uma imagem. A descrição é aprimorada automaticamente para gerar melhores resultados.',
     autoDelete: {
         errorMessages: true,
         commandMessages: false,
@@ -18,7 +19,7 @@ const DESENHO_CONFIG = {
     },
     useGroupPersonality: false,
     model: '',
-    prompt: DESENHO_PROMPT
+    prompt: DESENHO_PROMPT,
 };
 
-module.exports = DESENHO_CONFIG; 
+module.exports = DESENHO_CONFIG;

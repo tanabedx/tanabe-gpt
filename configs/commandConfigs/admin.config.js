@@ -7,7 +7,7 @@ const CACHE_CLEAR_CONFIG = {
     description: 'Limpa o cache do bot (apenas admin)',
     permissions: {
         allowedIn: 'all',
-        adminOnly: true
+        adminOnly: true,
     },
     autoDelete: {
         errorMessages: true,
@@ -16,8 +16,8 @@ const CACHE_CLEAR_CONFIG = {
     },
     errorMessages: {
         notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao limpar o cache.'
-    }
+        error: 'Erro ao limpar o cache.',
+    },
 };
 
 // Twitter debug command
@@ -26,7 +26,7 @@ const TWITTER_DEBUG_CONFIG = {
     description: 'Mostra informações de debug do Twitter (apenas admin)',
     permissions: {
         allowedIn: 'all',
-        adminOnly: true
+        adminOnly: true,
     },
     autoDelete: {
         errorMessages: true,
@@ -35,8 +35,8 @@ const TWITTER_DEBUG_CONFIG = {
     },
     errorMessages: {
         notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao obter informações de debug do Twitter.'
-    }
+        error: 'Erro ao obter informações de debug do Twitter.',
+    },
 };
 
 // RSS debug command
@@ -45,7 +45,7 @@ const RSS_DEBUG_CONFIG = {
     description: 'Mostra informações de debug dos feeds RSS (apenas admin)',
     permissions: {
         allowedIn: 'all',
-        adminOnly: true
+        adminOnly: true,
     },
     autoDelete: {
         errorMessages: true,
@@ -54,8 +54,8 @@ const RSS_DEBUG_CONFIG = {
     },
     errorMessages: {
         notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao obter informações de debug dos feeds RSS.'
-    }
+        error: 'Erro ao obter informações de debug dos feeds RSS.',
+    },
 };
 
 // News Status command
@@ -64,7 +64,7 @@ const NEWS_STATUS_CONFIG = {
     description: 'Mostra o status atual do monitoramento de notícias (apenas admin)',
     permissions: {
         allowedIn: 'all',
-        adminOnly: true
+        adminOnly: true,
     },
     autoDelete: {
         errorMessages: true,
@@ -73,17 +73,17 @@ const NEWS_STATUS_CONFIG = {
     },
     errorMessages: {
         notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao obter status do monitoramento de notícias.'
-    }
+        error: 'Erro ao obter status do monitoramento de notícias.',
+    },
 };
 
 // Force summary command
-const FORCE_SUMMARY_CONFIG = {
-    prefixes: ['!forcesummary'],
-    description: 'Força a geração de um resumo periódico (apenas admin)',
+const DEBUG_PERIODIC_CONFIG = {
+    prefixes: ['!debugperiodic', '!periodicdebug'],
+    description: 'Gera resumos de todos os grupos e os envia para o admin (apenas admin)',
     permissions: {
         allowedIn: 'all',
-        adminOnly: true
+        adminOnly: true,
     },
     autoDelete: {
         errorMessages: true,
@@ -92,8 +92,8 @@ const FORCE_SUMMARY_CONFIG = {
     },
     errorMessages: {
         notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao forçar resumo.'
-    }
+        error: 'Erro ao gerar resumos de debug.',
+    },
 };
 
 // Config command
@@ -102,7 +102,7 @@ const CONFIG_CONFIG = {
     description: 'Configura opções do bot (apenas admin/moderadores)',
     permissions: {
         allowedIn: 'all',
-        adminOnly: false
+        adminOnly: false,
     },
     autoDelete: {
         errorMessages: true,
@@ -111,8 +111,8 @@ const CONFIG_CONFIG = {
     },
     errorMessages: {
         notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao configurar o bot.'
-    }
+        error: 'Erro ao configurar o bot.',
+    },
 };
 
 module.exports = {
@@ -120,6 +120,6 @@ module.exports = {
     TWITTER_DEBUG_CONFIG,
     RSS_DEBUG_CONFIG,
     NEWS_STATUS_CONFIG,
-    FORCE_SUMMARY_CONFIG,
-    CONFIG_CONFIG
-}; 
+    DEBUG_PERIODIC_CONFIG,
+    CONFIG_CONFIG,
+};

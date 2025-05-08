@@ -7,28 +7,35 @@ const DESENHO = require('../prompts/desenho.prompt');
 async function generateImage(prompt, cfg_scale = 7) {
     try {
         logger.debug('Generating image with GetImg.ai', { promptLength: prompt.length });
-        const response = await axios.post('https://api.getimg.ai/v1/essential-v2/text-to-image', {
-            prompt: prompt,
-            style: 'photorealism',
-            aspect_ratio: '1:1',
-            output_format: 'png',
-            cfg_scale: cfg_scale
-        }, {
-            headers: {
-                'Authorization': `Bearer ${config.CREDENTIALS.GETIMG_AI_API_KEY}`,
-                'Content-Type': 'application/json'
+        const response = await axios.post(
+            'https://api.getimg.ai/v1/essential-v2/text-to-image',
+            {
+                prompt: prompt,
+                style: 'photorealism',
+                aspect_ratio: '1:1',
+                output_format: 'png',
+                cfg_scale: cfg_scale,
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${config.CREDENTIALS.GETIMG_AI_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
             }
-        });
-        
+        );
+
         if (response.data && response.data.image) {
             logger.debug('Successfully generated image');
             return response.data.image;
         }
-        
+
         logger.error('No image data in response', response.data);
         return null;
     } catch (error) {
-        logger.error('Error generating image:', error.response ? error.response.data : error.message);
+        logger.error(
+            'Error generating image:',
+            error.response ? error.response.data : error.message
+        );
         return null;
     }
 }
@@ -45,5 +52,5 @@ async function improvePrompt(prompt) {
 
 module.exports = {
     generateImage,
-    improvePrompt
-}; 
+    improvePrompt,
+};

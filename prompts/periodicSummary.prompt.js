@@ -1,7 +1,7 @@
 // periodic_summary.js
 
 const PERIODIC_SUMMARY = {
-    DEFAULT:`
+    DEFAULT: `
 Por favor, faça um resumo das mensagens não lidas do grupo.
 
 Considere:
@@ -11,7 +11,7 @@ Considere:
 4. Eventos ou datas importantes mencionadas
 
 Mantenha o resumo conciso e informativo, destacando apenas as informações mais relevantes.
-        `
+        `,
 };
 
-module.exports = PERIODIC_SUMMARY; 
+module.exports = PERIODIC_SUMMARY;

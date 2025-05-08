@@ -1,22 +1,28 @@
 const config = require('../configs');
-const { runCompletion } = require('../utils/openaiUtils');
 const { performCacheClearing } = require('./cacheManagement');
 const logger = require('../utils/logger');
 const { getNextSummaryInfo, scheduleNextSummary } = require('../utils/periodicSummaryUtils');
 const { runPeriodicSummary } = require('./periodicSummary');
-const { debugTwitterFunctionality, debugRssFunctionality, newsMonitorStatus, getCurrentTwitterApiKey } = require('./newsMonitor');
-const axios = require('axios');
+const { runCompletion } = require('../utils/openaiUtils');
+const {
+    debugTwitterFunctionality,
+    debugRssFunctionality,
+    newsMonitorStatus,
+} = require('./newsMonitor');
 
 // Runtime configuration that can be modified during execution
 const runtimeConfig = {
-    nlpEnabled: true // NLP processing is enabled by default
+    nlpEnabled: true, // NLP processing is enabled by default
 };
 
 // Helper function to check if message is from admin chat
 async function isAdminChat(message) {
     const chat = await message.getChat();
     const contact = await message.getContact();
-    return contact.id._serialized === `${config.CREDENTIALS.ADMIN_NUMBER}@c.us` && chat.isGroup === false;
+    return (
+        contact.id._serialized === `${config.CREDENTIALS.ADMIN_NUMBER}@c.us` &&
+        chat.isGroup === false
+    );
 }
 
 // Helper function to check if user is admin or moderator
@@ -27,22 +33,24 @@ async function isAdminOrModerator(message) {
         if (contact.id._serialized === `${config.CREDENTIALS.ADMIN_NUMBER}@c.us`) {
             return true;
         }
-        
+
         // Check if group message from admin or moderator
         const chat = await message.getChat();
         if (chat.isGroup) {
             // Get participant info
-            const participant = chat.participants.find(p => p.id._serialized === contact.id._serialized);
+            const participant = chat.participants.find(
+                p => p.id._serialized === contact.id._serialized
+            );
             if (participant && (participant.isAdmin || participant.isSuperAdmin)) {
                 return true;
             }
-            
+
             // Check if user is in moderators list (if configured)
             if (config.MODERATORS && Array.isArray(config.MODERATORS)) {
                 return config.MODERATORS.includes(contact.id.user);
             }
         }
-        
+
         return false;
     } catch (error) {
         logger.error('Error checking admin/moderator status:', error);
@@ -52,13 +60,13 @@ async function isAdminOrModerator(message) {
 
 async function handleCacheClear(message) {
     logger.debug('Cache clear command activated');
-    
+
     // Check if message is from admin chat
-    if (!await isAdminChat(message)) {
+    if (!(await isAdminChat(message))) {
         logger.debug('Cache clear command rejected: not admin chat');
         return;
     }
-    
+
     try {
         // Pass 0 to clear all files regardless of age
         await performCacheClearing(0);
@@ -69,15 +77,15 @@ async function handleCacheClear(message) {
     }
 }
 
-async function handleForceSummary(message) {
-    logger.debug('Force summary command activated');
-    
+async function handleDebugPeriodic(message) {
+    logger.debug('Debug periodic summary command activated');
+
     // Check if message is from admin chat
-    if (!await isAdminChat(message)) {
-        logger.debug('Force summary command rejected: not admin chat');
+    if (!(await isAdminChat(message))) {
+        logger.debug('Debug periodic summary command rejected: not admin chat');
         return;
     }
-    
+
     try {
         const nextSummary = getNextSummaryInfo();
         if (!nextSummary) {
@@ -85,55 +93,198 @@ async function handleForceSummary(message) {
             return;
         }
 
-        const { group } = nextSummary;
-        
-        // Schedule the summary to run in 30 seconds
-        await message.reply(`Scheduling summary for ${group} to run in 10 seconds...`);
-        
-        setTimeout(async () => {
+        // Get all configured groups
+        const groups = Object.keys(config.PERIODIC_SUMMARY?.groups || {});
+        if (groups.length === 0) {
+            await message.reply('No groups configured for periodic summaries.');
+            return;
+        }
+
+        // Create a results object to store all summaries
+        const results = {
+            nextScheduled: {},
+            summaries: {},
+            errors: {},
+            noMessages: [],
+            notFound: [],
+        };
+
+        // Store next scheduled time info
+        if (nextSummary) {
+            results.nextScheduled = {
+                group: nextSummary.group,
+                time: new Date(nextSummary.nextValidTime).toLocaleString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo',
+                }),
+                interval: nextSummary.interval,
+            };
+        }
+
+        for (const groupName of groups) {
             try {
-                logger.summary(`Running forced summary for group ${group}`);
-                const result = await runPeriodicSummary(group);
-                if (result) {
-                    logger.summary(`Successfully completed forced summary for group ${group}`);
-                    await message.reply(`Summary completed for ${group}`);
+                // Get group chats
+                const chats = await global.client.getChats();
+                const chat = chats.find(c => c.name === groupName);
+
+                if (!chat || !chat.isGroup) {
+                    results.notFound.push(groupName);
+                    continue;
+                }
+
+                const groupConfig = config.PERIODIC_SUMMARY.groups[groupName];
+                if (!groupConfig) {
+                    results.errors[groupName] = 'No configuration found';
+                    continue;
+                }
+
+                // Get messages using the same logic as in runPeriodicSummary
+                const intervalHours =
+                    groupConfig.intervalHours || config.PERIODIC_SUMMARY.defaults.intervalHours;
+                const intervalMs = intervalHours * 60 * 60 * 1000;
+
+                logger.debug(`Fetching messages for group ${groupName}`);
+
+                const messages = await chat.fetchMessages({ limit: 1000 });
+                logger.debug(`Fetched ${messages.length} messages for group ${groupName}`);
+
+                const cutoffTime = new Date(Date.now() - intervalMs);
+                const validMessages = messages.filter(
+                    message =>
+                        !message.fromMe &&
+                        message.body.trim() !== '' &&
+                        new Date(message.timestamp * 1000) > cutoffTime
+                );
+
+                logger.debug(
+                    `Found ${validMessages.length} valid messages within interval for ${groupName}`
+                );
+
+                if (validMessages.length === 0) {
+                    results.noMessages.push(groupName);
+                    continue;
+                }
+
+                // Format messages for the summary
+                const messageTexts = await Promise.all(
+                    validMessages.map(async msg => {
+                        const contact = await msg.getContact();
+                        const name = contact.pushname || contact.name || contact.number;
+                        return `>>${name}: ${msg.body}.\n`;
+                    })
+                );
+
+                logger.debug(
+                    `Formatted ${messageTexts.length} messages for summary in ${groupName}`
+                );
+
+                // Generate summary using OpenAI
+                const PERIODIC_SUMMARY = require('../prompts/periodicSummary.prompt');
+                const promptToUse = groupConfig.prompt || PERIODIC_SUMMARY.DEFAULT;
+
+                const summaryText = await runCompletion(
+                    promptToUse + '\n\n' + messageTexts.join(''),
+                    0.7
+                );
+
+                logger.debug(`Generated summary for ${groupName}:`, summaryText);
+
+                // Add the summary to the results
+                if (summaryText.trim().toLowerCase() !== 'null') {
+                    results.summaries[groupName] = {
+                        summary: summaryText,
+                        messagesCount: validMessages.length,
+                        intervalHours: intervalHours,
+                        promptType: groupConfig.prompt ? 'custom' : 'default',
+                    };
                 } else {
-                    logger.warn(`Forced summary for group ${group} completed but may have had issues`);
-                    await message.reply(`Summary completed for ${group} but may have had issues`);
+                    results.errors[groupName] = 'OpenAI returned null response';
                 }
             } catch (error) {
-                logger.error(`Error running forced summary for group ${group}:`, error);
-                await message.reply(`Error running summary for ${group}: ${error.message}`);
-            } finally {
-                // Reschedule the next regular summary
-                scheduleNextSummary();
+                logger.error(`Error generating debug summary for ${groupName}:`, error);
+                results.errors[groupName] = error.message;
             }
-        }, 10000); // 10 seconds
+        }
 
+        // Build the final message
+        let finalMessage = `*📊 PERIODIC SUMMARY DEBUG REPORT*\n\n`;
+
+        // Next scheduled summary
+        if (results.nextScheduled.group) {
+            finalMessage += `*Next scheduled summary:*\n`;
+            finalMessage += `Group: ${results.nextScheduled.group}\n`;
+            finalMessage += `Time: ${results.nextScheduled.time}\n`;
+            finalMessage += `Interval: ${results.nextScheduled.interval}h\n\n`;
+        }
+
+        // Stats summary
+        finalMessage += `*Summary statistics:*\n`;
+        finalMessage += `Total groups: ${groups.length}\n`;
+        finalMessage += `Summaries generated: ${Object.keys(results.summaries).length}\n`;
+        finalMessage += `Groups with no messages: ${results.noMessages.length}\n`;
+        finalMessage += `Groups not found: ${results.notFound.length}\n`;
+        finalMessage += `Errors: ${Object.keys(results.errors).length}\n\n`;
+
+        // Summaries section
+        if (Object.keys(results.summaries).length > 0) {
+            finalMessage += `*📝 SUMMARIES BY GROUP*\n\n`;
+
+            for (const [groupName, data] of Object.entries(results.summaries)) {
+                finalMessage += `*📋 ${groupName}*\n`;
+                finalMessage += `Messages: ${data.messagesCount} (last ${data.intervalHours}h) | Prompt: ${data.promptType}\n\n`;
+                finalMessage += `${data.summary}\n\n`;
+                finalMessage += `${'─'.repeat(30)}\n\n`;
+            }
+        }
+
+        // No messages section
+        if (results.noMessages.length > 0) {
+            finalMessage += `*Groups with no messages:*\n`;
+            results.noMessages.forEach(group => {
+                finalMessage += `• ${group}\n`;
+            });
+            finalMessage += `\n`;
+        }
+
+        // Not found section
+        if (results.notFound.length > 0) {
+            finalMessage += `*Groups not found:*\n`;
+            results.notFound.forEach(group => {
+                finalMessage += `• ${group}\n`;
+            });
+            finalMessage += `\n`;
+        }
+
+        // Errors section
+        if (Object.keys(results.errors).length > 0) {
+            finalMessage += `*Errors:*\n`;
+            for (const [groupName, errorMsg] of Object.entries(results.errors)) {
+                finalMessage += `• ${groupName}: ${errorMsg}\n`;
+            }
+        }
+
+        // Send the final consolidated message
+        await message.reply(finalMessage);
+
+        // Reschedule the next regular summary
+        scheduleNextSummary();
     } catch (error) {
-        logger.error('Error in force summary command:', error);
+        logger.error('Error in debug periodic summary command:', error);
         await message.reply(`Error: ${error.message}`);
     }
 }
 
 async function handleTwitterDebug(message) {
     logger.debug('Twitter debug command activated');
-    
+
     // Check if message is from admin chat
-    if (!await isAdminChat(message)) {
+    if (!(await isAdminChat(message))) {
         logger.debug('Twitter debug command rejected: not admin chat');
         return;
     }
-    
+
     try {
         const chat = await message.getChat();
         await chat.sendStateTyping();
-
-        // Parse the input to check for on/off commands
-        const args = message.body.split(' ').slice(1);
-        
-        // Note: Removed the check that prevented the command from running when Twitter monitoring is disabled
-        // The debug command should work regardless of monitoring status
 
         // Check if Twitter accounts are configured
         if (!config.NEWS_MONITOR.TWITTER_ACCOUNTS || !config.NEWS_MONITOR.TWITTER_ACCOUNTS.length) {
@@ -147,7 +298,6 @@ async function handleTwitterDebug(message) {
 
         // Call the Twitter debug function
         await debugTwitterFunctionality(message);
-        
     } catch (error) {
         logger.error('Error in Twitter debug command', error);
         await message.reply(`Debug error: ${error.message}`);
@@ -156,22 +306,16 @@ async function handleTwitterDebug(message) {
 
 async function handleRssDebug(message) {
     logger.debug('RSS debug command activated');
-    
+
     // Check if message is from admin chat
-    if (!await isAdminChat(message)) {
+    if (!(await isAdminChat(message))) {
         logger.debug('RSS debug command rejected: not admin chat');
         return;
     }
-    
+
     try {
         const chat = await message.getChat();
         await chat.sendStateTyping();
-
-        // Parse the input to check for on/off commands - no need to store, just for reference
-        const args = message.body.split(' ').slice(1);
-        
-        // Note: Removed the check that prevented the command from running when RSS monitoring is disabled
-        // The debug command should work regardless of monitoring status
 
         // Check if RSS feeds are configured
         if (!config.NEWS_MONITOR.FEEDS || !config.NEWS_MONITOR.FEEDS.length) {
@@ -182,7 +326,6 @@ async function handleRssDebug(message) {
 
         // Call the RSS debug function
         await debugRssFunctionality(message);
-        
     } catch (error) {
         logger.error('Error in RSS debug:', error);
         await message.reply('Error testing RSS functionality: ' + error.message);
@@ -190,25 +333,25 @@ async function handleRssDebug(message) {
 }
 
 // Handle configuration commands
-async function handleConfig(message, command, input) {
+async function handleConfig(message, _, input) {
     logger.debug('Config command activated', { input });
-    
+
     // Check if user is admin or moderator
-    if (!await isAdminOrModerator(message)) {
+    if (!(await isAdminOrModerator(message))) {
         logger.debug('Config command rejected: not admin or moderator');
         return;
     }
-    
+
     // Parse the input to get the configuration option and value
     const parts = input.trim().split(/\s+/);
     if (parts.length < 2) {
         await message.reply('Usage: #config [option] [value]\nAvailable options: nlp');
         return;
     }
-    
+
     const option = parts[0].toLowerCase();
     const value = parts[1].toLowerCase();
-    
+
     // Handle different configuration options
     switch (option) {
         case 'nlp':
@@ -225,7 +368,7 @@ async function handleConfig(message, command, input) {
                 await message.reply('Invalid value for nlp. Use "on" or "off"');
             }
             break;
-            
+
         default:
             await message.reply(`Unknown configuration option: ${option}\nAvailable options: nlp`);
     }
@@ -236,20 +379,19 @@ async function handleConfig(message, command, input) {
  */
 async function handleNewsStatus(message) {
     logger.debug('News status command activated');
-    
+
     // Check if message is from admin chat
-    if (!await isAdminChat(message)) {
+    if (!(await isAdminChat(message))) {
         logger.debug('News status command rejected: not admin chat');
         return;
     }
-    
+
     try {
         const chat = await message.getChat();
         await chat.sendStateTyping();
-        
+
         // Call the news monitor status function
         await newsMonitorStatus(message);
-        
     } catch (error) {
         logger.error('Error in news status command', error);
         await message.reply(`Error retrieving news monitor status: ${error.message}`);
@@ -259,9 +401,9 @@ async function handleNewsStatus(message) {
 module.exports = {
     handleCacheClear,
     handleTwitterDebug,
-    handleForceSummary,
+    handleDebugPeriodic,
     handleRssDebug,
     handleConfig,
     handleNewsStatus,
-    runtimeConfig
-}; 
+    runtimeConfig,
+};

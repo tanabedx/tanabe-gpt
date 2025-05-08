@@ -33,13 +33,14 @@ function getPrompt(config, commandName, promptName, groupName = null) {
 
     const command = config.COMMANDS[commandName];
     let personality = '';
-    
+
     // Check if this is the admin chat
     const adminNumber = config.CREDENTIALS.ADMIN_NUMBER;
-    const isAdminChat = groupName === null || 
-                       groupName === `${adminNumber}@c.us` || 
-                       (typeof groupName === 'string' && groupName.includes(adminNumber));
-    
+    const isAdminChat =
+        groupName === null ||
+        groupName === `${adminNumber}@c.us` ||
+        (typeof groupName === 'string' && groupName.includes(adminNumber));
+
     // For admin chat, always use GROUP_LF personality
     if (isAdminChat) {
         logger.debug(`Using ${GROUP_LF} personality for admin chat`);
@@ -50,10 +51,10 @@ function getPrompt(config, commandName, promptName, groupName = null) {
         // Handle regular group personality
         personality = GROUP_PERSONALITIES[groupName];
     }
-    
+
     // Replace the personality placeholder
     prompt = prompt.replace('{groupPersonality}', personality);
-    
+
     return prompt;
 }
 
@@ -74,14 +75,14 @@ async function getPromptWithContext(message, config, commandName, promptName, va
         command: commandName,
         promptType: promptName,
         groupName,
-        variables: Object.keys(variables)
+        variables: Object.keys(variables),
     });
 
     let prompt = getPrompt(config, commandName, promptName, groupName);
 
     logger.debug('Initial prompt template', {
         length: prompt.length,
-        firstChars: prompt.substring(0, 100) + '...'
+        firstChars: prompt.substring(0, 100) + '...',
     });
 
     // If we have messageHistory in variables, check if it's empty
@@ -89,7 +90,10 @@ async function getPromptWithContext(message, config, commandName, promptName, va
         const messageHistoryStr = variables.messageHistory?.toString() || '';
         if (!messageHistoryStr.trim()) {
             // If messageHistory is empty, remove the entire message history section from the prompt
-            prompt = prompt.replace(/Para o seu contexto, abaixo estão as últimas \{maxMessages\} mensagens enviadas no chat, caso seja necessário para a sua resposta:\n\nCOMEÇO DAS ÚLTIMAS \{maxMessages\} MENSAGENS:\n\{messageHistory\}\nFIM DAS ÚLTIMAS \{maxMessages\} MENSAGENS\.\n\n/g, '');
+            prompt = prompt.replace(
+                /Para o seu contexto, abaixo estão as últimas \{maxMessages\} mensagens enviadas no chat, caso seja necessário para a sua resposta:\n\nCOMEÇO DAS ÚLTIMAS \{maxMessages\} MENSAGENS:\n\{messageHistory\}\nFIM DAS ÚLTIMAS \{maxMessages\} MENSAGENS\.\n\n/g,
+                ''
+            );
         }
     }
 
@@ -98,9 +102,9 @@ async function getPromptWithContext(message, config, commandName, promptName, va
         const stringValue = value?.toString() || '';
         logger.debug(`Replacing variable {${key}}`, {
             valueLength: stringValue.length,
-            valueSample: stringValue.substring(0, 50) + (stringValue.length > 50 ? '...' : '')
+            valueSample: stringValue.substring(0, 50) + (stringValue.length > 50 ? '...' : ''),
         });
-        
+
         // Create a regex that matches the exact variable pattern
         const regex = new RegExp(`\\{${key}\\}`, 'g');
         prompt = prompt.replace(regex, stringValue);
@@ -108,7 +112,7 @@ async function getPromptWithContext(message, config, commandName, promptName, va
 
     logger.debug('Final prompt after replacements', {
         length: prompt.length,
-        firstChars: prompt.substring(0, 100) + '...'
+        firstChars: prompt.substring(0, 100) + '...',
     });
 
     return prompt;
@@ -116,5 +120,5 @@ async function getPromptWithContext(message, config, commandName, promptName, va
 
 module.exports = {
     getPrompt,
-    getPromptWithContext
-}; 
+    getPromptWithContext,
+};
