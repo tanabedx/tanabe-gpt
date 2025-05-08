@@ -22,7 +22,7 @@ node_modules/
 Thumbs.db
 
 # WhatsApp Web.js files
-wwebjs/*
+wwebjs/*/
 .wwebjs_cache
 test_results.json
 
