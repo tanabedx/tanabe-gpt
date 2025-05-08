@@ -1,0 +1,16 @@
+[Unit]
+Description=Tanabe-GPT Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=NODE_ENV=production
+Environment=OPTIMIZE_FOR_VPS=true
+WorkingDirectory=[path]/tanabe-gpt #add directory path
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

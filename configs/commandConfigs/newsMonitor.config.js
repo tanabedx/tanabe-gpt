@@ -14,7 +14,7 @@ const NEWS_MONITOR_CONFIG = {
     TARGET_GROUP: process.env.GROUP_LF, // Group to send news updates to
 
     // Twitter-specific configuration
-    TWITTER_ENABLED: false, // Toggle for Twitter source
+    TWITTER_ENABLED: true, // Toggle for Twitter source
     TWITTER_CHECK_INTERVAL: 960000, // 16 minutes in milliseconds (API rate limit consideration)
     TWITTER_ACCOUNTS: [
         {

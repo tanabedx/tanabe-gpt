@@ -28,7 +28,6 @@ test_results.json
 
 # Service files
 tanabe_monitor.py
-tanabe-gpt.service
 start.sh
 tanabe-monitor.service
 setup.sh
