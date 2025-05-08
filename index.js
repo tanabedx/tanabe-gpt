@@ -16,6 +16,11 @@ const { initializeMessageLog } = require('./utils/messageLogger');
 const { initializeNewsMonitor } = require('./commands/newsMonitor');
 const { scheduleNextSummary: schedulePeriodicSummary } = require('./utils/periodicSummaryUtils');
 const { performStartupGitPull } = require('./utils/gitUtils');
+const {
+    performCacheClearing,
+    startMemoryMonitoring,
+    forceGarbageCollection,
+} = require('./commands/cacheManagement');
 const logger = require('./utils/logger');
 const path = require('path');
 const fs = require('fs');
@@ -54,25 +59,6 @@ function logMemoryUsage() {
             logger.warn(`Memory increase detected: +${increaseMB}MB. Forcing garbage collection.`);
             forceGarbageCollection();
         }
-    }
-}
-
-function forceGarbageCollection() {
-    try {
-        if (global.gc) {
-            const beforeGC = process.memoryUsage().heapUsed / 1024 / 1024;
-            global.gc();
-            const afterGC = process.memoryUsage().heapUsed / 1024 / 1024;
-            logger.info(
-                `Garbage collection complete: freed ${Math.round(
-                    beforeGC - afterGC
-                )}MB. Current heap: ${Math.round(afterGC)}MB`
-            );
-        } else {
-            logger.warn('Garbage collection not available. Run with --expose-gc flag.');
-        }
-    } catch (error) {
-        logger.error('Error during garbage collection:', error);
     }
 }
 
@@ -145,8 +131,6 @@ async function initializeBot() {
         // Clear cache if enabled
         if (config.SYSTEM?.ENABLE_STARTUP_CACHE_CLEARING) {
             logger.debug('Cache clearing is enabled, performing cleanup...');
-            const { performCacheClearing } = require('./commands/cacheManagement');
-            // Use default parameter (5 days)
             const { clearedFiles } = await performCacheClearing();
             if (clearedFiles > 0) {
                 logger.info(`Cache cleared successfully: ${clearedFiles} files removed`);
@@ -258,12 +242,15 @@ async function initializeBot() {
                         await browserCleanup.closePages(browserInstance);
                         // Force garbage collection after browser cleanup
                         if (global.gc) {
-                            global.gc();
+                            forceGarbageCollection();
                         }
                     }
                 }, 30 * 60 * 1000); // Every 30 minutes
 
                 logger.debug('Browser cleanup scheduled every 30 minutes');
+
+                // Start memory monitoring
+                startMemoryMonitoring();
             } catch (err) {
                 logger.error('Error setting up browser management:', err);
             }

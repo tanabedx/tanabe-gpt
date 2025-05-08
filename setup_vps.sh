@@ -55,9 +55,28 @@ else
   echo "npm already installed."
 fi
 
-# Install PM2 globally
-echo "[6/8] Installing PM2 process manager..."
-npm install -g pm2
+# Install application dependencies
+echo "[6/8] Installing application dependencies (this may take a few minutes)..."
+# Get current user to restore ownership later
+SCRIPT_USER=$(logname || echo "$SUDO_USER")
+if [ -z "$SCRIPT_USER" ]; then
+  SCRIPT_USER=$(who am i | awk '{print $1}')
+fi
+
+# Install dependencies
+npm install
+
+# Check if whatsapp-web.js is installed
+if ! npm list | grep -q "whatsapp-web.js"; then
+  echo "Installing whatsapp-web.js specifically..."
+  npm install whatsapp-web.js
+fi
+
+# The npm install might have created files as root, fix ownership
+if [ -n "$SCRIPT_USER" ] && [ "$SCRIPT_USER" != "root" ]; then
+  echo "Fixing file ownership for user $SCRIPT_USER..."
+  chown -R "$SCRIPT_USER:$(id -gn $SCRIPT_USER 2>/dev/null || echo $SCRIPT_USER)" .
+fi
 
 # Setup .env file
 echo "[7/8] Setting up environment configuration (.env file)..."
@@ -83,52 +102,50 @@ if [ -z "$ENV_SETUP_SKIPPED" ]; then
   echo "========================================"
   echo "Setting up .env file for Tanabe-GPT"
   echo "========================================"
-  echo "Please provide the following information:"
-  echo ""
   
   # Create temporary file
   TEMP_ENV=$(mktemp)
   
-  # Environment
-  echo "NODE_ENV=production" > "$TEMP_ENV"
+  echo "Please paste your entire .env file content below."
+  echo "If you don't have an .env file prepared, just press Ctrl+D and we'll create a minimal one."
+  echo "Press Ctrl+D when finished pasting."
+  echo "------------------------"
   
-  # OpenAI API Key
-  read -p "Enter your OpenAI API Key: " openai_key
-  echo "OPENAI_API_KEY=$openai_key" >> "$TEMP_ENV"
+  # Read multi-line input until Ctrl+D is pressed
+  while IFS= read -r line; do
+    echo "$line" >> "$TEMP_ENV"
+  done
   
-  # Ask for WhatsApp admin ID
-  read -p "Enter WhatsApp Admin ID (number@c.us format): " admin_id
-  echo "ADMIN_WHATSAPP_ID=$admin_id" >> "$TEMP_ENV"
-
-  # Ask if user wants to paste entire .env content
-  echo ""
-  echo "Would you like to paste additional environment variables? (y/n)"
-  read -p "Choice: " paste_choice
+  echo "------------------------"
   
-  if [[ "$paste_choice" == "y" || "$paste_choice" == "Y" ]]; then
-    echo ""
-    echo "Paste your additional environment variables below (press Ctrl+D when finished):"
-    echo "Note: Lines starting with # will be preserved as comments"
-    echo "------------------------"
+  # Check if the file has content and if not, create a minimal config
+  if [ ! -s "$TEMP_ENV" ]; then
+    echo "Creating minimal .env configuration..."
+    echo "NODE_ENV=production" >> "$TEMP_ENV"
+    echo "# Add your OpenAI API key below" >> "$TEMP_ENV"
+    echo "OPENAI_API_KEY=your_openai_api_key_here" >> "$TEMP_ENV"
+    echo "# Add your WhatsApp admin ID below (format: number@c.us)" >> "$TEMP_ENV"
+    echo "ADMIN_WHATSAPP_ID=your_whatsapp_id_here" >> "$TEMP_ENV"
     
-    # Read multi-line input until Ctrl+D is pressed
-    while IFS= read -r line; do
-      # Skip if line already has NODE_ENV, OPENAI_API_KEY, or ADMIN_WHATSAPP_ID
-      if [[ "$line" =~ ^(NODE_ENV|OPENAI_API_KEY|ADMIN_WHATSAPP_ID)= ]]; then
-        continue
-      fi
-      echo "$line" >> "$TEMP_ENV"
-    done
+    # Add WhatsApp special messages from user input
+    echo "" >> "$TEMP_ENV"
+    echo "# Special Messages" >> "$TEMP_ENV"
+    echo "WIZARD_WELCOME_MESSAGE=\"Olá, Mamãe querida!\n\nPara configurar um novo grupo para fazer resumos, envie *#ferramentaresumo*.\n\nTe amo!\"" >> "$TEMP_ENV"
     
-    echo "------------------------"
+    # Add Group Personalities from user input
+    echo "" >> "$TEMP_ENV"
+    echo "# Group Personalities" >> "$TEMP_ENV"
+    echo "GROUP_LF_PERSONALITY=\"DIRETRIZES:\n\n\nVocê é um bot assistente pessoal em um grupo de WhatsApp de amigos. Sua função é:\n\n1. Ser conciso nas suas respostas.\n2. Ser pessoal com os indivíduos que conversam com você, se dirigindo pessoalmente e diretamente à pessoa.\n3. Ser formal e eloquente, a não ser que a pergunta do usuário comece com '!'.\n4. Não utilizar informações antecedentes como 'minha resposta é' ou 'resposta:'.\n5. Ter consciência de que você está em um grupo de WhatsApp, os membros já sabem quem você é e que você está respondendo algo, logo não é necessário se anunciar.\n6. Construir suas respostas em formato e como outro integrante de um grupo de WhatsApp.\n7. Se você for insultado, insulte de volta de jeito irônico baseado nas características dos integrantes:\n\n- Felipeviathan\\\" Boacnin: Ele é o Leviatan, o chefe supremo, ele só aparece de vez em quando.\n- Gabriel \\\"Farialimer\\\" Madasi: Ele é um economista certinho.\n- Gabriel \\\"Raichavasca\\\" Paro\"" >> "$TEMP_ENV"
   fi
   
-  # Additional recommended settings
-  echo "" >> "$TEMP_ENV"
-  echo "# VPS Optimization Settings" >> "$TEMP_ENV"
-  echo "OPTIMIZE_FOR_VPS=true" >> "$TEMP_ENV"
-  echo "FORCE_DEBUG_LOGS=false" >> "$TEMP_ENV"
-  echo "FORCE_PROMPT_LOGS=false" >> "$TEMP_ENV"
+  # Check if the VPS optimization settings are already in the file
+  if ! grep -q "OPTIMIZE_FOR_VPS" "$TEMP_ENV"; then
+    echo "" >> "$TEMP_ENV"
+    echo "# VPS Optimization Settings" >> "$TEMP_ENV"
+    echo "OPTIMIZE_FOR_VPS=true" >> "$TEMP_ENV"
+    echo "FORCE_DEBUG_LOGS=false" >> "$TEMP_ENV"
+    echo "FORCE_PROMPT_LOGS=false" >> "$TEMP_ENV"
+  fi
   
   # Move temp file to .env
   mv "$TEMP_ENV" "$ENV_FILE"
@@ -136,46 +153,85 @@ if [ -z "$ENV_SETUP_SKIPPED" ]; then
   
   echo ""
   echo ".env file created successfully!"
-  echo "You can edit it later if needed with: nano .env"
+  echo "IMPORTANT: If you used the minimal template, edit the file with: nano .env"
+  echo "           You must set your actual API keys before running the application."
 fi
-
-# Create PM2 ecosystem file
-echo "[8/8] Creating PM2 ecosystem configuration..."
-cat > ecosystem.config.js << 'EOL'
-module.exports = {
-  apps: [{
-    name: "tanabe-gpt",
-    script: "index.js",
-    instances: 1,
-    exec_mode: "fork",
-    max_memory_restart: "350M",
-    node_args: "--expose-gc --max-old-space-size=256",
-    env: {
-      NODE_ENV: "production"
-    },
-    exp_backoff_restart_delay: 100,
-    watch: false,
-    merge_logs: true,
-    error_file: "logs/pm2-error.log",
-    out_file: "logs/pm2-out.log",
-    log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-    kill_timeout: 5000,
-    cron_restart: "0 3 * * *" // Daily restart at 3 AM
-  }]
-};
-EOL
 
 # Create logs directory
 mkdir -p logs
 
+# Create Systemd Service
+echo "[8/8] Setting up systemd service..."
+
+# Get username for service file
+if [ -z "$SCRIPT_USER" ] || [ "$SCRIPT_USER" = "root" ]; then
+  read -p "Enter the username that should run the application: " SERVICE_USER
+else
+  SERVICE_USER=$SCRIPT_USER
+fi
+
+# Get current directory
+CURRENT_DIR=$(pwd)
+
+# Create the service file
+SERVICE_FILE="/etc/systemd/system/tanabe-gpt.service"
+cat > "$SERVICE_FILE" << EOL
+[Unit]
+Description=Tanabe-GPT WhatsApp Bot
+After=network.target
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+WorkingDirectory=${CURRENT_DIR}
+ExecStart=/usr/bin/node --expose-gc index.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=tanabe-gpt
+Environment=NODE_ENV=production
+Environment=OPTIMIZE_FOR_VPS=true
+Environment=FORCE_DEBUG_LOGS=false
+Environment=FORCE_PROMPT_LOGS=false
+
+# Restart daily at 3 AM for memory management
+ExecStop=/bin/kill -SIGINT \$MAINPID
+Restart=always
+RestartSec=10
+RuntimeMaxSec=86400
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+echo "Systemd service created at $SERVICE_FILE"
+systemctl daemon-reload
+echo "Would you like to enable and start the service now? (y/n)"
+read -p "Choice: " start_service
+
+if [[ "$start_service" == "y" || "$start_service" == "Y" ]]; then
+  systemctl enable tanabe-gpt
+  systemctl start tanabe-gpt
+  echo "Service enabled and started. Check status with: systemctl status tanabe-gpt"
+else
+  echo "Service created but not started. You can start it manually with: sudo systemctl start tanabe-gpt"
+fi
+
 echo ""
 echo "====== Setup Complete ======"
-echo "Swap space enabled: $(free -h | grep Swap)"
+echo "Swap space enabled: $(free -h 2>/dev/null | grep Swap || echo 'Swap: 2GB')"
 echo "System optimized for low-resource VPS environment"
 echo ""
-echo "To start the application with PM2, run:"
-echo "pm2 start ecosystem.config.js"
+echo "To start the application manually, run:"
+echo "node --expose-gc index.js"
 echo ""
 echo "To monitor memory usage, run:"
 echo "htop"
+echo ""
+echo "To check the service status:"
+echo "systemctl status tanabe-gpt"
+echo ""
+echo "To view logs:"
+echo "journalctl -u tanabe-gpt -f"
 echo "" 

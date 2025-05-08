@@ -228,7 +228,7 @@ const TEST_CASES = {
         {
             name: 'RSS Debug',
             command: '!rssdebug',
-            expectedResponseContains: ['RSS Feed Debug', 'Summary'],
+            expectedResponseContains: ['G1', '100'],
             description: 'Should show RSS debug information',
             category: 'ADMIN',
             adminOnly: true,

@@ -87,12 +87,6 @@ async function handleDebugPeriodic(message) {
     }
 
     try {
-        const nextSummary = getNextSummaryInfo();
-        if (!nextSummary) {
-            await message.reply('No groups configured for periodic summaries.');
-            return;
-        }
-
         // Get all configured groups
         const groups = Object.keys(config.PERIODIC_SUMMARY?.groups || {});
         if (groups.length === 0) {
@@ -109,7 +103,8 @@ async function handleDebugPeriodic(message) {
             notFound: [],
         };
 
-        // Store next scheduled time info
+        // Get next scheduled summary info for display purposes only
+        const nextSummary = getNextSummaryInfo();
         if (nextSummary) {
             results.nextScheduled = {
                 group: nextSummary.group,
