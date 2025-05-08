@@ -6,7 +6,8 @@
     "scripts": {
         "start": "NODE_ENV=production OPTIMIZE_FOR_VPS=true node --expose-gc index.js",
         "dev": "cross-env FORCE_DEBUG_LOGS=true FORCE_PROMPT_LOGS=true nodemon --ignore 'wwebjs/' --ignore 'prompts/' --ignore 'history/' index.js",
-        "test": "node test/testMenu.js"
+        "test": "node test/testMenu.js",
+        "setup": "npm install --no-audit && node scripts/setup.js"
     },
     "keywords": [],
     "author": "",
