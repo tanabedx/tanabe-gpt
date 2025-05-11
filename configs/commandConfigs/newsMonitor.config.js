@@ -42,7 +42,7 @@ const NEWS_MONITOR_CONFIG = {
 
     // RSS-specific configuration
     RSS_ENABLED: true, // Toggle for RSS source
-    RSS_CHECK_INTERVAL: 86400000,//3600000, // 1 hour in milliseconds (batch processing window)
+    RSS_CHECK_INTERVAL: 3600000, // 1 hour in milliseconds (batch processing window)
     TWO_STAGE_EVALUATION: true, // Enable two-stage evaluation to optimize token usage
     FEEDS: [
         {
