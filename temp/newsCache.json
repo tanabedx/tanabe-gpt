@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "type": "article",
+      "id": "https://example.com/article1",
+      "content": "Global summit reaches historic climate agreement with binding targets",
+      "timestamp": 1746785823716,
+      "feedId": "g1",
+      "justification": "Global climate agreement with major impact"
+    },
+    {
+      "type": "tweet",
+      "id": "mock_tweet_1",
+      "content": "Breaking: Major earthquake hits Pacific region with tsunami warnings issued for coastal areas. Authorities advising immediate evacuation.",
+      "timestamp": 1746742623715,
+      "username": "BreakingNews",
+      "justification": "Disaster with global impact"
+    },
+    {
+      "type": "article",
+      "id": "https://example.com/article2",
+      "content": "Brazilian Congress approves landmark education reform bill",
+      "timestamp": 1746699423716,
+      "feedId": "g1",
+      "justification": "National policy with wide impact"
+    }
+  ]
+}

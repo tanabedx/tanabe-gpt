@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const Parser = require('rss-parser');
 const { isLocalNews, formatTwitterApiUsage } = require('../utils/newsUtils');
 const { MessageMedia } = require('whatsapp-web.js');
+const persistentCache = require('../utils/persistentCache');
 
 // Initialize RSS parser
 const parser = new Parser({
@@ -112,22 +113,35 @@ function cleanupSentArticleCache() {
  * Record a tweet as sent to the group
  * @param {Object} tweet - The tweet that was sent
  * @param {string} username - The Twitter username
+ * @param {string} justification - Why this tweet was relevant
  */
-function recordSentTweet(tweet, username, justification = null) {
-    if (!config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
-        return;
+function recordSentTweet(tweet, username, justification) {
+    try {
+        if (!tweet || !tweet.id) {
+            logger.warn('Invalid tweet object provided to recordSentTweet');
+            return;
+        }
+
+        sentTweetCache.set(tweet.id, {
+            text: tweet.text,
+            timestamp: Date.now(),
+            username,
+        });
+
+        sentTweetIds.add(tweet.id);
+
+        logger.debug(
+            `Recorded tweet ${tweet.id} from ${username} as sent (cache size: ${sentTweetCache.size})`
+        );
+
+        // Also save to persistent cache if enabled
+        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+            persistentCache.cacheTweet(tweet, username, justification);
+            logger.debug(`Added tweet ${tweet.id} to persistent cache`);
+        }
+    } catch (error) {
+        logger.error('Error recording sent tweet:', error);
     }
-
-    sentTweetCache.set(tweet.id, {
-        text: tweet.text,
-        timestamp: Date.now(),
-        username: username,
-        justification: justification,
-    });
-
-    // Cleanup old entries if needed
-    cleanupSentCache();
-    logger.debug(`Recorded sent tweet from @${username}`);
 }
 
 /**
@@ -202,20 +216,33 @@ function calculateTitleSimilarity(title1, title2) {
  * @param {Object} article - The article that was sent
  */
 function recordSentArticle(article) {
-    if (!config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
-        return;
+    try {
+        if (!article || !article.link) {
+            logger.warn('Invalid article object provided to recordSentArticle');
+            return;
+        }
+
+        sentArticleCache.set(article.link, {
+            title: article.title,
+            timestamp: Date.now(),
+        });
+
+        sentArticleUrls.add(article.link);
+
+        logger.debug(
+            `Recorded article ${article.link} as sent (cache size: ${sentArticleCache.size})`
+        );
+
+        // Also save to persistent cache if enabled
+        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+            persistentCache.cacheArticle(article);
+            logger.debug(
+                `Added article to persistent cache: ${article.title?.substring(0, 30)}...`
+            );
+        }
+    } catch (error) {
+        logger.error('Error recording sent article:', error);
     }
-
-    sentArticleCache.set(article.link, {
-        title: article.title,
-        timestamp: Date.now(),
-        feedId: article.feedId || 'unknown',
-        justification: article.relevanceJustification || null,
-    });
-
-    // Cleanup old entries if needed
-    cleanupSentArticleCache();
-    logger.debug(`Recorded sent article: "${article.title}"`);
 }
 
 /**
@@ -539,50 +566,84 @@ async function evaluateContent(
 ) {
     let formattedPreviousContents = [];
 
-    if (source === 'twitter' || source === 'twitter-media') {
-        // Start with the provided previous tweets (from the API)
-        formattedPreviousContents = [...previousContents];
+    // Start with the provided previous contents (from the API)
+    formattedPreviousContents = [...previousContents];
 
-        // If cache is enabled, add previously sent tweets too
-        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
-            // Get up to 5 most recent tweets from sentTweetCache
-            const recentTweets = Array.from(sentTweetCache.entries())
-                .sort((a, b) => b[1].timestamp - a[1].timestamp)
-                .slice(0, 5);
+    // If cache is enabled, add previously sent content too
+    if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+        try {
+            // Get content history from persistent cache
+            const persistentCacheContent = persistentCache.getRecentContentForPrompt(10);
 
-            if (recentTweets.length > 0) {
-                // Add a marker to separate API tweets from cached tweets
+            logger.debug(
+                `Retrieved persistent cache content for prompt context: ${
+                    persistentCacheContent ? 'Yes' : 'No'
+                }`
+            );
+
+            if (persistentCacheContent && persistentCacheContent.trim() !== '') {
+                // Add a marker to separate API content from cached content
                 if (formattedPreviousContents.length > 0) {
-                    formattedPreviousContents.push('--- TWEETS PREVIOUSLY SENT TO GROUP ---');
+                    formattedPreviousContents.push('--- PREVIOUSLY SENT CONTENT ---');
                 }
 
-                // Add the cached tweets
-                for (const [_, data] of recentTweets) {
-                    formattedPreviousContents.push(data.text);
+                // Add the content from persistent cache
+                formattedPreviousContents.push(persistentCacheContent);
+
+                logger.debug('Using persistent cache for context in evaluation');
+            } else {
+                // Fall back to in-memory cache if persistent cache fails or is empty
+                // Log the issue
+                logger.debug(
+                    'Persistent cache returned empty content, falling back to in-memory cache'
+                );
+
+                // This code is for backward compatibility
+                if (source === 'twitter' || source === 'twitter-media') {
+                    // Get up to 5 most recent tweets from sentTweetCache
+                    const recentTweets = Array.from(sentTweetCache.entries())
+                        .sort((a, b) => b[1].timestamp - a[1].timestamp)
+                        .slice(0, 5);
+
+                    if (recentTweets.length > 0) {
+                        // Add a marker to separate API tweets from cached tweets
+                        if (formattedPreviousContents.length > 0) {
+                            formattedPreviousContents.push(
+                                '--- TWEETS PREVIOUSLY SENT TO GROUP ---'
+                            );
+                        }
+
+                        // Add the cached tweets
+                        for (const [_, data] of recentTweets) {
+                            formattedPreviousContents.push(data.text);
+                        }
+
+                        logger.debug(
+                            `Using ${recentTweets.length} previously sent tweets as additional context`
+                        );
+                    }
+                } else if (source === 'rss') {
+                    // Get up to 5 most recent articles from sentArticleCache
+                    const recentEntries = Array.from(sentArticleCache.entries())
+                        .sort((a, b) => b[1].timestamp - a[1].timestamp)
+                        .slice(0, 5);
+
+                    if (recentEntries.length > 0) {
+                        // Format the recent entries for the prompt
+                        const articleContexts = recentEntries.map(
+                            ([_, data]) => `Título: ${data.title}`
+                        );
+                        formattedPreviousContents =
+                            formattedPreviousContents.concat(articleContexts);
+                        logger.debug(
+                            `Using ${recentEntries.length} recently sent articles as context for evaluation`
+                        );
+                    }
                 }
-
-                logger.debug(
-                    `Using ${recentTweets.length} previously sent tweets as additional context`
-                );
             }
-        }
-    } else if (source === 'rss') {
-        // For RSS articles, if cache is enabled, use sentArticleCache
-        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
-            // Get up to 5 most recent articles from sentArticleCache
-            const recentEntries = Array.from(sentArticleCache.entries())
-                .sort((a, b) => b[1].timestamp - a[1].timestamp)
-                .slice(0, 5);
-
-            if (recentEntries.length > 0) {
-                // Format the recent entries for the prompt
-                formattedPreviousContents = recentEntries.map(
-                    ([_, data]) => `Título: ${data.title}`
-                );
-                logger.debug(
-                    `Using ${recentEntries.length} recently sent articles as context for evaluation`
-                );
-            }
+        } catch (error) {
+            logger.error('Error accessing persistent cache:', error);
+            // Continue without the cache content if there's an error
         }
     }
 
@@ -591,6 +652,11 @@ async function evaluateContent(
         source === 'twitter' || source === 'twitter-media'
             ? formattedPreviousContents.join('\n\n')
             : formattedPreviousContents.join('\n\n---\n\n');
+
+    // Log the formatted previous content for debugging
+    logger.debug(
+        `Previous content for ${source} evaluation has ${formattedPreviousContents.length} entries`
+    );
 
     // Add username information to the content for better context
     const contentWithSource = username ? `Tweet from @${username}:\n${content}` : content;
@@ -613,9 +679,6 @@ async function evaluateContent(
             contentWithSource
         ).replace('{previous_articles}', previousContent);
     }
-
-    // Now prompts include justification by default, so we don't need to modify them
-    // Remove the previous modifications since prompts already include justification format
 
     // Get the OpenAI response
     const result = await runCompletion(prompt, 0.3);
@@ -1213,6 +1276,12 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                     } accounts`
                                 );
 
+                                // One hour ago timestamp for filtering old tweets
+                                const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+                                logger.debug(
+                                    `Filtering tweets older than ${oneHourAgo.toISOString()}`
+                                );
+
                                 // Process tweets for each account
                                 for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
                                     try {
@@ -1230,6 +1299,17 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
 
                                         // Skip if we've already processed this tweet
                                         if (latestTweet.id === account.lastTweetId) continue;
+
+                                        // Skip if tweet is older than 1 hour
+                                        const tweetDate = new Date(latestTweet.created_at);
+                                        if (tweetDate < oneHourAgo) {
+                                            logger.debug(
+                                                `Skipping tweet from @${account.username} (${
+                                                    latestTweet.id
+                                                }) - older than 1 hour: ${tweetDate.toISOString()}`
+                                            );
+                                            continue;
+                                        }
 
                                         // Special handling for media tweets
                                         if (account.mediaOnly) {
@@ -1316,7 +1396,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                 const justification =
                                                                     'Texto extraído da imagem e formatado.';
                                                                 logger.info(
-                                                                    `Sent processed image text from SITREP_artorias (@${account.username}): "${latestTweet.id}" - ${justification}`
+                                                                    `Sent processed image text from SITREP_artorias (@${account.username}): "${latestTweet.id}" - Justificação: ${justification}`
                                                                 );
                                                                 recordSentTweet(
                                                                     latestTweet,
@@ -1450,7 +1530,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                     latestTweet.text?.length > 80
                                                                         ? '...'
                                                                         : ''
-                                                                }" - ${justification}`
+                                                                }" - Justificação: ${justification}`
                                                             );
                                                             recordSentTweet(
                                                                 latestTweet,
@@ -1583,7 +1663,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                         latestTweet.text.length > 80
                                                                             ? '...'
                                                                             : ''
-                                                                    }" - ${justification}`
+                                                                    }" - Justificação: ${justification}`
                                                                 );
                                                             } catch (mediaError) {
                                                                 logger.error(
@@ -1614,7 +1694,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                         latestTweet.text.length > 80
                                                                             ? '...'
                                                                             : ''
-                                                                    }" - ${justification}`
+                                                                    }" - Justificação: ${justification}`
                                                                 );
                                                             }
                                                         } else {
@@ -1638,7 +1718,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                     latestTweet.text.length > 80
                                                                         ? '...'
                                                                         : ''
-                                                                }" - ${justification}`
+                                                                }" - Justificação: ${justification}`
                                                             );
                                                         }
                                                     } else {
@@ -1662,7 +1742,7 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                                 latestTweet.text.length > 80
                                                                     ? '...'
                                                                     : ''
-                                                            }" - ${justification}`
+                                                            }" - Justificação: ${justification}`
                                                         );
                                                     }
 
@@ -1775,6 +1855,10 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                                 articleContent
                                             );
 
+                                            // Get justification
+                                            const justification =
+                                                article.relevanceJustification || 'Relevante';
+
                                             // Format message
                                             const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name}\n${article.link}`;
 
@@ -1785,15 +1869,14 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
                                             recordSentArticle(article);
                                             articlesSent++;
 
-                                            // Log that we sent an article with brief justification
+                                            // Log that we sent an article with title and justification
                                             logger.info(
-                                                `Sent article from ${
-                                                    feed.name
-                                                }: "${article.title.substring(0, 80)}${
+                                                `ARTICLE SENT TO GROUP: "${article.title.substring(
+                                                    0,
+                                                    80
+                                                )}${
                                                     article.title.length > 80 ? '...' : ''
-                                                }" - ${
-                                                    article.relevanceJustification || 'Relevante'
-                                                }`
+                                                }" - Justificativa: ${justification}`
                                             );
                                         } catch (error) {
                                             logger.error(
@@ -1986,6 +2069,12 @@ async function initializeNewsMonitor() {
                                     } accounts`
                                 );
 
+                                // One hour ago timestamp for filtering old tweets
+                                const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+                                logger.debug(
+                                    `Filtering tweets older than ${oneHourAgo.toISOString()}`
+                                );
+
                                 // Process tweets for each account
                                 for (const account of config.NEWS_MONITOR.TWITTER_ACCOUNTS) {
                                     try {
@@ -2003,6 +2092,17 @@ async function initializeNewsMonitor() {
 
                                         // Skip if we've already processed this tweet
                                         if (latestTweet.id === account.lastTweetId) continue;
+
+                                        // Skip if tweet is older than 1 hour
+                                        const tweetDate = new Date(latestTweet.created_at);
+                                        if (tweetDate < oneHourAgo) {
+                                            logger.debug(
+                                                `Skipping tweet from @${account.username} (${
+                                                    latestTweet.id
+                                                }) - older than 1 hour: ${tweetDate.toISOString()}`
+                                            );
+                                            continue;
+                                        }
 
                                         // Special handling for media tweets
                                         if (account.mediaOnly) {
@@ -2089,7 +2189,7 @@ async function initializeNewsMonitor() {
                                                                 const justification =
                                                                     'Texto extraído da imagem e formatado.';
                                                                 logger.info(
-                                                                    `Sent processed image text from SITREP_artorias (@${account.username}): "${latestTweet.id}" - ${justification}`
+                                                                    `Sent processed image text from SITREP_artorias (@${account.username}): "${latestTweet.id}" - Justificação: ${justification}`
                                                                 );
                                                                 recordSentTweet(
                                                                     latestTweet,
@@ -2223,7 +2323,7 @@ async function initializeNewsMonitor() {
                                                                     latestTweet.text?.length > 80
                                                                         ? '...'
                                                                         : ''
-                                                                }" - ${justification}`
+                                                                }" - Justificação: ${justification}`
                                                             );
                                                             recordSentTweet(
                                                                 latestTweet,
@@ -2356,7 +2456,7 @@ async function initializeNewsMonitor() {
                                                                         latestTweet.text.length > 80
                                                                             ? '...'
                                                                             : ''
-                                                                    }" - ${justification}`
+                                                                    }" - Justificação: ${justification}`
                                                                 );
                                                             } catch (mediaError) {
                                                                 logger.error(
@@ -2387,7 +2487,7 @@ async function initializeNewsMonitor() {
                                                                         latestTweet.text.length > 80
                                                                             ? '...'
                                                                             : ''
-                                                                    }" - ${justification}`
+                                                                    }" - Justificação: ${justification}`
                                                                 );
                                                             }
                                                         } else {
@@ -2411,7 +2511,7 @@ async function initializeNewsMonitor() {
                                                                     latestTweet.text.length > 80
                                                                         ? '...'
                                                                         : ''
-                                                                }" - ${justification}`
+                                                                }" - Justificação: ${justification}`
                                                             );
                                                         }
                                                     } else {
@@ -2435,7 +2535,7 @@ async function initializeNewsMonitor() {
                                                                 latestTweet.text.length > 80
                                                                     ? '...'
                                                                     : ''
-                                                            }" - ${justification}`
+                                                            }" - Justificação: ${justification}`
                                                         );
                                                     }
 
@@ -2604,6 +2704,10 @@ async function initializeNewsMonitor() {
                                             articleContent
                                         );
 
+                                        // Get justification
+                                        const justification =
+                                            article.relevanceJustification || 'Relevante';
+
                                         // Format message
                                         const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\nFonte: ${feed.name}\n${article.link}`;
 
@@ -2614,13 +2718,14 @@ async function initializeNewsMonitor() {
                                         recordSentArticle(article);
                                         articlesSent++;
 
-                                        // Log that we sent an article with brief justification
+                                        // Log that we sent an article with title and justification
                                         logger.info(
-                                            `Sent article from ${
-                                                feed.name
-                                            }: "${article.title.substring(0, 80)}${
+                                            `ARTICLE SENT TO GROUP: "${article.title.substring(
+                                                0,
+                                                80
+                                            )}${
                                                 article.title.length > 80 ? '...' : ''
-                                            }" - ${article.relevanceJustification || 'Relevante'}`
+                                            }" - Justificativa: ${justification}`
                                         );
                                     } catch (error) {
                                         logger.error(
@@ -3260,6 +3365,7 @@ async function debugRssFunctionality(message) {
             return;
         }
 
+        // Get the first feed for debugging
         const feed = config.NEWS_MONITOR.FEEDS[0];
 
         // Stats tracking for each step
@@ -3267,7 +3373,7 @@ async function debugRssFunctionality(message) {
             feedName: feed.name,
             fetchedCount: 0,
             lastIntervalCount: 0,
-            localExcludedCount: 0,
+            notWhitelistedCount: 0,
             patternExcludedCount: 0,
             historicalExcludedCount: 0,
             duplicatesExcludedCount: 0,
@@ -3276,41 +3382,31 @@ async function debugRssFunctionality(message) {
             relevantCount: 0,
         };
 
-        // Process the feed with stats collection
-        logger.debug(`Fetching RSS feed: ${feed.name} (${feed.url})`);
-
-        // Initialize variables to prevent undefined errors
-        let allArticles = [];
-        let articlesFromLastCheckInterval = [];
-        let nonLocalArticles = [];
-        let localArticles = [];
-        let filteredByTitleArticles = [];
-        let excludedByTitleArticles = [];
-        let notRecentlySentArticles = [];
-        let recentlySentArticles = [];
-        let dedupedArticles = [];
-        let relevantArticles = [];
-        let irrelevantArticles = [];
-        let finalRelevantArticles = [];
-        let notRelevantFullContent = [];
-        let formattedExamples = [];
-
         try {
+            // STEP 1: Fetch articles
+            // Temporarily reduce logging level for URL paths
+            const originalLogLevel = logger.level;
+
+            // Safely check logger levels with proper null checks
+            if (
+                logger.levels &&
+                logger.level &&
+                typeof logger.levels[logger.level] !== 'undefined' &&
+                typeof logger.levels.DEBUG !== 'undefined' &&
+                logger.levels[logger.level] <= logger.levels.DEBUG
+            ) {
+                logger.level = 'info';
+            }
+
+            logger.debug(`Fetching RSS feed: ${feed.name} (${feed.url})`);
             const feedData = await parser.parseURL(feed.url);
-            allArticles = feedData.items || [];
+            let allArticles = feedData.items || [];
             stats.fetchedCount = allArticles.length;
 
             // Log immediately after fetching
             logger.debug(`Retrieved ${allArticles.length} items from feed: ${feed.name}`);
-        } catch (error) {
-            logger.error(`Error fetching RSS feed ${feed.name}:`, error);
-            stats.fetchedCount = 0;
-        }
 
-        // Continue only if we have articles
-        if (allArticles.length > 0) {
-            // STEP 2: Filter by time - purely synchronous operation
-            // Sort by date first (newest first)
+            // STEP 2: Filter by time
             allArticles.sort(
                 (a, b) => new Date(b.pubDate || b.isoDate) - new Date(a.pubDate || a.isoDate)
             );
@@ -3318,15 +3414,11 @@ async function debugRssFunctionality(message) {
             const intervalMs = config.NEWS_MONITOR.RSS_CHECK_INTERVAL;
             const cutoffTime = new Date(Date.now() - intervalMs);
 
-            // Create arrays for articles that pass and fail the time filter
-            articlesFromLastCheckInterval = [];
-            const olderArticles = [];
+            let articlesFromLastCheckInterval = [];
 
-            // Process each article for time filtering
             for (const article of allArticles) {
                 const pubDate = article.pubDate || article.isoDate;
 
-                // Default to including if no date
                 if (!pubDate) {
                     articlesFromLastCheckInterval.push(article);
                     continue;
@@ -3334,127 +3426,109 @@ async function debugRssFunctionality(message) {
 
                 const articleDate = new Date(pubDate);
 
-                // Include if date is invalid, in future, or newer than cutoff
                 if (isNaN(articleDate) || articleDate > new Date() || articleDate >= cutoffTime) {
                     articlesFromLastCheckInterval.push(article);
-                } else {
-                    olderArticles.push(article);
                 }
             }
 
-            // Update stats
+            // Set the lastIntervalCount stat and log time filter results
             stats.lastIntervalCount = articlesFromLastCheckInterval.length;
-
-            // Log time filter results
             logger.debug(
                 `Found ${articlesFromLastCheckInterval.length} articles from the last ${
                     intervalMs / 60000
                 } minutes`
             );
-        }
 
-        // Continue processing if we have articles from the check interval
-        if (articlesFromLastCheckInterval.length > 0) {
-            // STEP 3: Filter local news
-            nonLocalArticles = [];
-            localArticles = [];
+            // STEP 3: Filter by whitelist paths
+            let whitelistedArticles = [];
+            let notWhitelistedArticles = [];
 
-            // Check each article
             for (const article of articlesFromLastCheckInterval) {
                 if (isLocalNews(article.link)) {
-                    localArticles.push(article);
+                    notWhitelistedArticles.push(article);
                 } else {
-                    nonLocalArticles.push(article);
+                    whitelistedArticles.push(article);
                 }
             }
 
-            // Update stats
-            stats.localExcludedCount = localArticles.length;
+            stats.notWhitelistedCount = notWhitelistedArticles.length;
 
-            // Format excluded titles for logging - now showing truncated titles (90 chars)
-            const localTitles = localArticles
-                .map(
-                    article =>
-                        `"${
-                            article.title?.substring(0, 90) +
-                            (article.title?.length > 90 ? '...' : '')
-                        }"`
-                )
-                .join('\n');
+            // Consolidated logging of excluded titles (always log filter activation)
+            if (notWhitelistedArticles.length > 0) {
+                const excludedTitles = notWhitelistedArticles
+                    .map((article, index) => {
+                        const truncatedTitle = article.title
+                            ? article.title.length > 90
+                                ? article.title.substring(0, 90) + '...'
+                                : article.title
+                            : '[No title]';
+                        return `  ${index + 1}. "${truncatedTitle}" - Path not in whitelist`;
+                    })
+                    .join('\n');
 
-            // Log filtered local news results
-            if (localArticles.length > 0) {
-                // Log the count message with titles
                 logger.debug(
-                    `Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total\n${localTitles}`
+                    `Articles excluded by whitelist filter (${notWhitelistedArticles.length}):\n${excludedTitles}`
                 );
             } else {
                 logger.debug(
-                    `Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total`
+                    `Whitelist filter: No articles excluded (0/${articlesFromLastCheckInterval.length})`
                 );
             }
-        }
 
-        // Continue processing if we have non-local articles
-        if (nonLocalArticles.length > 0) {
             // STEP 4: Filter articles with low-quality title patterns
             const titlePatterns = config.NEWS_MONITOR.CONTENT_FILTERING.TITLE_PATTERNS || [];
-            filteredByTitleArticles = [];
-            excludedByTitleArticles = [];
+            let filteredByTitleArticles = [];
+            let excludedByTitleArticles = [];
 
-            // Check each article against title patterns
-            for (const article of nonLocalArticles) {
-                // Check if the title matches any of the patterns to filter
-                const matchesPattern = titlePatterns.some(
+            for (const article of whitelistedArticles) {
+                const matchingPattern = titlePatterns.find(
                     pattern => article.title && article.title.includes(pattern)
                 );
 
-                if (matchesPattern) {
-                    excludedByTitleArticles.push(article);
+                if (matchingPattern) {
+                    excludedByTitleArticles.push({
+                        article,
+                        pattern: matchingPattern,
+                    });
                 } else {
                     filteredByTitleArticles.push(article);
                 }
             }
 
-            // Update stats
             stats.patternExcludedCount = excludedByTitleArticles.length;
 
-            // Format excluded titles for logging - now showing truncated titles (90 chars)
-            const excludedTitlePatterns = excludedByTitleArticles
-                .map(
-                    article =>
-                        `"${
-                            article.title?.substring(0, 90) +
-                            (article.title?.length > 90 ? '...' : '')
-                        }"`
-                )
-                .join('\n');
-
-            // Log filtered title pattern results
+            // Consolidated logging of excluded titles by pattern (always log filter activation)
             if (excludedByTitleArticles.length > 0) {
-                // Log the count message with titles
+                const excludedTitles = excludedByTitleArticles
+                    .map((item, index) => {
+                        const truncatedTitle = item.article.title
+                            ? item.article.title.length > 90
+                                ? item.article.title.substring(0, 90) + '...'
+                                : item.article.title
+                            : '[No title]';
+                        return `  ${index + 1}. "${truncatedTitle}" - Matched pattern: "${
+                            item.pattern
+                        }"`;
+                    })
+                    .join('\n');
+
                 logger.debug(
-                    `Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total\n${excludedTitlePatterns}`
+                    `Articles excluded by title pattern filter (${excludedByTitleArticles.length}):\n${excludedTitles}`
                 );
             } else {
                 logger.debug(
-                    `Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total`
+                    `Title pattern filter: No articles excluded (0/${whitelistedArticles.length})`
                 );
             }
-        }
 
-        // Continue processing if articles passed title filtering
-        if (filteredByTitleArticles.length > 0) {
             // STEP 5: Filter out articles similar to ones recently sent
-            notRecentlySentArticles = [];
-            recentlySentArticles = [];
-
-            // Add feed ID to each article for caching purposes
             filteredByTitleArticles.forEach(article => {
                 article.feedId = feed.id;
             });
 
-            // Filter out articles that are similar to ones sent in the last 24h
+            let notRecentlySentArticles = [];
+            let recentlySentArticles = [];
+
             for (const article of filteredByTitleArticles) {
                 if (isArticleSentRecently(article)) {
                     recentlySentArticles.push(article);
@@ -3463,77 +3537,69 @@ async function debugRssFunctionality(message) {
                 }
             }
 
-            // Update stats
             stats.historicalExcludedCount = recentlySentArticles.length;
 
-            // Format recently sent article titles for logging - showing truncated titles (90 chars)
-            const recentlySentTitles = recentlySentArticles
-                .map(
-                    article =>
-                        `"${
-                            article.title?.substring(0, 90) +
-                            (article.title?.length > 90 ? '...' : '')
-                        }"`
-                )
-                .join('\n');
-
-            // Log recently sent filter results
+            // Consolidated logging of excluded already-sent articles (always log filter activation)
             if (recentlySentArticles.length > 0) {
-                // Log the count message with titles
+                const excludedTitles = recentlySentArticles
+                    .map((article, index) => {
+                        const truncatedTitle = article.title
+                            ? article.title.length > 90
+                                ? article.title.substring(0, 90) + '...'
+                                : article.title
+                            : '[No title]';
+                        return `  ${
+                            index + 1
+                        }. "${truncatedTitle}" - Similar to recently sent article`;
+                    })
+                    .join('\n');
+
                 logger.debug(
-                    `Filtered ${recentlySentArticles.length} articles similar to recently sent ones\n${recentlySentTitles}`
+                    `Articles excluded because similar were recently sent (${recentlySentArticles.length}):\n${excludedTitles}`
                 );
             } else {
                 logger.debug(
-                    `Filtered ${recentlySentArticles.length} articles similar to recently sent ones`
+                    `Historical cache filter: No articles excluded (0/${filteredByTitleArticles.length})`
                 );
             }
-        }
 
-        // Continue processing the remaining articles
-        if (notRecentlySentArticles.length > 0) {
             // STEP 5.5: Filter similar articles within the current batch
             const sortedByDateArticles = [...notRecentlySentArticles].sort((a, b) => {
                 const dateA = new Date(a.pubDate || a.isoDate || 0);
                 const dateB = new Date(b.pubDate || b.isoDate || 0);
-                return dateA - dateB; // Oldest first
+                return dateA - dateB;
             });
 
-            dedupedArticles = [];
             const duplicateGroups = []; // For tracking which articles were kept vs removed
             const processedTitles = new Map();
             const similarityThreshold =
                 config.NEWS_MONITOR?.HISTORICAL_CACHE?.BATCH_SIMILARITY_THRESHOLD || 0.65;
 
-            // Process each article for de-duplication
+            let dedupedArticles = [];
+            let allDuplicateInfo = []; // Collect all duplicate info for a single log
+
             for (const article of sortedByDateArticles) {
                 const articleTitle = article.title?.toLowerCase() || '';
                 if (!articleTitle) {
-                    // Include articles with no title (should be rare)
                     dedupedArticles.push(article);
                     continue;
                 }
 
-                // Check if similar to any already processed article
                 let isDuplicate = false;
                 let groupIndex = -1;
+                let maxSimilarity = 0;
+                let mostSimilarTitle = '';
 
                 for (const [processedTitle, info] of processedTitles.entries()) {
                     const similarity = calculateTitleSimilarity(articleTitle, processedTitle);
-                    if (similarity >= similarityThreshold) {
+                    if (similarity >= similarityThreshold && similarity > maxSimilarity) {
                         isDuplicate = true;
                         groupIndex = info.groupIndex;
-                        // Add to existing duplicate group for logging
-                        duplicateGroups[groupIndex].duplicates.push({
-                            title: article.title,
-                            date: article.pubDate || article.isoDate,
-                            similarity: similarity,
-                        });
-                        break;
+                        maxSimilarity = similarity;
+                        mostSimilarTitle = processedTitle;
                     }
                 }
 
-                // If not a duplicate, add to deduped list and track the title
                 if (!isDuplicate) {
                     dedupedArticles.push(article);
                     // Create a new group for this article
@@ -3549,154 +3615,117 @@ async function debugRssFunctionality(message) {
                         groupIndex,
                         article,
                     });
-                }
-            }
-
-            // Count duplicates removed
-            const duplicateCount = duplicateGroups.reduce(
-                (count, group) => count + group.duplicates.length,
-                0
-            );
-            stats.duplicatesExcludedCount = duplicateCount;
-
-            // Log duplicate filtering results
-            const groupsWithDuplicates = duplicateGroups.filter(
-                group => group.duplicates.length > 0
-            );
-
-            if (groupsWithDuplicates.length > 0) {
-                let duplicateLog = `Found and removed ${duplicateCount} duplicate articles in current batch:\n`;
-
-                groupsWithDuplicates.forEach((group, index) => {
-                    const keptDate = new Date(group.kept.date);
-                    const formattedKeptDate = isNaN(keptDate)
-                        ? 'Unknown date'
-                        : keptDate.toISOString().replace('T', ' ').substring(0, 19);
-
-                    const keptTitle =
-                        group.kept.title?.substring(0, 90) +
-                        (group.kept.title?.length > 90 ? '...' : '');
-                    duplicateLog += `KEPT: "${keptTitle}" (${formattedKeptDate})\nDUPLICATES:\n`;
-
-                    const sortedDuplicates = [...group.duplicates].sort(
-                        (a, b) => b.similarity - a.similarity
-                    );
-
-                    sortedDuplicates.forEach(dup => {
-                        const dupDate = new Date(dup.date);
-                        const formattedDupDate = isNaN(dupDate)
-                            ? 'Unknown date'
-                            : dupDate.toISOString().replace('T', ' ').substring(0, 19);
-
-                        // Truncate title to 90 chars for logging
-                        const dupTitle =
-                            dup.title?.substring(0, 90) + (dup.title?.length > 90 ? '...' : '');
-                        duplicateLog += `"${dupTitle}" (${formattedDupDate}) - similarity: ${dup.similarity.toFixed(
-                            2
-                        )}\n`;
+                } else {
+                    // Add to existing duplicate group for logging
+                    duplicateGroups[groupIndex].duplicates.push({
+                        title: article.title,
+                        date: article.pubDate || article.isoDate,
+                        similarity: maxSimilarity,
                     });
 
-                    // Add double line break between groups, except after the last group
-                    if (index < groupsWithDuplicates.length - 1) {
-                        duplicateLog += `\n\n`;
-                    }
-                });
+                    // Collect info for consolidated log
+                    const truncatedTitle =
+                        article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '');
+                    const truncatedMatchTitle = mostSimilarTitle?.substring(0, 50) + '...';
+                    allDuplicateInfo.push(
+                        `  ${
+                            allDuplicateInfo.length + 1
+                        }. "${truncatedTitle}" - ${maxSimilarity.toFixed(
+                            2
+                        )} similarity with "${truncatedMatchTitle}"`
+                    );
+                }
+            }
 
-                logger.debug(duplicateLog);
+            // After deduplication is complete, log all duplicates at once (always log filter activation)
+            if (allDuplicateInfo.length > 0) {
+                logger.debug(
+                    `Articles excluded as duplicates (${
+                        allDuplicateInfo.length
+                    }):\n${allDuplicateInfo.join('\n')}`
+                );
             } else {
-                logger.debug(`No duplicate articles found in current batch`);
+                logger.debug(
+                    `Duplicate detection filter: No duplicates found (0/${sortedByDateArticles.length})`
+                );
             }
-        }
 
-        // Continue with preliminary relevance assessment if we have deduped articles
-        if (dedupedArticles.length > 0) {
+            stats.duplicatesExcludedCount = sortedByDateArticles.length - dedupedArticles.length;
+
             // STEP 7: Preliminary relevance assessment
-            const fullTitles = dedupedArticles.map(article => article.title);
+            let relevantArticles = [];
+            let irrelevantArticles = [];
 
-            try {
-                // Perform the batch evaluation
-                const titleRelevanceResults = await batchEvaluateArticleTitles(fullTitles);
+            if (dedupedArticles.length > 0) {
+                const fullTitles = dedupedArticles.map(article => article.title);
 
-                // Find articles with relevant titles
-                relevantArticles = [];
-                irrelevantArticles = [];
+                // Restore logging level for OpenAI calls
+                logger.level = originalLogLevel;
 
-                dedupedArticles.forEach((article, index) => {
-                    if (titleRelevanceResults[index]) {
-                        relevantArticles.push(article);
-                    } else {
-                        irrelevantArticles.push(article);
-                    }
-                });
+                try {
+                    const titleRelevanceResults = await batchEvaluateArticleTitles(fullTitles);
 
-                // Update stats
-                stats.preliminaryExcludedCount = irrelevantArticles.length;
-
-                // Log results of preliminary relevance assessment - showing truncated titles (90 chars)
-                if (irrelevantArticles.length > 0) {
-                    const irrelevantTitles = irrelevantArticles
-                        .map(
-                            article =>
-                                `"${
-                                    article.title?.substring(0, 90) +
-                                    (article.title?.length > 90 ? '...' : '')
-                                }"`
-                        )
-                        .join('\n');
-                    logger.debug(
-                        `Filtered out ${irrelevantArticles.length} out of ${dedupedArticles.length} irrelevant titles:\n${irrelevantTitles}`
-                    );
+                    dedupedArticles.forEach((article, index) => {
+                        if (titleRelevanceResults[index]) {
+                            relevantArticles.push(article);
+                        } else {
+                            irrelevantArticles.push(article);
+                        }
+                    });
+                } catch (error) {
+                    logger.error('Error in preliminary relevance assessment:', error);
+                    relevantArticles = dedupedArticles;
+                    irrelevantArticles = [];
                 }
-
-                // Log relevant titles - showing truncated titles (90 chars)
-                if (relevantArticles.length > 0) {
-                    const relevantTitles = relevantArticles
-                        .map(
-                            article =>
-                                `"${
-                                    article.title?.substring(0, 90) +
-                                    (article.title?.length > 90 ? '...' : '')
-                                }"`
-                        )
-                        .join('\n');
-                    logger.debug(
-                        `Found ${relevantArticles.length} articles with relevant titles:\n${relevantTitles}`
-                    );
-                } else {
-                    logger.debug(`No articles were found to have relevant titles.`);
-                }
-            } catch (error) {
-                logger.error('Error in preliminary relevance assessment:', error);
-                // If evaluation fails, keep all articles for full content evaluation
-                relevantArticles = dedupedArticles;
-                stats.preliminaryExcludedCount = 0;
             }
-        }
 
-        // Continue with full content evaluation if we have relevant articles
-        if (relevantArticles && relevantArticles.length > 0) {
-            // STEP 8: Evaluate full content of each article individually
-            finalRelevantArticles = [];
-            notRelevantFullContent = [];
+            stats.preliminaryExcludedCount = irrelevantArticles.length;
 
-            try {
-                // Process each article individually with the EVALUATE_ARTICLE prompt
+            // Consolidated logging of titles excluded by preliminary relevance (always log filter activation)
+            if (irrelevantArticles.length > 0) {
+                const excludedTitles = irrelevantArticles
+                    .map((article, index) => {
+                        const truncatedTitle = article.title
+                            ? article.title.length > 90
+                                ? article.title.substring(0, 90) + '...'
+                                : article.title
+                            : '[No title]';
+                        return `  ${
+                            index + 1
+                        }. "${truncatedTitle}" - Not relevant by title evaluation`;
+                    })
+                    .join('\n');
+
+                logger.debug(
+                    `Articles excluded by preliminary relevance (${irrelevantArticles.length}):\n${excludedTitles}`
+                );
+            } else if (dedupedArticles.length > 0) {
+                logger.debug(
+                    `Preliminary relevance filter: No articles excluded (0/${dedupedArticles.length})`
+                );
+            } else {
+                logger.debug(`Preliminary relevance filter: No articles to evaluate (0/0)`);
+            }
+
+            // STEP 8: Evaluate full content of each article
+            let finalRelevantArticles = [];
+            let notRelevantFullContent = [];
+
+            if (relevantArticles && relevantArticles.length > 0) {
                 for (const article of relevantArticles) {
                     const articleContent = extractArticleContent(article);
 
-                    // We use an empty array for previousArticles since we're evaluating each individually
                     const evalResult = await evaluateContent(
                         `Título: ${article.title}\n\n${articleContent}`,
-                        [], // No previous articles context
+                        [],
                         'rss',
-                        true // Include justification
+                        '',
+                        true
                     );
 
                     if (evalResult.isRelevant) {
-                        // Extract only the key reason from justification (keep it brief)
                         let shortJustification = evalResult.justification;
                         if (shortJustification && shortJustification.length > 40) {
-                            // Try to find common phrases that explain the reason
                             if (shortJustification.includes('notícia global')) {
                                 shortJustification = 'Notícia global crítica';
                             } else if (
@@ -3718,136 +3747,183 @@ async function debugRssFunctionality(message) {
                             } else if (shortJustification.includes('impacto global')) {
                                 shortJustification = 'Grande impacto global';
                             } else {
-                                // If none of the above, truncate to first 40 chars
                                 shortJustification = shortJustification.substring(0, 40) + '...';
                             }
                         }
 
-                        // Store short justification with the article for later use
                         article.relevanceJustification = shortJustification;
                         finalRelevantArticles.push(article);
                     } else {
                         notRelevantFullContent.push({
                             title: article.title,
+                            reason: evalResult.justification || 'Not relevant',
                         });
                     }
                 }
-
-                // Update stats
-                stats.fullContentExcludedCount = notRelevantFullContent.length;
-                stats.relevantCount = finalRelevantArticles.length;
-
-                // Log results of full content evaluation - showing only titles (90 chars)
-                if (notRelevantFullContent.length > 0) {
-                    let irrelevantLog = `Filtered out ${notRelevantFullContent.length} out of ${relevantArticles.length} after content evaluation:\n`;
-
-                    notRelevantFullContent.forEach(item => {
-                        const truncatedTitle =
-                            item.title?.substring(0, 90) + (item.title?.length > 90 ? '...' : '');
-                        irrelevantLog += `"${truncatedTitle}"\n`;
-                    });
-
-                    logger.debug(irrelevantLog);
-                }
-
-                // Log final relevant articles - showing truncated titles (90 chars) with brief justifications
-                if (finalRelevantArticles.length > 0) {
-                    let relevantLog = `Final selection: ${finalRelevantArticles.length} out of ${relevantArticles.length} articles after content evaluation:\n`;
-
-                    finalRelevantArticles.forEach(article => {
-                        const truncatedTitle =
-                            article.title?.substring(0, 90) +
-                            (article.title?.length > 90 ? '...' : '');
-                        relevantLog += `"${truncatedTitle}"\n${
-                            article.relevanceJustification || 'Relevante'
-                        }\n\n`;
-                    });
-
-                    logger.debug(relevantLog);
-                } else {
-                    logger.debug(
-                        `No articles were found to be relevant after full content evaluation.`
-                    );
-                }
-            } catch (error) {
-                logger.error('Error in full content evaluation:', error);
             }
-        }
 
-        // Check the target group
-        if (!targetGroup) {
-            logger.warn(
-                `The target group "${config.NEWS_MONITOR.TARGET_GROUP}" is not found or not accessible. Messages cannot be sent.`
-            );
-        } else {
+            stats.fullContentExcludedCount = notRelevantFullContent.length;
+            stats.relevantCount = finalRelevantArticles.length;
+
+            // Consolidated logging of articles excluded by full content evaluation (always log filter activation)
+            if (notRelevantFullContent.length > 0) {
+                const excludedTitles = notRelevantFullContent
+                    .map((item, index) => {
+                        const truncatedTitle = item.title
+                            ? item.title.length > 90
+                                ? item.title.substring(0, 90) + '...'
+                                : item.title
+                            : '[No title]';
+                        return `  ${index + 1}. "${truncatedTitle}" - Reason: ${item.reason}`;
+                    })
+                    .join('\n');
+
+                logger.debug(
+                    `Articles excluded by full content evaluation (${notRelevantFullContent.length}):\n${excludedTitles}`
+                );
+            } else if (relevantArticles && relevantArticles.length > 0) {
+                logger.debug(
+                    `Full content evaluation filter: No articles excluded (0/${relevantArticles.length})`
+                );
+            } else {
+                logger.debug(`Full content evaluation filter: No articles to evaluate (0/0)`);
+            }
+
+            // Final result log
             logger.debug(
-                `Target group "${config.NEWS_MONITOR.TARGET_GROUP}" is properly configured.`
+                `Final relevant articles: ${finalRelevantArticles.length}/${stats.fetchedCount} total fetched`
             );
-        }
+            if (finalRelevantArticles.length > 0) {
+                const relevantTitles = finalRelevantArticles
+                    .map((article, index) => {
+                        const truncatedTitle = article.title
+                            ? article.title.length > 90
+                                ? article.title.substring(0, 90) + '...'
+                                : article.title
+                            : '[No title]';
+                        return `  ${index + 1}. "${truncatedTitle}" - Justification: ${
+                            article.relevanceJustification || 'Relevante'
+                        }`;
+                    })
+                    .join('\n');
 
-        // Format an example message for each article
-        formattedExamples = [];
-        if (finalRelevantArticles && finalRelevantArticles.length > 0) {
-            for (const article of finalRelevantArticles) {
-                // Show all relevant articles
-                const formattedMessage = formatNewsArticle(article);
-                formattedExamples.push(formattedMessage);
+                logger.debug(
+                    `Articles that passed all filters and will be sent:\n${relevantTitles}`
+                );
             }
+
+            // Format messages for all relevant articles
+            const formattedExamples = [];
+
+            if (finalRelevantArticles && finalRelevantArticles.length > 0) {
+                for (const article of finalRelevantArticles) {
+                    try {
+                        // Translate title if needed
+                        let articleTitle = article.title;
+                        if (feed.language !== 'pt') {
+                            articleTitle = await translateToPortuguese(
+                                article.title,
+                                feed.language
+                            );
+                        }
+
+                        // Generate summary
+                        const articleContent = extractArticleContent(article);
+                        const summary = await generateSummary(article.title, articleContent);
+
+                        // Format example message with justification
+                        const justification = article.relevanceJustification || 'Sem justificativa';
+                        const message = `*Breaking News* 🗞️\n\n*${articleTitle}*\n\n${summary}\n\n🔍 *Justificativa:* ${justification}\n\nFonte: ${feed.name}\n${article.link}`;
+                        formattedExamples.push(message);
+                    } catch (error) {
+                        logger.error(
+                            `Error formatting article "${article.title}": ${error.message}`
+                        );
+                        formattedExamples.push(
+                            `*${article.title}*\n[Error formatting: ${error.message}]`
+                        );
+                    }
+                }
+            }
+
+            // Prepare and send the formatted debug response
+            const currentTime = new Date();
+            const isInQuietHour = isQuietHour();
+
+            // Format quiet hours
+            const startHour = config.NEWS_MONITOR.QUIET_HOURS?.START_HOUR || 22;
+            const endHour = config.NEWS_MONITOR.QUIET_HOURS?.END_HOUR || 8;
+            const quietHoursPeriod = `${startHour}:00-${endHour}:00`;
+
+            // Calculate check interval in minutes
+            const checkIntervalMinutes = config.NEWS_MONITOR.RSS_CHECK_INTERVAL / 60000;
+
+            // Format the debug response with detailed stats
+            const debugResponse = `*RSS Monitor Debug Report* (Generated at ${currentTime.toLocaleString()})
+
+- RSS monitor enabled: ${config.NEWS_MONITOR.RSS_ENABLED ? 'Yes' : 'No'}
+- Check interval: ${checkIntervalMinutes} minutes
+- Quiet hours: ${config.NEWS_MONITOR.QUIET_HOURS?.ENABLED ? 'Enabled' : 'Disabled'}
+- Quiet hours times: ${quietHoursPeriod}
+- Currently in quiet hours: ${isInQuietHour ? 'Yes' : 'No'}
+- Whitelist paths: ${
+                config.NEWS_MONITOR.CONTENT_FILTERING.WHITELIST_PATHS?.join(', ') ||
+                'None configured'
+            }
+
+*Article Filtering Stats:*
+- Feed: ${stats.feedName}
+- Fetched: ${stats.fetchedCount}
+- Last ${checkIntervalMinutes} minutes: ${stats.lastIntervalCount}
+- Not in whitelist: ${stats.notWhitelistedCount}/${stats.lastIntervalCount} (${Math.round(
+                (stats.notWhitelistedCount / stats.lastIntervalCount || 0) * 100
+            )}%)
+- Pattern excluded: ${stats.patternExcludedCount}/${whitelistedArticles.length} (${Math.round(
+                (stats.patternExcludedCount / whitelistedArticles.length || 0) * 100
+            )}%)
+- Historical excluded: ${stats.historicalExcludedCount}/${
+                filteredByTitleArticles.length
+            } (${Math.round(
+                (stats.historicalExcludedCount / filteredByTitleArticles.length || 0) * 100
+            )}%)
+- Duplicates excluded: ${stats.duplicatesExcludedCount}/${
+                notRecentlySentArticles.length
+            } (${Math.round(
+                (stats.duplicatesExcludedCount / notRecentlySentArticles.length || 0) * 100
+            )}%)
+- Preliminary excluded: ${stats.preliminaryExcludedCount}/${dedupedArticles.length} (${Math.round(
+                (stats.preliminaryExcludedCount / dedupedArticles.length || 0) * 100
+            )}%)
+- Full content excluded: ${stats.fullContentExcludedCount}/${relevantArticles.length} (${Math.round(
+                (stats.fullContentExcludedCount / relevantArticles.length || 0) * 100
+            )}%)
+- Final relevant count: ${stats.relevantCount}
+
+*Filter Flow Summary:*
+${stats.lastIntervalCount} articles → ${whitelistedArticles.length} passed whitelist → ${
+                filteredByTitleArticles.length
+            } passed pattern filter → ${notRecentlySentArticles.length} passed history filter → ${
+                dedupedArticles.length
+            } passed dedup → ${relevantArticles.length} passed prelim relevance → ${
+                finalRelevantArticles.length
+            } final relevant
+
+${
+    stats.relevantCount > 0
+        ? `*Messages that would be sent (${stats.relevantCount}):*\n\n${formattedExamples.join(
+              '\n\n---\n\n'
+          )}`
+        : '*No relevant articles found to display.*'
+}`;
+
+            await message.reply(debugResponse);
+
+            // Restore logging level
+            logger.level = originalLogLevel;
+        } catch (error) {
+            logger.error(`Error processing feed ${feed.name}:`, error);
+            await message.reply(`Error processing feed "${feed.name}": ${error.message}`);
         }
-
-        // Prepare and send the formatted debug response
-        const currentTime = new Date();
-        const isInQuietHour = isQuietHour();
-
-        // Format quiet hours
-        const startHour = config.NEWS_MONITOR.QUIET_HOURS?.START_HOUR || 22;
-        const endHour = config.NEWS_MONITOR.QUIET_HOURS?.END_HOUR || 8;
-        const quietHoursPeriod = `${startHour}:00-${endHour}:00`;
-
-        // Calculate check interval in minutes
-        const checkIntervalMinutes = config.NEWS_MONITOR.RSS_CHECK_INTERVAL / 60000;
-
-        // Format the debug response - Always send regardless of article status
-        const debugResponse = `*RSS Monitor Debug Report* (Generated at ${currentTime.toLocaleString()})
-
-        - RSS monitor enabled: ${config.NEWS_MONITOR.RSS_ENABLED ? 'Yes' : 'No'}
-        - Check interval: ${checkIntervalMinutes} minutes
-        - Quiet hours: ${config.NEWS_MONITOR.QUIET_HOURS?.ENABLED ? 'Enabled' : 'Disabled'}
-        - Quiet hours times: ${quietHoursPeriod}
-        - Currently in quiet hours: ${isInQuietHour ? 'Yes' : 'No'}
-        - Daily post limit: 10/10
-
-        - RSS feed: ${stats.feedName}
-        - Fetched: ${stats.fetchedCount}
-        - Last ${checkIntervalMinutes} minutes: ${stats.lastIntervalCount}
-        - Local excluded: ${stats.localExcludedCount}/${stats.lastIntervalCount}
-        - Pattern excluded: ${stats.patternExcludedCount}/${
-            stats.lastIntervalCount - stats.localExcludedCount
-        }
-        - Historical excluded: ${stats.historicalExcludedCount}/${
-            stats.lastIntervalCount - stats.localExcludedCount - stats.patternExcludedCount
-        }
-        - Duplicates excluded: ${stats.duplicatesExcludedCount}/${
-            stats.lastIntervalCount -
-            stats.localExcludedCount -
-            stats.patternExcludedCount -
-            stats.historicalExcludedCount
-        }
-        - Preliminary excluded: ${stats.preliminaryExcludedCount}/${
-            dedupedArticles ? dedupedArticles.length : 0
-        }
-        - Full content excluded: ${stats.fullContentExcludedCount}/${
-            relevantArticles ? relevantArticles.length : 0
-        }
-        - Relevant: ${stats.relevantCount}
-
-        ${
-            finalRelevantArticles && finalRelevantArticles.length > 0
-                ? formattedExamples.join('\n\n---\n\n')
-                : 'No relevant articles to display'
-        }`;
-
-        await message.reply(debugResponse);
     } catch (error) {
         logger.error('Error in RSS debug:', error);
         await message.reply('Error testing RSS functionality: ' + error.message);
@@ -3973,11 +4049,35 @@ async function newsMonitorStatus(message) {
  */
 async function processRssFeed(feed) {
     try {
+        // Initialize all variables that will be used
+        let allArticles = [];
+        let articlesFromLastCheckInterval = [];
+        let whitelistedArticles = [];
+        let notWhitelistedArticles = [];
+        let filteredByTitleArticles = [];
+        let excludedByTitleArticles = [];
+        let notRecentlySentArticles = [];
+        let recentlySentArticles = [];
+        let dedupedArticles = [];
+        let relevantArticles = [];
+        let irrelevantArticles = [];
+        let finalRelevantArticles = [];
+        let notRelevantFullContent = [];
+        let stats = {
+            notWhitelistedCount: 0,
+            patternExcludedCount: 0,
+            historicalExcludedCount: 0,
+            duplicatesExcludedCount: 0,
+            preliminaryExcludedCount: 0,
+            fullContentExcludedCount: 0,
+            relevantCount: 0,
+        };
+
         // STEP 1: Fetch articles - make sure each operation completes before moving to the next
         logger.debug(`Fetching RSS feed: ${feed.name} (${feed.url})`);
 
         const feedData = await parser.parseURL(feed.url);
-        const allArticles = feedData.items || [];
+        allArticles = feedData.items || [];
 
         // Log immediately after fetching
         logger.debug(`Retrieved ${allArticles.length} items from feed: ${feed.name}`);
@@ -3997,10 +4097,6 @@ async function processRssFeed(feed) {
         const intervalMs = config.NEWS_MONITOR.RSS_CHECK_INTERVAL;
         const cutoffTime = new Date(Date.now() - intervalMs);
 
-        // Create arrays for articles that pass and fail the time filter
-        const articlesFromLastCheckInterval = [];
-        const olderArticles = [];
-
         // Process each article for time filtering
         for (const article of allArticles) {
             const pubDate = article.pubDate || article.isoDate;
@@ -4016,8 +4112,6 @@ async function processRssFeed(feed) {
             // Include if date is invalid, in future, or newer than cutoff
             if (isNaN(articleDate) || articleDate > new Date() || articleDate >= cutoffTime) {
                 articlesFromLastCheckInterval.push(article);
-            } else {
-                olderArticles.push(article);
             }
         }
 
@@ -4034,21 +4128,20 @@ async function processRssFeed(feed) {
             return [];
         }
 
-        // STEP 3: Filter local news
-        const nonLocalArticles = [];
-        const localArticles = [];
-
-        // Check each article
+        // STEP 3: Filter by whitelist paths
         for (const article of articlesFromLastCheckInterval) {
             if (isLocalNews(article.link)) {
-                localArticles.push(article);
+                notWhitelistedArticles.push(article);
             } else {
-                nonLocalArticles.push(article);
+                whitelistedArticles.push(article);
             }
         }
 
-        // Format excluded titles for logging - now showing truncated titles (90 chars)
-        const localTitles = localArticles
+        // Update stats
+        stats.notWhitelistedCount = notWhitelistedArticles.length;
+
+        // Format excluded titles for logging
+        const notWhitelistedTitles = notWhitelistedArticles
             .map(
                 article =>
                     `"${
@@ -4057,267 +4150,42 @@ async function processRssFeed(feed) {
             )
             .join('\n');
 
-        // Log filtered local news results
-        if (localArticles.length > 0) {
+        // Log filtered whitelist results
+        if (notWhitelistedArticles.length > 0) {
             // Log the count message with titles
             logger.debug(
-                `Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total\n${localTitles}`
+                `Filtered ${notWhitelistedArticles.length} articles not in whitelist paths out of ${articlesFromLastCheckInterval.length} total\n${notWhitelistedTitles}`
             );
         } else {
             logger.debug(
-                `Filtered ${localArticles.length} local news articles out of ${articlesFromLastCheckInterval.length} total`
+                `Filtered ${notWhitelistedArticles.length} articles not in whitelist paths out of ${articlesFromLastCheckInterval.length} total`
             );
         }
 
-        // Early exit if no non-local articles
-        if (nonLocalArticles.length === 0) {
-            logger.debug(`No non-local articles found in check interval for feed: ${feed.name}`);
-            return [];
-        }
+        // Continue processing if we have whitelisted articles
+        if (whitelistedArticles.length > 0) {
+            // STEP 4: Filter articles with low-quality title patterns
+            const titlePatterns = config.NEWS_MONITOR.CONTENT_FILTERING.TITLE_PATTERNS || [];
 
-        // STEP 4: Filter articles with low-quality title patterns
-        const titlePatterns = config.NEWS_MONITOR.CONTENT_FILTERING.TITLE_PATTERNS || [];
-        const filteredByTitleArticles = [];
-        const excludedByTitleArticles = [];
-
-        // Check each article against title patterns
-        for (const article of nonLocalArticles) {
-            // Check if the title matches any of the patterns to filter
-            const matchesPattern = titlePatterns.some(
-                pattern => article.title && article.title.includes(pattern)
-            );
-
-            if (matchesPattern) {
-                excludedByTitleArticles.push(article);
-            } else {
-                filteredByTitleArticles.push(article);
-            }
-        }
-
-        // Format excluded titles for logging - now showing truncated titles (90 chars)
-        const excludedTitlePatterns = excludedByTitleArticles
-            .map(
-                article =>
-                    `"${
-                        article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')
-                    }"`
-            )
-            .join('\n');
-
-        // Log filtered title pattern results
-        if (excludedByTitleArticles.length > 0) {
-            // Log the count message with titles
-            logger.debug(
-                `Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total\n${excludedTitlePatterns}`
-            );
-        } else {
-            logger.debug(
-                `Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${nonLocalArticles.length} total`
-            );
-        }
-
-        // Early exit if no articles passed title filtering
-        if (filteredByTitleArticles.length === 0) {
-            logger.debug(`No articles passed title pattern filtering`);
-            return [];
-        }
-
-        // STEP 5: Filter out articles similar to ones recently sent
-        const notRecentlySentArticles = [];
-        const recentlySentArticles = [];
-
-        // Add feed ID to each article for caching purposes
-        filteredByTitleArticles.forEach(article => {
-            article.feedId = feed.id;
-        });
-
-        // Filter out articles that are similar to ones sent in the last 24h
-        for (const article of filteredByTitleArticles) {
-            if (isArticleSentRecently(article)) {
-                recentlySentArticles.push(article);
-            } else {
-                notRecentlySentArticles.push(article);
-            }
-        }
-
-        // Format recently sent article titles for logging - showing truncated titles (90 chars)
-        const recentlySentTitles = recentlySentArticles
-            .map(
-                article =>
-                    `"${
-                        article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '')
-                    }"`
-            )
-            .join('\n');
-
-        // Log filtered recently sent results
-        if (recentlySentArticles.length > 0) {
-            // Log the count message with titles
-            logger.debug(
-                `Filtered ${recentlySentArticles.length} articles similar to recently sent ones\n${recentlySentTitles}`
-            );
-        } else {
-            logger.debug(
-                `Filtered ${recentlySentArticles.length} articles similar to recently sent ones`
-            );
-        }
-
-        // Early exit if all articles filtered as recently sent
-        if (notRecentlySentArticles.length === 0) {
-            logger.debug(`No articles remain after filtering out recently sent ones`);
-            return [];
-        }
-
-        // NEW STEP: Filter similar articles within current batch (de-duplication)
-        // Sort by date (oldest first) to keep the oldest when similar articles are found
-        const sortedByDateArticles = [...notRecentlySentArticles].sort(
-            (a, b) => new Date(a.pubDate || a.isoDate) - new Date(b.pubDate || b.isoDate)
-        );
-
-        const dedupedArticles = [];
-        const duplicateGroups = []; // Store groups of similar articles for logging
-        const processedTitles = new Map(); // Map to track processed titles
-
-        // Use the batch similarity threshold if configured, otherwise fall back to regular threshold
-        const similarityThreshold =
-            config.NEWS_MONITOR.HISTORICAL_CACHE?.BATCH_SIMILARITY_THRESHOLD ||
-            config.NEWS_MONITOR.HISTORICAL_CACHE?.SIMILARITY_THRESHOLD ||
-            0.7;
-
-        // Process each article for de-duplication
-        for (const article of sortedByDateArticles) {
-            const articleTitle = article.title?.toLowerCase() || '';
-            if (!articleTitle) {
-                // Include articles with no title (should be rare)
-                dedupedArticles.push(article);
-                continue;
-            }
-
-            // Check if similar to any already processed article
-            let isDuplicate = false;
-            let groupIndex = -1;
-
-            for (const [processedTitle, info] of processedTitles.entries()) {
-                const similarity = calculateTitleSimilarity(articleTitle, processedTitle);
-                if (similarity >= similarityThreshold) {
-                    isDuplicate = true;
-                    groupIndex = info.groupIndex;
-                    // Add to existing duplicate group for logging
-                    duplicateGroups[groupIndex].duplicates.push({
-                        title: article.title,
-                        date: article.pubDate || article.isoDate,
-                        similarity: similarity,
-                    });
-                    break;
-                }
-            }
-
-            // If not a duplicate, add to deduped list and track the title
-            if (!isDuplicate) {
-                dedupedArticles.push(article);
-                // Create a new group for this article
-                groupIndex = duplicateGroups.length;
-                duplicateGroups.push({
-                    kept: {
-                        title: article.title,
-                        date: article.pubDate || article.isoDate,
-                    },
-                    duplicates: [],
-                });
-                processedTitles.set(articleTitle, {
-                    groupIndex,
-                    article,
-                });
-            }
-        }
-
-        // Log duplicate filtering results - enhanced with groups
-        const duplicateCount = duplicateGroups.reduce(
-            (count, group) => count + group.duplicates.length,
-            0
-        );
-
-        if (duplicateCount > 0) {
-            // Create a detailed log of duplicate groups
-            let duplicateLog = `Filtered out ${duplicateCount} of ${sortedByDateArticles.length} duplicate articles:\n`;
-
-            // Only show groups that have duplicates
-            const groupsWithDuplicates = duplicateGroups.filter(
-                group => group.duplicates.length > 0
-            );
-
-            groupsWithDuplicates.forEach((group, index) => {
-                // Format date for better readability
-                const keptDate = new Date(group.kept.date);
-                const formattedKeptDate = isNaN(keptDate)
-                    ? 'Unknown date'
-                    : keptDate.toISOString().replace('T', ' ').substring(0, 19);
-
-                // Truncate title to 90 chars for logging
-                const keptTitle =
-                    group.kept.title?.substring(0, 90) +
-                    (group.kept.title?.length > 90 ? '...' : '');
-                duplicateLog += `KEPT: "${keptTitle}" (${formattedKeptDate})\n`;
-
-                // Sort duplicates by similarity (highest first)
-                const sortedDuplicates = [...group.duplicates].sort(
-                    (a, b) => b.similarity - a.similarity
+            // Check each article against title patterns
+            for (const article of whitelistedArticles) {
+                // Check if the title matches any of the patterns to filter
+                const matchesPattern = titlePatterns.some(
+                    pattern => article.title && article.title.includes(pattern)
                 );
 
-                sortedDuplicates.forEach(dup => {
-                    const dupDate = new Date(dup.date);
-                    const formattedDupDate = isNaN(dupDate)
-                        ? 'Unknown date'
-                        : dupDate.toISOString().replace('T', ' ').substring(0, 19);
-
-                    // Truncate title to 90 chars for logging
-                    const dupTitle =
-                        dup.title?.substring(0, 90) + (dup.title?.length > 90 ? '...' : '');
-                    duplicateLog += `"${dupTitle}" (${formattedDupDate}) - similarity: ${dup.similarity.toFixed(
-                        2
-                    )}\n`;
-                });
-
-                // Add double line break between groups, except after the last group
-                if (index < groupsWithDuplicates.length - 1) {
-                    duplicateLog += `\n\n`;
+                if (matchesPattern) {
+                    excludedByTitleArticles.push(article);
+                } else {
+                    filteredByTitleArticles.push(article);
                 }
-            });
-
-            logger.debug(duplicateLog);
-        } else {
-            logger.debug(`No duplicate articles found in current batch`);
-        }
-
-        // Early exit if all articles filtered as duplicates
-        if (dedupedArticles.length === 0) {
-            logger.debug(`No articles remain after filtering out duplicates`);
-            return [];
-        }
-
-        // STEP 7: Preliminary relevance assessment using batch title evaluation
-
-        // Extract full titles for batch evaluation
-        const fullTitles = dedupedArticles.map(article => article.title);
-
-        // Perform the batch evaluation
-        const titleRelevanceResults = await batchEvaluateArticleTitles(fullTitles);
-
-        // Find articles with relevant titles
-        const relevantArticles = [];
-        const irrelevantArticles = [];
-
-        dedupedArticles.forEach((article, index) => {
-            if (titleRelevanceResults[index]) {
-                relevantArticles.push(article);
-            } else {
-                irrelevantArticles.push(article);
             }
-        });
 
-        // Log results of preliminary relevance assessment - showing truncated titles (90 chars)
-        if (irrelevantArticles.length > 0) {
-            const irrelevantTitles = irrelevantArticles
+            // Update stats
+            stats.patternExcludedCount = excludedByTitleArticles.length;
+
+            // Format excluded titles for logging
+            const excludedTitlePatterns = excludedByTitleArticles
                 .map(
                     article =>
                         `"${
@@ -4326,97 +4194,347 @@ async function processRssFeed(feed) {
                         }"`
                 )
                 .join('\n');
-            logger.debug(
-                `Filtered out ${irrelevantArticles.length} out of ${dedupedArticles.length} irrelevant titles:\n${irrelevantTitles}`
-            );
-        }
 
-        // STEP 8: Evaluate full content of each article individually
-        const finalRelevantArticles = [];
-        const notRelevantFullContent = [];
-
-        // Process each article individually with the EVALUATE_ARTICLE prompt
-        for (const article of relevantArticles) {
-            const articleContent = extractArticleContent(article);
-
-            // We use an empty array for previousArticles since we're evaluating each individually
-            const evalResult = await evaluateContent(
-                `Título: ${article.title}\n\n${articleContent}`,
-                [], // No previous articles context
-                'rss',
-                true // Include justification
-            );
-
-            if (evalResult.isRelevant) {
-                // Extract only the key reason from justification (keep it brief)
-                let shortJustification = evalResult.justification;
-                if (shortJustification && shortJustification.length > 40) {
-                    // Try to find common phrases that explain the reason
-                    if (shortJustification.includes('notícia global')) {
-                        shortJustification = 'Notícia global crítica';
-                    } else if (
-                        shortJustification.includes('Brasil') ||
-                        shortJustification.includes('brasileiro')
-                    ) {
-                        shortJustification = 'Relevante para o Brasil';
-                    } else if (shortJustification.includes('São Paulo')) {
-                        shortJustification = 'Relevante para São Paulo';
-                    } else if (shortJustification.includes('científic')) {
-                        shortJustification = 'Descoberta científica importante';
-                    } else if (shortJustification.includes('esport')) {
-                        shortJustification = 'Evento esportivo significativo';
-                    } else if (
-                        shortJustification.includes('escândalo') ||
-                        shortJustification.includes('polític')
-                    ) {
-                        shortJustification = 'Escândalo político/econômico';
-                    } else if (shortJustification.includes('impacto global')) {
-                        shortJustification = 'Grande impacto global';
-                    } else {
-                        // If none of the above, truncate to first 40 chars
-                        shortJustification = shortJustification.substring(0, 40) + '...';
-                    }
-                }
-
-                // Store short justification with the article for later use
-                article.relevanceJustification = shortJustification;
-                finalRelevantArticles.push(article);
+            // Log filtered title pattern results
+            if (excludedByTitleArticles.length > 0) {
+                // Log the count message with titles
+                logger.debug(
+                    `Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${whitelistedArticles.length} total\n${excludedTitlePatterns}`
+                );
             } else {
-                notRelevantFullContent.push({
-                    title: article.title,
-                });
+                logger.debug(
+                    `Filtered ${excludedByTitleArticles.length} articles with excluded title patterns out of ${whitelistedArticles.length} total`
+                );
             }
         }
 
-        // Log results of full content evaluation - showing only titles (90 chars)
-        if (notRelevantFullContent.length > 0) {
-            let irrelevantLog = `Filtered out ${notRelevantFullContent.length} out of ${relevantArticles.length} after content evaluation:\n`;
-
-            notRelevantFullContent.forEach(item => {
-                const truncatedTitle =
-                    item.title?.substring(0, 90) + (item.title?.length > 90 ? '...' : '');
-                irrelevantLog += `"${truncatedTitle}"\n`;
+        // Continue processing if articles passed title filtering
+        if (filteredByTitleArticles.length > 0) {
+            // STEP 5: Filter out articles similar to ones recently sent
+            // Add feed ID to each article for caching purposes
+            filteredByTitleArticles.forEach(article => {
+                article.feedId = feed.id;
             });
 
-            logger.debug(irrelevantLog);
+            // Filter out articles that are similar to ones sent in the last 24h
+            for (const article of filteredByTitleArticles) {
+                if (isArticleSentRecently(article)) {
+                    recentlySentArticles.push(article);
+                } else {
+                    notRecentlySentArticles.push(article);
+                }
+            }
+
+            // Update stats
+            stats.historicalExcludedCount = recentlySentArticles.length;
+
+            // Format recently sent article titles for logging
+            const recentlySentTitles = recentlySentArticles
+                .map(
+                    article =>
+                        `"${
+                            article.title?.substring(0, 90) +
+                            (article.title?.length > 90 ? '...' : '')
+                        }"`
+                )
+                .join('\n');
+
+            // Log filtered recently sent results
+            if (recentlySentArticles.length > 0) {
+                // Log the count message with titles
+                logger.debug(
+                    `Filtered ${recentlySentArticles.length} articles similar to recently sent ones\n${recentlySentTitles}`
+                );
+            } else {
+                logger.debug(
+                    `Filtered ${recentlySentArticles.length} articles similar to recently sent ones`
+                );
+            }
         }
 
-        // Log final relevant articles - showing truncated titles (90 chars) with brief justifications
-        if (finalRelevantArticles.length > 0) {
-            let relevantLog = `Final selection: ${finalRelevantArticles.length} out of ${relevantArticles.length} articles after content evaluation:\n`;
-
-            finalRelevantArticles.forEach(article => {
-                const truncatedTitle =
-                    article.title?.substring(0, 90) + (article.title?.length > 90 ? '...' : '');
-                relevantLog += `"${truncatedTitle}"\n${
-                    article.relevanceJustification || 'Relevante'
-                }\n\n`;
+        // Continue processing the remaining articles
+        if (notRecentlySentArticles.length > 0) {
+            // STEP 5.5: Filter similar articles within the current batch
+            const sortedByDateArticles = [...notRecentlySentArticles].sort((a, b) => {
+                const dateA = new Date(a.pubDate || a.isoDate || 0);
+                const dateB = new Date(b.pubDate || b.isoDate || 0);
+                return dateA - dateB; // Oldest first
             });
 
-            logger.debug(relevantLog);
-        } else {
-            logger.debug(`No articles were found to be relevant after full content evaluation.`);
-            return [];
+            const duplicateGroups = []; // For tracking which articles were kept vs removed
+            const processedTitles = new Map();
+            const similarityThreshold =
+                config.NEWS_MONITOR?.HISTORICAL_CACHE?.BATCH_SIMILARITY_THRESHOLD || 0.65;
+
+            // Process each article for de-duplication
+            for (const article of sortedByDateArticles) {
+                const articleTitle = article.title?.toLowerCase() || '';
+                if (!articleTitle) {
+                    // Include articles with no title (should be rare)
+                    dedupedArticles.push(article);
+                    continue;
+                }
+
+                // Check if similar to any already processed article
+                let isDuplicate = false;
+                let groupIndex = -1;
+
+                for (const [processedTitle, info] of processedTitles.entries()) {
+                    const similarity = calculateTitleSimilarity(articleTitle, processedTitle);
+                    if (similarity >= similarityThreshold) {
+                        isDuplicate = true;
+                        groupIndex = info.groupIndex;
+                        // Add to existing duplicate group for logging
+                        duplicateGroups[groupIndex].duplicates.push({
+                            title: article.title,
+                            date: article.pubDate || article.isoDate,
+                            similarity: similarity,
+                        });
+                        break;
+                    }
+                }
+
+                // If not a duplicate, add to deduped list and track the title
+                if (!isDuplicate) {
+                    dedupedArticles.push(article);
+                    // Create a new group for this article
+                    groupIndex = duplicateGroups.length;
+                    duplicateGroups.push({
+                        kept: {
+                            title: article.title,
+                            date: article.pubDate || article.isoDate,
+                        },
+                        duplicates: [],
+                    });
+                    processedTitles.set(articleTitle, {
+                        groupIndex,
+                        article,
+                    });
+                }
+            }
+
+            // Log duplicate filtering results - enhanced with groups
+            const duplicateCount = duplicateGroups.reduce(
+                (count, group) => count + group.duplicates.length,
+                0
+            );
+
+            stats.duplicatesExcludedCount = duplicateCount;
+
+            if (duplicateCount > 0) {
+                // Create a detailed log of duplicate groups
+                let duplicateLog = `Filtered out ${duplicateCount} of ${sortedByDateArticles.length} duplicate articles:\n`;
+
+                // Only show groups that have duplicates
+                const groupsWithDuplicates = duplicateGroups.filter(
+                    group => group.duplicates.length > 0
+                );
+
+                groupsWithDuplicates.forEach((group, index) => {
+                    // Format date for better readability
+                    const keptDate = new Date(group.kept.date);
+                    const formattedKeptDate = isNaN(keptDate)
+                        ? 'Unknown date'
+                        : keptDate.toISOString().replace('T', ' ').substring(0, 19);
+
+                    // Truncate title to 90 chars for logging
+                    const keptTitle =
+                        group.kept.title?.substring(0, 90) +
+                        (group.kept.title?.length > 90 ? '...' : '');
+                    duplicateLog += `KEPT: "${keptTitle}" (${formattedKeptDate})\n`;
+
+                    // Sort duplicates by similarity (highest first)
+                    const sortedDuplicates = [...group.duplicates].sort(
+                        (a, b) => b.similarity - a.similarity
+                    );
+
+                    sortedDuplicates.forEach(dup => {
+                        const dupDate = new Date(dup.date);
+                        const formattedDupDate = isNaN(dupDate)
+                            ? 'Unknown date'
+                            : dupDate.toISOString().replace('T', ' ').substring(0, 19);
+
+                        // Truncate title to 90 chars for logging
+                        const dupTitle =
+                            dup.title?.substring(0, 90) + (dup.title?.length > 90 ? '...' : '');
+                        duplicateLog += `"${dupTitle}" (${formattedDupDate}) - similarity: ${dup.similarity.toFixed(
+                            2
+                        )}\n`;
+                    });
+
+                    // Add double line break between groups, except after the last group
+                    if (index < groupsWithDuplicates.length - 1) {
+                        duplicateLog += `\n\n`;
+                    }
+                });
+
+                logger.debug(duplicateLog);
+            } else {
+                logger.debug(`No duplicate articles found in current batch`);
+            }
+        }
+
+        // Continue with preliminary relevance assessment if we have deduped articles
+        if (dedupedArticles.length > 0) {
+            // STEP 7: Preliminary relevance assessment
+            const fullTitles = dedupedArticles.map(article => article.title);
+
+            try {
+                // Perform the batch evaluation
+                const titleRelevanceResults = await batchEvaluateArticleTitles(fullTitles);
+
+                // Find articles with relevant titles
+                dedupedArticles.forEach((article, index) => {
+                    if (titleRelevanceResults[index]) {
+                        relevantArticles.push(article);
+                    } else {
+                        irrelevantArticles.push(article);
+                    }
+                });
+
+                // Update stats
+                stats.preliminaryExcludedCount = irrelevantArticles.length;
+
+                // Log results of preliminary relevance assessment
+                if (irrelevantArticles.length > 0) {
+                    const irrelevantTitles = irrelevantArticles
+                        .map(
+                            article =>
+                                `"${
+                                    article.title?.substring(0, 90) +
+                                    (article.title?.length > 90 ? '...' : '')
+                                }"`
+                        )
+                        .join('\n');
+                    logger.debug(
+                        `Filtered out ${irrelevantArticles.length} out of ${dedupedArticles.length} irrelevant titles:\n${irrelevantTitles}`
+                    );
+                }
+
+                // Log relevant titles
+                if (relevantArticles.length > 0) {
+                    const relevantTitles = relevantArticles
+                        .map(
+                            article =>
+                                `"${
+                                    article.title?.substring(0, 90) +
+                                    (article.title?.length > 90 ? '...' : '')
+                                }"`
+                        )
+                        .join('\n');
+                    logger.debug(
+                        `Found ${relevantArticles.length} articles with relevant titles:\n${relevantTitles}`
+                    );
+                } else {
+                    logger.debug(`No articles were found to have relevant titles.`);
+                }
+            } catch (error) {
+                logger.error('Error in preliminary relevance assessment:', error);
+                // If evaluation fails, keep all articles for full content evaluation
+                relevantArticles = dedupedArticles;
+                stats.preliminaryExcludedCount = 0;
+            }
+        }
+
+        // Continue with full content evaluation if we have relevant articles
+        if (relevantArticles && relevantArticles.length > 0) {
+            // STEP 8: Evaluate full content of each article individually
+            try {
+                // Process each article individually with the EVALUATE_ARTICLE prompt
+                for (const article of relevantArticles) {
+                    const articleContent = extractArticleContent(article);
+
+                    // We use an empty array for previousArticles since we're evaluating each individually
+                    const evalResult = await evaluateContent(
+                        `Título: ${article.title}\n\n${articleContent}`,
+                        [], // No previous articles context
+                        'rss',
+                        '', // No username for RSS
+                        true // Include justification
+                    );
+
+                    if (evalResult.isRelevant) {
+                        // Extract only the key reason from justification (keep it brief)
+                        let shortJustification = evalResult.justification;
+                        if (shortJustification && shortJustification.length > 40) {
+                            // Try to find common phrases that explain the reason
+                            if (shortJustification.includes('notícia global')) {
+                                shortJustification = 'Notícia global crítica';
+                            } else if (
+                                shortJustification.includes('Brasil') ||
+                                shortJustification.includes('brasileiro')
+                            ) {
+                                shortJustification = 'Relevante para o Brasil';
+                            } else if (shortJustification.includes('São Paulo')) {
+                                shortJustification = 'Relevante para São Paulo';
+                            } else if (shortJustification.includes('científic')) {
+                                shortJustification = 'Descoberta científica importante';
+                            } else if (shortJustification.includes('esport')) {
+                                shortJustification = 'Evento esportivo significativo';
+                            } else if (
+                                shortJustification.includes('escândalo') ||
+                                shortJustification.includes('polític')
+                            ) {
+                                shortJustification = 'Escândalo político/econômico';
+                            } else if (shortJustification.includes('impacto global')) {
+                                shortJustification = 'Grande impacto global';
+                            } else {
+                                // If none of the above, truncate to first 40 chars
+                                shortJustification = shortJustification.substring(0, 40) + '...';
+                            }
+                        }
+
+                        // Store short justification with the article for later use
+                        article.relevanceJustification = shortJustification;
+                        finalRelevantArticles.push(article);
+                    } else {
+                        notRelevantFullContent.push({
+                            title: article.title,
+                            reason: evalResult.justification || 'Not relevant',
+                        });
+                    }
+                }
+
+                // Update stats
+                stats.fullContentExcludedCount = notRelevantFullContent.length;
+                stats.relevantCount = finalRelevantArticles.length;
+
+                // Log results of full content evaluation
+                if (notRelevantFullContent.length > 0) {
+                    let irrelevantLog = `Filtered out ${notRelevantFullContent.length} out of ${relevantArticles.length} after content evaluation:\n`;
+
+                    notRelevantFullContent.forEach(item => {
+                        const truncatedTitle =
+                            item.title?.substring(0, 90) + (item.title?.length > 90 ? '...' : '');
+                        irrelevantLog += `"${truncatedTitle}"\n`;
+                    });
+
+                    logger.debug(irrelevantLog);
+                }
+
+                // Log final relevant articles
+                if (finalRelevantArticles.length > 0) {
+                    let relevantLog = `Final selection: ${finalRelevantArticles.length} out of ${relevantArticles.length} articles after content evaluation:\n`;
+
+                    finalRelevantArticles.forEach(article => {
+                        const truncatedTitle =
+                            article.title?.substring(0, 90) +
+                            (article.title?.length > 90 ? '...' : '');
+                        relevantLog += `"${truncatedTitle}"\n${
+                            article.relevanceJustification || 'Relevante'
+                        }\n\n`;
+                    });
+
+                    logger.debug(relevantLog);
+                } else {
+                    logger.debug(
+                        `No articles were found to be relevant after full content evaluation.`
+                    );
+                }
+            } catch (error) {
+                logger.error('Error in full content evaluation:', error);
+                return []; // Return empty array on error
+            }
         }
 
         return finalRelevantArticles;

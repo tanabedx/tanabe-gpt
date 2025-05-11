@@ -15,7 +15,7 @@ Resposta obrigatória em uma das seguintes formas:
 O tweet é RELEVANTE se atender a pelo menos um dos seguintes critérios:
 - Calamidades naturais ou desastres de larga escala
 - Notícia global crítica
-- Notícias críticas relacionadas ao Brasil ou com impacto direto no Brasil
+- Notícias críticas relacionadas ao Brasil ou com impacto significativo e direto ao Brasil
 - Eventos de grande impacto global
 - Descobertas científicas ou avanços importantes
 - Eventos esportivos significativos com relevância internacional
@@ -54,7 +54,7 @@ Resposta obrigatória em uma das seguintes formas:
 O artigo é RELEVANTE se atender a pelo menos um dos seguintes critérios:
 - Calamidades naturais ou desastres
 - Notícia global crítica
-- Notícia crítica relacionada ao Brasil ou com impacto direto no Brasil
+- Notícia crítica relacionada ao Brasil ou com impacto significativo e direto ao Brasil
 - Notícia crítica sobre a cidade de São Paulo
 - Eventos de grande impacto global
 - Descobertas científicas ou avanços importantes
@@ -62,10 +62,12 @@ O artigo é RELEVANTE se atender a pelo menos um dos seguintes critérios:
 - Escândalos políticos, econômicos ou de outra natureza
 
 O artigo é IRRELEVANTE (null) nos seguintes casos:
-- Não se trata de um evento crítico ou relevante globalmente, ao Brasil ou à cidade de São Paulo
+- Não se trata de um evento crítico ou relevante globalmente, à maioria da população brasileira ou à maioria da população da cidade de São Paulo
 - A notícia já foi mencionada nos artigos anteriores (duplicada ou atualização)
 - É apenas uma atualização sem novas informações substanciais
 - É uma notícia local com impacto mínimo no cenário global
+
+Seja especialmente seleto em notícias involvendo a cidade de São Paulo, educação, saúde, ciência, tecnologia e meio ambiente. Somente as marque relevante se tiverem impacto significativo globalmente ou no Brasil inteiro.
 
 Artigos Analisados Anteriormente (para Contexto):
 {previous_articles}
@@ -91,6 +93,8 @@ Considere IRRELEVANTE qualquer título que claramente sugira:
 - Celebridades (exceto mortes ou impacto global)
 - Política de EUA (exceto eventos críticos)
 - Esportes não significativos
+
+Seja especialmente seleto em notícias involvendo a cidade de São Paulo, educação, saúde, ciência, tecnologia e meio ambiente. Somente as marque relevante se tiverem impacto significativo globalmente ou no Brasil inteiro.
 
 Esta é apenas uma avaliação preliminar para filtrar conteúdo obviamente irrelevante.
 Responda apenas com os números dos títulos que você considera RELEVANTES, separados por vírgula. 

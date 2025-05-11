@@ -76,8 +76,13 @@ class CommandManager {
                             ferramentaresumo: 'RESUMO_CONFIG',
                             twitterdebug: 'TWITTER_DEBUG',
                             rssdebug: 'RSS_DEBUG',
+                            news: 'NEWS_TOGGLE',
                             debugperiodic: 'DEBUG_PERIODIC',
                             clearcache: 'CACHE_CLEAR',
+                            cachereset: 'CACHE_RESET',
+                            resetcache: 'CACHE_RESET',
+                            cachestats: 'CACHE_STATS',
+                            cacheinfo: 'CACHE_STATS',
                         };
 
                         // Get the command name from the prefix map or use the original
@@ -304,8 +309,13 @@ class CommandManager {
                     ferramentaresumo: 'RESUMO_CONFIG',
                     twitterdebug: 'TWITTER_DEBUG',
                     rssdebug: 'RSS_DEBUG',
+                    news: 'NEWS_TOGGLE',
                     debugperiodic: 'DEBUG_PERIODIC',
                     clearcache: 'CACHE_CLEAR',
+                    cachereset: 'CACHE_RESET',
+                    resetcache: 'CACHE_RESET',
+                    cachestats: 'CACHE_STATS',
+                    cacheinfo: 'CACHE_STATS',
                 };
 
                 // Check if the command part matches any known command prefix

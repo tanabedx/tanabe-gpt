@@ -42,7 +42,7 @@ const NEWS_MONITOR_CONFIG = {
 
     // RSS-specific configuration
     RSS_ENABLED: true, // Toggle for RSS source
-    RSS_CHECK_INTERVAL: 3600000, // 1 hour in milliseconds (batch processing window)
+    RSS_CHECK_INTERVAL: 86400000,//3600000, // 1 hour in milliseconds (batch processing window)
     TWO_STAGE_EVALUATION: true, // Enable two-stage evaluation to optimize token usage
     FEEDS: [
         {
@@ -55,51 +55,31 @@ const NEWS_MONITOR_CONFIG = {
 
     // Content filtering configuration
     CONTENT_FILTERING: {
-        // List of state codes to filter (excluding São Paulo)
-        EXCLUDED_STATES: [
-            'ac',
-            'al',
-            'am',
-            'ap',
-            'ba',
-            'ce',
-            'df',
-            'es',
-            'go',
-            'ma',
-            'mg',
-            'ms',
-            'mt',
-            'pa',
-            'pb',
-            'pe',
-            'pi',
-            'pr',
-            'rj',
-            'rn',
-            'ro',
-            'rr',
-            'rs',
-            'sc',
-            'se',
-            'to',
-        ],
-        // Special URLs or URL patterns to always include even if they match state filtering
-        INCLUDED_SPECIAL_URLS: [
-            'g1.globo.com/sp/sao-paulo', // Include São Paulo news
-        ],
+        // Title patterns to filter out (considered low-quality or less relevant)
+        TITLE_PATTERNS: ['VÍDEO:', 'VÍDEOS:', 'Assista', 'FOTOS:', 'IMAGENS:'],
         // Path segments to always exclude (like podcast content)
         EXCLUDED_PATHS: [
             'podcast', // Exclude podcast content
         ],
-        // Title patterns to filter out (considered low-quality or less relevant)
-        TITLE_PATTERNS: ['VÍDEO:', 'VÍDEOS:', 'Assista', 'FOTOS:', 'IMAGENS:'],
+        // Whitelist of G1 paths to include (only these paths will be processed)
+        WHITELIST_PATHS: [
+            '/mundo',
+            '/economia',
+            '/politica',
+            '/sp/sao-paulo',
+            '/educacao',
+            '/saude',
+            '/ciencia',
+            '/tecnologia',
+            '/meio-ambiente',
+        ],
     },
 
     // Sent article cache configuration
     HISTORICAL_CACHE: {
         ENABLED: true, // Toggle for historical cache
         RETENTION_HOURS: 24, // How long to remember sent articles (in hours)
+        RETENTION_DAYS: 2, // How long to keep entries in the persistent cache (in days)
         SIMILARITY_THRESHOLD: 0.7, // Title similarity threshold (0.0-1.0) for considering articles as duplicates
         BATCH_SIMILARITY_THRESHOLD: 0.65, // Threshold for considering articles as duplicates within the same batch (lower than historical for more aggressive de-duplication)
     },

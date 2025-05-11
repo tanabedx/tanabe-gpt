@@ -27,11 +27,11 @@ const SYSTEM = {
         ERROR: true,
         WARN: true,
         INFO: true,
-        DEBUG: false,
+        DEBUG: true,
         SUMMARY: true,
         STARTUP: true,
         SHUTDOWN: true,
-        PROMPT: false,
+        PROMPT: true,
         COMMAND: true,
     },
     NOTIFICATION_LEVELS: {

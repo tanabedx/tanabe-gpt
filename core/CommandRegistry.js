@@ -10,6 +10,9 @@ const {
     handleDebugPeriodic,
     handleConfig,
     handleNewsStatus,
+    resetNewsCache,
+    showCacheStats,
+    handleNewsToggle,
 } = require('../commands/admin');
 const { handleChat } = require('../commands/chat');
 const { handleTag } = require('../commands/tag');
@@ -33,12 +36,15 @@ function registerCommands() {
     commandManager.registerHandler('TWITTER_DEBUG', handleTwitterDebug);
     commandManager.registerHandler('RSS_DEBUG', handleRssDebug);
     commandManager.registerHandler('NEWS_STATUS', handleNewsStatus);
+    commandManager.registerHandler('NEWS_TOGGLE', handleNewsToggle);
     commandManager.registerHandler('DEBUG_PERIODIC', handleDebugPeriodic);
     commandManager.registerHandler('CONFIG', handleConfig);
     commandManager.registerHandler('AUDIO', handleAudio);
     commandManager.registerHandler('RESUMO_CONFIG', startWizard);
     commandManager.registerHandler('TAG', handleTag);
     commandManager.registerHandler('COMMAND_LIST', handleCommandList);
+    commandManager.registerHandler('CACHE_RESET', resetNewsCache);
+    commandManager.registerHandler('CACHE_STATS', showCacheStats);
 
     logger.debug('Command handlers registered successfully');
 }

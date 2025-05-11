@@ -4,10 +4,8 @@ const { runCompletion } = require('./openaiUtils');
 const logger = require('./logger');
 const config = require('../configs');
 
-// Get the excluded states from config or use empty array if not configured
-const EXCLUDED_STATES = config.NEWS_MONITOR?.CONTENT_FILTERING?.EXCLUDED_STATES || [];
-// Get additional paths to exclude from config
-const EXCLUDED_PATHS = config.NEWS_MONITOR?.CONTENT_FILTERING?.EXCLUDED_PATHS || [];
+// Get the whitelist paths
+const WHITELIST_PATHS = config.NEWS_MONITOR?.CONTENT_FILTERING?.WHITELIST_PATHS || [];
 
 /**
  * Check if an article URL is for local news based on the URL pattern
@@ -31,38 +29,17 @@ function isLocalNews(url) {
         // Only process G1 URLs
         if (!urlObj.hostname.includes('g1.globo.com')) return false;
 
-        // Split the path into segments
-        const pathSegments = urlObj.pathname.split('/').filter(segment => segment.length > 0);
+        // Whitelist approach for G1 URLs
+        const fullPath = urlObj.pathname;
 
-        // Check if any segment matches the excluded paths
-        if (pathSegments.some(segment => EXCLUDED_PATHS.includes(segment.toLowerCase()))) {
-            return true; // Exclude URLs with excluded paths (e.g., podcast)
-        }
+        // Check if the path is in the whitelist
+        const isWhitelisted = WHITELIST_PATHS.some(whitelistedPath =>
+            fullPath.startsWith(whitelistedPath)
+        );
 
-        // Check if the first segment is a Brazilian state code that should be excluded
-        if (pathSegments.length > 0) {
-            const firstSegment = pathSegments[0].toLowerCase();
-
-            // Special case for São Paulo
-            if (firstSegment === 'sp') {
-                // Check if it's the specific São Paulo city URL we want to allow
-                if (pathSegments.length >= 2 && pathSegments[1].toLowerCase() === 'sao-paulo') {
-                    // This is the São Paulo city news we DO want to include
-                    return false;
-                } else {
-                    // This is other SP regional news we DON'T want
-                    return true;
-                }
-            }
-
-            // For other states, just check if they're in the excluded list
-            if (EXCLUDED_STATES.includes(firstSegment)) {
-                return true;
-            }
-        }
-
-        // Not in excluded states or paths
-        return false;
+        // If the path is in the whitelist, it's NOT local news (return false)
+        // If the path is NOT in the whitelist, it IS local news (return true)
+        return !isWhitelisted;
     } catch (error) {
         logger.error(`Error checking if URL is local news: ${error.message}`, error);
         return false;
@@ -77,16 +54,79 @@ function isLocalNews(url) {
 function filterOutLocalNews(articles) {
     if (!Array.isArray(articles)) return [];
 
-    const filteredArticles = articles.filter(article => {
+    // Collect all filtered articles and paths for a consolidated log
+    const filteredArticles = [];
+    const localArticleData = [];
+    const whitelistedArticleData = [];
+
+    articles.forEach(article => {
         const url = article.link;
-        const isLocal = isLocalNews(url);
-        return !isLocal;
+        if (!url) {
+            filteredArticles.push(article);
+            return;
+        }
+
+        try {
+            const urlObj = new URL(url);
+            const fullPath = urlObj.pathname;
+
+            if (!urlObj.hostname.includes('g1.globo.com')) {
+                // Non-G1 URLs are always included
+                filteredArticles.push(article);
+                return;
+            }
+
+            // Check whitelist for G1 URLs
+            const isWhitelisted = WHITELIST_PATHS.some(whitelistedPath =>
+                fullPath.startsWith(whitelistedPath)
+            );
+
+            if (isWhitelisted) {
+                // Include article and collect info for log
+                filteredArticles.push(article);
+                whitelistedArticleData.push({
+                    title:
+                        article.title?.substring(0, 80) + (article.title?.length > 80 ? '...' : ''),
+                    path: fullPath,
+                });
+            } else {
+                // Skip article and collect info for log
+                localArticleData.push({
+                    title:
+                        article.title?.substring(0, 80) + (article.title?.length > 80 ? '...' : ''),
+                    path: fullPath,
+                });
+            }
+        } catch (e) {
+            // Keep articles with invalid URLs (will be filtered elsewhere)
+            filteredArticles.push(article);
+            logger.error(`Invalid URL in article: ${e.message}`);
+        }
     });
 
+    // Create consolidated logs for whitelist filtering
+    if (localArticleData.length > 0) {
+        const localArticlesLog = localArticleData
+            .map((item, idx) => `  ${idx + 1}. "${item.title}" - Path: ${item.path}`)
+            .join('\n');
+        logger.debug(
+            `Filtered out ${localArticleData.length} local news articles (paths not in whitelist):\n${localArticlesLog}`
+        );
+    }
+
+    if (whitelistedArticleData.length > 0) {
+        const whitelistedArticlesLog = whitelistedArticleData
+            .map((item, idx) => `  ${idx + 1}. "${item.title}" - Path: ${item.path}`)
+            .join('\n');
+        logger.debug(
+            `Included ${whitelistedArticleData.length} articles with paths in whitelist:\n${whitelistedArticlesLog}`
+        );
+    }
+
     logger.debug(
-        `Filtered ${articles.length - filteredArticles.length} local news articles out of ${
-            articles.length
-        } total`
+        `Whitelist filter summary: ${
+            articles.length - filteredArticles.length
+        } local news excluded out of ${articles.length} total`
     );
     return filteredArticles;
 }
@@ -179,18 +219,6 @@ async function scrapeNews() {
             logger.debug('Closing puppeteer browser');
             await browser.close();
         }
-    }
-}
-
-// Helper function to convert scrapeNews2 results to the same format as scrapeNews
-async function scrapeNews2ForFallback() {
-    try {
-        const footballNews = await scrapeNews2();
-        // Convert to the same format as scrapeNews
-        return footballNews.map(item => `${item.title} - ${item.summary || ''}`);
-    } catch (error) {
-        logger.error('Error in fallback news scraping:', error.message);
-        return [];
     }
 }
 

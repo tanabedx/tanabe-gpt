@@ -47,11 +47,14 @@ const COMMAND_WHITELIST = {
     RESUMO_CONFIG: [PHONE_DS1, PHONE_DS2, GROUP_AG],
 
     // Admin commands whitelist (only admin has access)
-    TWITTER_DEBUG: [],
+    TWITTER_DEBUG: [GROUP_LF, GROUP_AG],
     RSS_DEBUG: [],
     NEWS_STATUS: [],
+    NEWS_TOGGLE: [],
     DEBUG_PERIODIC: [],
     CACHE_CLEAR: [],
+    CACHE_RESET: [],
+    CACHE_STATS: [],
 };
 
 // List of admin-only commands
@@ -59,8 +62,11 @@ const ADMIN_ONLY_COMMANDS = [
     'TWITTER_DEBUG',
     'RSS_DEBUG',
     'NEWS_STATUS',
+    'NEWS_TOGGLE',
     'DEBUG_PERIODIC',
     'CACHE_CLEAR',
+    'CACHE_RESET',
+    'CACHE_STATS',
 ];
 
 /**
@@ -144,23 +150,7 @@ async function hasPermission(commandName, chatId, userId) {
         return true;
     }
 
-    // Admin-only commands are restricted to admin regardless of whitelist
-    if (ADMIN_ONLY_COMMANDS.includes(commandName)) {
-        return false; // Already checked if user is admin above
-    }
-
-    // Special case for RESUMO_CONFIG command - check user ID directly
-    if (commandName === 'RESUMO_CONFIG') {
-        return COMMAND_WHITELIST.RESUMO_CONFIG.includes(userId);
-    }
-
-    // Special case for periodic summary - groups configured for periodic summaries
-    // don't need to be whitelisted for receiving summaries
-    if (commandName === 'PERIODIC_SUMMARY' && isGroupConfiguredForSummary(chatId)) {
-        return true;
-    }
-
-    // Check command-specific whitelist
+    // Get the command-specific whitelist
     const whitelist = COMMAND_WHITELIST[commandName];
 
     // If whitelist doesn't exist, deny access
@@ -173,6 +163,22 @@ async function hasPermission(commandName, chatId, userId) {
 
     // If whitelist is 'all', allow access
     if (whitelist === 'all') {
+        return true;
+    }
+
+    // For admin-only commands, check if the whitelist is empty
+    if (ADMIN_ONLY_COMMANDS.includes(commandName) && whitelist.length === 0) {
+        return false; // Empty whitelist means admin-only
+    }
+
+    // Special case for RESUMO_CONFIG command - check user ID directly
+    if (commandName === 'RESUMO_CONFIG') {
+        return COMMAND_WHITELIST.RESUMO_CONFIG.includes(userId);
+    }
+
+    // Special case for periodic summary - groups configured for periodic summaries
+    // don't need to be whitelisted for receiving summaries
+    if (commandName === 'PERIODIC_SUMMARY' && isGroupConfiguredForSummary(chatId)) {
         return true;
     }
 
