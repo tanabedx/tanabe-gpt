@@ -39,8 +39,14 @@ let twitterApiUsageCache = {
 // New cache specifically for articles that were sent to the group
 let sentArticleCache = new Map();
 
+// Set to track URLs of sent articles
+let sentArticleUrls = new Set();
+
 // New cache for tweets that were sent to the group
 let sentTweetCache = new Map();
+
+// Set to track IDs of sent tweets
+let sentTweetIds = new Set();
 
 // New cache for storing the last fetched tweets per account
 let lastFetchedTweetsCache = {
