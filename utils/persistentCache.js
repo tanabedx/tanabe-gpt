@@ -11,6 +11,16 @@ const CACHE_DIR = path.join(process.cwd(), 'temp');
 const CACHE_FILE = path.join(CACHE_DIR, 'newsCache.json');
 const MAX_CACHE_ITEMS = 50; // Maximum number of items in the cache
 
+// In-memory caches for quick access
+// Cache for articles that were sent to the group
+let sentArticleCache = new Map();
+// Set to track URLs of sent articles
+let sentArticleUrls = new Set();
+// Cache for tweets that were sent to the group
+let sentTweetCache = new Map();
+// Set to track IDs of sent tweets
+let sentTweetIds = new Set();
+
 // Default cache structure
 const DEFAULT_CACHE = {
     items: [], // Single array for all content (tweets and articles)
@@ -55,6 +65,89 @@ function initializeCacheFile() {
 function getMaxAgeMs() {
     const retentionDays = config.NEWS_MONITOR?.HISTORICAL_CACHE?.RETENTION_DAYS || 2;
     return retentionDays * 24 * 60 * 60 * 1000; // Convert days to milliseconds
+}
+
+/**
+ * Clean up old entries from the in-memory cache based on retention period
+ * @deprecated This function is kept for backward compatibility but now uses persistent cache
+ */
+function cleanupSentCache() {
+    // This function no longer does anything with in-memory cache
+    // The pruning happens at the persistent cache level when reading/writing
+    logger.debug('Using persistent cache instead of in-memory cache');
+}
+
+/**
+ * Alias for backward compatibility
+ * @deprecated This function is kept for backward compatibility
+ */
+function cleanupSentArticleCache() {
+    cleanupSentCache();
+}
+
+/**
+ * Check if an article has been sent recently using cached data
+ * @param {Object} article - Article object to check
+ * @returns {Promise<boolean>} - true if a similar article has been sent
+ */
+async function isArticleSentRecently(article) {
+    if (!config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+        return false;
+    }
+
+    // Use persistent cache instead of in-memory cache
+    const cache = readCache();
+    const matchingItem = cache.items.find(
+        item => item.type === 'article' && item.id === article.link
+    );
+
+    return !!matchingItem;
+}
+
+/**
+ * Record a tweet as sent to persistent cache
+ * @param {Object} tweet - The tweet that was sent
+ * @param {string} username - The Twitter username
+ * @param {string} justification - Why this tweet was relevant
+ */
+function recordSentTweet(tweet, username, justification) {
+    try {
+        if (!tweet || !tweet.id) {
+            logger.warn('Invalid tweet object provided to recordSentTweet');
+            return;
+        }
+
+        // Save directly to persistent cache
+        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+            cacheTweet(tweet, username, justification);
+            logger.debug(`Added tweet ${tweet.id} to persistent cache`);
+        }
+    } catch (error) {
+        logger.error('Error recording sent tweet:', error);
+    }
+}
+
+/**
+ * Record an article as sent to persistent cache
+ * @param {Object} article - The article that was sent
+ */
+function recordSentArticle(article) {
+    try {
+        if (!article || !article.link) {
+            logger.warn('Invalid article object provided to recordSentArticle');
+            return;
+        }
+
+        // Save directly to persistent cache
+        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+            cacheArticle(article);
+            logger.debug(
+                `Added article to persistent cache: ${article.title?.substring(0, 30)}...`
+            );
+        }
+    } catch (error) {
+        logger.error('Error recording sent article:', error);
+    }
 }
 
 /**
@@ -376,6 +469,23 @@ function getCacheStats() {
     }
 }
 
+/**
+ * Get recent items from cache
+ * @param {number} count - Maximum number of items to retrieve
+ * @returns {Array} Recent items from cache
+ */
+function getRecentItems(count = 10) {
+    try {
+        const cache = readCache();
+
+        // Just return the most recent items up to the specified count
+        return cache.items.slice(0, count);
+    } catch (error) {
+        logger.error(`Failed to get recent items from cache: ${error.message}`);
+        return [];
+    }
+}
+
 // Initialize cache file on module load
 initializeCacheFile();
 
@@ -386,7 +496,15 @@ module.exports = {
     getRecentTweetsForPrompt,
     getRecentArticlesForPrompt,
     getRecentContentForPrompt,
+    getRecentItems,
     clearCache,
     getCacheStats,
     pruneOldEntries,
+    // In-memory cache functions (kept for backward compatibility)
+    recordSentTweet,
+    recordSentArticle,
+    isArticleSentRecently,
+    cleanupSentCache,
+    cleanupSentArticleCache,
+    // Removed unused exports
 };

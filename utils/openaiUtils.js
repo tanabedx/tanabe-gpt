@@ -17,16 +17,60 @@ function getOpenAIClient() {
 }
 
 // Function to run ChatGPT completion
-const runCompletion = async (prompt, temperature = 1, model = null) => {
+const runCompletion = async (prompt, temperature = 1, model = null, promptType = null) => {
     try {
         // Check if prompt is defined before logging
         if (prompt && config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
             logger.prompt('ChatGPT Prompt', prompt);
         }
 
+        let modelToUse = model;
+
+        // Model selection priority:
+        // 1. Explicitly passed model parameter
+        // 2. NEWS_MONITOR.AI_MODELS[promptType] if promptType is specified
+        // 3. NEWS_MONITOR.AI_MODELS.DEFAULT as fallback for news monitor functions
+        // 4. SYSTEM.OPENAI_MODELS.DEFAULT as final fallback
+
+        if (!modelToUse && promptType && config?.NEWS_MONITOR?.AI_MODELS) {
+            // Check if we have a specific model for this prompt type in NEWS_MONITOR.AI_MODELS
+            if (config.NEWS_MONITOR.AI_MODELS[promptType]) {
+                modelToUse = config.NEWS_MONITOR.AI_MODELS[promptType];
+                if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
+                    logger.debug(`Using NEWS_MONITOR.AI_MODELS.${promptType}: ${modelToUse}`);
+                }
+            } else if (config.NEWS_MONITOR.AI_MODELS.DEFAULT) {
+                // Fall back to NEWS_MONITOR default if specified prompt type doesn't exist
+                modelToUse = config.NEWS_MONITOR.AI_MODELS.DEFAULT;
+                if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
+                    logger.debug(
+                        `Prompt type ${promptType} not found, using NEWS_MONITOR.AI_MODELS.DEFAULT: ${modelToUse}`
+                    );
+                }
+            }
+        }
+
+        // If no model is selected yet, use the system default
+        if (!modelToUse && config?.SYSTEM?.OPENAI_MODELS?.DEFAULT) {
+            modelToUse = config.SYSTEM.OPENAI_MODELS.DEFAULT;
+            if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
+                logger.debug(`Using SYSTEM.OPENAI_MODELS.DEFAULT: ${modelToUse}`);
+            }
+        }
+
+        // Final fallback if everything else fails
+        if (!modelToUse) {
+            modelToUse = 'gpt-4o-mini';
+            if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
+                logger.debug(
+                    `No model configuration found, using hardcoded fallback: ${modelToUse}`
+                );
+            }
+        }
+
         const openai = getOpenAIClient();
         const completion = await openai.chat.completions.create({
-            model: model || config.SYSTEM.OPENAI_MODELS.DEFAULT,
+            model: modelToUse,
             messages: [{ role: 'user', content: prompt }],
             temperature: temperature,
         });
@@ -51,7 +95,37 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
             throw new Error('Configuration not yet loaded for extractTextFromImageWithOpenAI');
         }
 
-        const effectiveModel = model || config.SYSTEM.OPENAI_MODELS.VISION_DEFAULT || 'gpt-4o-mini';
+        // Model selection priority for vision tasks:
+        // 1. Explicitly passed model parameter
+        // 2. NEWS_MONITOR.AI_MODELS.PROCESS_SITREP_IMAGE_PROMPT
+        // 3. SYSTEM.OPENAI_MODELS.VISION_DEFAULT
+        // 4. Hardcoded fallback to 'gpt-4o-mini'
+
+        let effectiveModel = model;
+
+        if (!effectiveModel && config?.NEWS_MONITOR?.AI_MODELS?.PROCESS_SITREP_IMAGE_PROMPT) {
+            effectiveModel = config.NEWS_MONITOR.AI_MODELS.PROCESS_SITREP_IMAGE_PROMPT;
+            if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
+                logger.debug(
+                    `Using NEWS_MONITOR.AI_MODELS.PROCESS_SITREP_IMAGE_PROMPT: ${effectiveModel}`
+                );
+            }
+        } else if (!effectiveModel && config?.SYSTEM?.OPENAI_MODELS?.VISION_DEFAULT) {
+            effectiveModel = config.SYSTEM.OPENAI_MODELS.VISION_DEFAULT;
+            if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
+                logger.debug(`Using SYSTEM.OPENAI_MODELS.VISION_DEFAULT: ${effectiveModel}`);
+            }
+        }
+
+        // Final fallback
+        if (!effectiveModel) {
+            effectiveModel = 'gpt-4o-mini';
+            if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
+                logger.debug(
+                    `No vision model configuration found, using hardcoded fallback: ${effectiveModel}`
+                );
+            }
+        }
 
         if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
             logger.prompt('OpenAI Vision Prompt', visionPrompt);

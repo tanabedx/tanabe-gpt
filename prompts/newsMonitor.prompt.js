@@ -1,57 +1,21 @@
 // newsMonitor.js - Prompts for news monitoring system
 
 const NEWS_MONITOR = {
-    EVALUATE_TWEET: `
-Tweet para Avaliação:
-{post}
+    EVALUATE_CONTENT: `
+Conteúdo para Avaliação:
+{content}
+
+Tipo de conteúdo: {content_type}
+{source_info}
 
 Instruções:
-Avalie o tweet acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
+Avalie o conteúdo acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
 
 Resposta obrigatória em uma das seguintes formas:
 1. Se relevante: "relevant::Breve justificativa de 5-10 palavras sobre por que é relevante"
 2. Se não relevante: "null::Motivo da exclusão em 5-10 palavras"
 
-O tweet é RELEVANTE se atender a pelo menos um dos seguintes critérios:
-- Calamidades naturais ou desastres de larga escala
-- Notícia global crítica
-- Notícias críticas relacionadas ao Brasil ou com impacto significativo e direto ao Brasil
-- Eventos de grande impacto global
-- Descobertas científicas ou avanços importantes
-- Eventos esportivos significativos com relevância internacional
-
-O tweet é IRRELEVANTE (null) nos seguintes casos:
-- A notícia já foi mencionada nos tweets anteriores (duplicada ou atualização)
-- Não se trata de um evento crítico ou relevante globalmente
-- É sobre política dos EUA (a menos que envolva eventos significativos, controvérsias ou mortes)
-- É apenas uma atualização sem novas informações substanciais
-- Diz respeito a celebridades (a menos que envolva morte ou impacto global)
-- É uma notícia local com impacto mínimo no cenário global
-
-Tweets Analisados Anteriormente (para Contexto):
-{previous_posts}
-    `,
-
-    SITREP_artorias_PROMPT: `
-Tweet de SITREP_artorias para Avaliação:
-{post}
-
-Instruções:
-Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Responda com apenas 'sim' ou 'não'.
-    `,
-
-    EVALUATE_ARTICLE: `
-Artigo para Avaliação:
-{article}
-
-Instruções:
-Avalie o artigo acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
-
-Resposta obrigatória em uma das seguintes formas:
-1. Se relevante: "relevant::Breve justificativa de 5-10 palavras sobre por que é relevante"
-2. Se não relevante: "null::Motivo da exclusão em 5-10 palavras"
-
-O artigo é RELEVANTE se atender a pelo menos um dos seguintes critérios:
+O conteúdo é RELEVANTE se atender a pelo menos um dos seguintes critérios:
 - Calamidades naturais ou desastres
 - Notícia global crítica
 - Notícia crítica relacionada ao Brasil ou com impacto significativo e direto ao Brasil
@@ -61,16 +25,22 @@ O artigo é RELEVANTE se atender a pelo menos um dos seguintes critérios:
 - Eventos esportivos significativos com relevância internacional ou ao Brasil
 - Escândalos políticos, econômicos ou de outra natureza
 
-O artigo é IRRELEVANTE (null) nos seguintes casos:
+O conteúdo é IRRELEVANTE (null) nos seguintes casos:
 - Não se trata de um evento crítico ou relevante globalmente, à maioria da população brasileira ou à maioria da população da cidade de São Paulo
 - A notícia já foi mencionada nos artigos anteriores (duplicada ou atualização)
 - É apenas uma atualização sem novas informações substanciais
 - É uma notícia local com impacto mínimo no cenário global
+- No caso de tweets sobre política dos EUA, apenas é relevante se envolver eventos significativos ou crises
 
 Seja especialmente seleto em notícias involvendo a cidade de São Paulo, educação, saúde, ciência, tecnologia e meio ambiente. Somente as marque relevante se tiverem impacto significativo globalmente ou no Brasil inteiro.
+    `,
 
-Artigos Analisados Anteriormente (para Contexto):
-{previous_articles}
+    SITREP_artorias_PROMPT: `
+Tweet de SITREP_artorias para Avaliação:
+{post}
+
+Instruções:
+Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Responda com apenas 'sim' ou 'não'.
     `,
 
     BATCH_EVALUATE_TITLES: `
@@ -130,9 +100,38 @@ Analise a imagem no URL {image_url}.
 Extraia todo o texto contido nela.
 Formate o texto extraído de forma clara, estruturada e em português do Brasil, mantendo a intenção o máximo possível.
 Adicione um emoji da bandeira do primeiro país mencionado ao lado do nome do país. 
-Caso você for utilizar markdown, o utilize de acordo com os parametros do Whatsapp, somente um asterisco ** para negrito e _ para italico. 
+Caso você for utilizar markdown, o utilize de acordo com os parametros do Whatsapp, somente um duplo asterísco (ex:. *texto*) para negrito e um duplo underline (ex:. _texto_) para itálico. 
 Se não houver texto na imagem ou se o texto não for significativo para um "breaking news", responda com "Nenhum texto relevante detectado na imagem.".
 Apenas o texto em português formatado deve ser a sua resposta final.
+    `,
+
+    DETECT_DUPLICATE: `
+Novo Item para Avaliação:
+{new_item}
+
+Itens Anteriores:
+{previous_items}
+
+Instruções:
+Compare o novo item com os itens anteriores para determinar se eles se referem essencialmente ao mesmo evento ou notícia.
+
+SEJA LENIENTE AO EXCLUIR. Em caso de dúvida, prefira considerar como não-duplicado.
+
+Considere como DUPLICADO apenas quando:
+- Trata exatamente do mesmo evento ou desenvolvimento específico
+- É obviamente a mesma notícia, mesmo que com títulos ligeiramente diferentes 
+- Cobre o mesmo tópico específico sem adicionar novas informações significativas e relevantes
+
+Foque principalmente no conteúdo semântico e não na formulação exata. Dois itens podem parecer diferentes na redação, mas se referir ao mesmo evento.
+
+Responda apenas em um dos seguintes formatos:
+1. Se for duplicado: "duplicate::[ID do item similar]::[Breve justificativa de 10-15 palavras]"
+2. Se não for duplicado: "unique::Não é duplicado de nenhum item anterior"
+3. Não utilize aspas duplas no seu retorno.
+
+Exemplos:
+- "duplicate::1921915583668355090::Mesmo anúncio sobre o PKK encerrar luta armada na Turquia"
+- "unique::Não é duplicado de nenhum item anterior"
     `,
 };
 
