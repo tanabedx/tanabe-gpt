@@ -73,29 +73,40 @@ Se nenhum título for relevante, responda com "0".
     `,
 
     SUMMARIZE_CONTENT: `
-Título: {title}
-
-Conteúdo:
+{{#if title}}
+Título Original: {title}
+{{/if}}
+Conteúdo Original:
 {content}
 
-Instruções:
-Gere um resumo conciso deste conteúdo em 3 pontos de destaque (formato bullet point). 
-Cada ponto deve comunicar uma informação factual essencial contida no artigo.
+Instruções Detalhadas:
+1.  **Tradução para Português:**
+    *   Analise o "Título Original" (se fornecido) e o "Conteúdo Original".
+    *   Se estiverem em um idioma comum diferente do Português (ex: Inglês, Espanhol), traduza-os para Português fluente e claro.
+    *   Se já estiverem em Português compreensível, utilize-os como estão.
+    *   Todo o processamento subsequente deve ser feito sobre as versões em Português.
 
-Requisitos:
-1. Use 3 pontos apenas (bullet points) com o símbolo "•" no início de cada ponto
-2. Cada ponto deve ter no máximo 10-15 palavras (curto e objetivo)
-3. Mantenha a informação puramente factual (evite opiniões ou especulações)
-4. Inclua apenas os fatos mais importantes e impactantes
-5. Ordene os pontos do mais para o menos importante
+2.  **Geração de Resumo Conciso:**
+    *   Com base no texto em Português (título traduzido/original e conteúdo traduzido/original), gere um resumo conciso em 3 pontos de destaque (formato bullet point).
+    *   Se o conteúdo for muito curto (como um tweet), os 3 pontos podem ser mais diretos e extrair a essência da mensagem curta. Se for um artigo mais longo, siga a estrutura de destacar os fatos mais importantes.
 
-Exemplos de formato:
-• Primeiro ponto importante e factual do artigo.
-• Segundo ponto importante comunicando outro aspecto essencial.
-• Terceiro ponto com informação complementar relevante.
+3.  **Requisitos para o Resumo:**
+    *   Use exatamente 3 pontos (bullet points), cada um iniciando com o símbolo "•".
+    *   Cada ponto deve ser curto e objetivo (idealmente 10-20 palavras).
+    *   Mantenha a informação puramente factual; evite opiniões ou especulações.
+    *   Inclua apenas os fatos/informações mais importantes e impactantes.
+    *   Ordene os pontos por relevância ou fluxo lógico.
+
+4.  **Formato da Resposta:**
+    *   Sua resposta DEVE CONTER APENAS os 3 bullet points do resumo em Português. Não inclua introduções, saudações, o título traduzido separadamente, ou qualquer outro texto fora dos 3 bullet points.
+
+Exemplo de Saída Esperada (APENAS os bullets):
+• Fato principal ou declaração chave do conteúdo.
+• Detalhe importante ou consequência do fato principal.
+• Informação complementar relevante ou contexto adicional.
     `,
 
-    PROCESS_SITREP_IMAGE_PROMPT: `
+    PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: `
 Analise a imagem no URL {image_url}.
 Extraia todo o texto contido nela.
 Formate o texto extraído de forma clara, estruturada e em português do Brasil, mantendo a intenção o máximo possível.
@@ -132,6 +143,30 @@ Responda apenas em um dos seguintes formatos:
 Exemplos:
 - "duplicate::1921915583668355090::Mesmo anúncio sobre o PKK encerrar luta armada na Turquia"
 - "unique::Não é duplicado de nenhum item anterior"
+    `,
+
+    DETECT_TOPIC_REDUNDANCY: `
+Analise a seguinte lista de notícias e tweets. Cada item é prefixado com seu número original na lista.
+
+Itens para análise:
+{items_numbered_list}
+
+Instruções:
+Seu objetivo é identificar grupos de itens que cobrem essencialmente o MESMO TÓPICO OU EVENTO PRINCIPAL. Itens podem ser de fontes diferentes ou ter detalhes ligeiramente variados, mas se o núcleo da notícia é o mesmo, eles devem ser agrupados.
+
+Responda APENAS com os números originais dos itens que formam grupos redundantes. 
+- Use vírgulas para separar os números dos itens dentro de um mesmo grupo.
+- Use um ponto-e-vírgula para separar grupos diferentes.
+- Mantenha a ordem original dos itens dentro de cada grupo, se possível (ou seja, o menor número do item primeiro no grupo).
+
+Exemplos de formato de resposta:
+- Se os itens 1, 3 e 5 são sobre o mesmo tópico; e os itens 2 e 4 são sobre outro tópico (mas o mesmo entre si); e o item 6 é único, responda: 1,3,5;2,4
+- Se apenas um grupo de itens redundantes for encontrado, por exemplo, itens 2, 4, e 6, responda: 2,4,6
+- Se todos os itens na lista tratarem de tópicos únicos e não houver redundância, responda com a palavra: NENHUM
+
+Considere o contexto e o evento principal. Por exemplo, duas notícias sobre "terremoto na California" são sobre o mesmo tópico, mesmo que uma mencione "Los Angeles" e outra "San Francisco" como áreas afetadas.
+Outro exemplo: se o item 1 é "Presidente anuncia novo plano econômico" e o item 3 é "Detalhes do novo pacote fiscal revelados pelo governo", eles provavelmente cobrem o mesmo tópico.
+Não agrupe itens que são apenas vagamente relacionados; eles devem ser sobre o mesmo evento ou desenvolvimento central.
     `,
 };
 

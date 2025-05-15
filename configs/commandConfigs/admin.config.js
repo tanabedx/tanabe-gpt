@@ -20,63 +20,6 @@ const CACHE_CLEAR_CONFIG = {
     },
 };
 
-// Twitter debug command
-const TWITTER_DEBUG_CONFIG = {
-    prefixes: ['!twitterdebug', '!debugtwitter'],
-    description: 'Mostra informações de debug do Twitter (apenas admin)',
-    permissions: {
-        allowedIn: 'all',
-        adminOnly: true,
-    },
-    autoDelete: {
-        errorMessages: true,
-        commandMessages: false,
-        deleteTimeout: 60000,
-    },
-    errorMessages: {
-        notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao obter informações de debug do Twitter.',
-    },
-};
-
-// RSS debug command
-const RSS_DEBUG_CONFIG = {
-    prefixes: ['!rssdebug', '!debugrss'],
-    description: 'Mostra informações de debug dos feeds RSS (apenas admin)',
-    permissions: {
-        allowedIn: 'all',
-        adminOnly: true,
-    },
-    autoDelete: {
-        errorMessages: true,
-        commandMessages: false,
-        deleteTimeout: 60000,
-    },
-    errorMessages: {
-        notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao obter informações de debug dos feeds RSS.',
-    },
-};
-
-// News Status command
-const NEWS_STATUS_CONFIG = {
-    prefixes: ['!newsstatus'],
-    description: 'Mostra o status atual do monitoramento de notícias (apenas admin)',
-    permissions: {
-        allowedIn: 'all',
-        adminOnly: true,
-    },
-    autoDelete: {
-        errorMessages: true,
-        commandMessages: false,
-        deleteTimeout: 60000,
-    },
-    errorMessages: {
-        notAllowed: 'Você não tem permissão para usar este comando.',
-        error: 'Erro ao obter status do monitoramento de notícias.',
-    },
-};
-
 // News toggle command (enable/disable whole news system)
 const NEWS_TOGGLE_CONFIG = {
     prefixes: ['!news'],
@@ -137,6 +80,7 @@ const CONFIG_CONFIG = {
 // Add new cache reset config
 const CACHE_RESET_CONFIG = {
     prefixes: ['!cachereset', '!resetcache'],
+    description: 'Reseta o cache de notícias para um estado vazio (apenas admin)',
     errorMessages: {
         generalError: 'Ocorreu um erro ao resetar o cache de notícias.',
     },
@@ -146,13 +90,14 @@ const CACHE_RESET_CONFIG = {
     },
     permissions: {
         allowedIn: 'all',
+        adminOnly: true,
     },
-    requiredPermission: 'admin',
 };
 
 // Add cache stats config
 const CACHE_STATS_CONFIG = {
     prefixes: ['!cachestats', '!cacheinfo'],
+    description: 'Mostra estatísticas do cache de notícias (apenas admin)',
     errorMessages: {
         generalError: 'Ocorreu um erro ao mostrar estatísticas do cache.',
     },
@@ -162,19 +107,37 @@ const CACHE_STATS_CONFIG = {
     },
     permissions: {
         allowedIn: 'all',
+        adminOnly: true,
     },
-    requiredPermission: 'admin',
+};
+
+// News Debug command (for the new newsMonitor.js pipeline)
+const NEWS_DEBUG_CONFIG = {
+    prefixes: ['!newsdebug', '!debugnews'],
+    description:
+        'Mostra informações de debug detalhadas do ciclo de processamento de notícias (apenas admin)',
+    permissions: {
+        allowedIn: 'all',
+        adminOnly: true,
+    },
+    autoDelete: {
+        errorMessages: true,
+        commandMessages: false,
+        deleteTimeout: 120000,
+    },
+    errorMessages: {
+        notAllowed: 'Você não tem permissão para usar este comando.',
+        error: 'Erro ao gerar o relatório de debug do ciclo de notícias.',
+    },
 };
 
 // Export all configs
 module.exports = {
     CACHE_CLEAR_CONFIG,
-    TWITTER_DEBUG_CONFIG,
-    RSS_DEBUG_CONFIG,
-    NEWS_STATUS_CONFIG,
     NEWS_TOGGLE_CONFIG,
     DEBUG_PERIODIC_CONFIG,
     CONFIG_CONFIG,
     CACHE_RESET_CONFIG,
     CACHE_STATS_CONFIG,
+    NEWS_DEBUG_CONFIG,
 };

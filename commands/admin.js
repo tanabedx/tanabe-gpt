@@ -3,12 +3,10 @@ const { performCacheClearing } = require('./cacheManagement');
 const logger = require('../utils/logger');
 const { getNextSummaryInfo, scheduleNextSummary } = require('../utils/periodicSummaryUtils');
 const { runPeriodicSummary } = require('./periodicSummary');
-const { runCompletion } = require('../utils/openaiUtils');
 const {
-    debugTwitterFunctionality,
-    debugRssFunctionality,
-    newsMonitorStatus,
-} = require('./newsMonitor');
+    generateNewsCycleDebugReport,
+    restartMonitors: newRestartMonitors,
+} = require('../newsMonitor/newsMonitor');
 const persistentCache = require('../utils/persistentCache');
 const { hasPermission } = require('../configs/whitelist');
 
@@ -16,16 +14,6 @@ const { hasPermission } = require('../configs/whitelist');
 const runtimeConfig = {
     nlpEnabled: true, // NLP processing is enabled by default
 };
-
-// Helper function to check if message is from admin chat
-async function isAdminChat(message) {
-    const chat = await message.getChat();
-    const contact = await message.getContact();
-    return (
-        contact.id._serialized === `${config.CREDENTIALS.ADMIN_NUMBER}@c.us` &&
-        chat.isGroup === false
-    );
-}
 
 // Helper function to check if user is admin or moderator
 async function isAdminOrModerator(message) {
@@ -88,259 +76,140 @@ async function handleDebugPeriodic(message) {
     logger.debug('Debug periodic summary command activated');
 
     try {
-        // Get chat and user information
         const chat = await message.getChat();
         const chatId = chat.name || chat.id._serialized;
         const userId = message.author || message.from;
 
-        // Check permission using whitelist configuration
         if (!(await hasPermission('DEBUG_PERIODIC', chatId, userId))) {
             logger.debug(`Debug periodic summary command rejected: unauthorized in ${chatId}`);
             return;
         }
 
-        // Get all configured groups
-        const groups = Object.keys(config.PERIODIC_SUMMARY?.groups || {});
-        if (groups.length === 0) {
+        const configuredGroupNames = Object.keys(config.PERIODIC_SUMMARY?.groups || {});
+        if (configuredGroupNames.length === 0) {
             await message.reply('No groups configured for periodic summaries.');
             return;
         }
 
-        // Create a results object to store all summaries
-        const results = {
-            nextScheduled: {},
-            summaries: {},
-            errors: {},
-            noMessages: [],
-            notFound: [],
-        };
+        const reportResults = [];
+        const errors = [];
+        const notFound = [];
+        const noMessages = [];
 
-        // Get next scheduled summary info for display purposes only
-        const nextSummary = getNextSummaryInfo();
-        if (nextSummary) {
-            results.nextScheduled = {
-                group: nextSummary.group,
-                time: new Date(nextSummary.nextValidTime).toLocaleString('pt-BR', {
-                    timeZone: 'America/Sao_Paulo',
-                }),
-                interval: nextSummary.interval,
-            };
-        }
-
-        for (const groupName of groups) {
+        for (const groupName of configuredGroupNames) {
             try {
-                // Get group chats
-                const chats = await global.client.getChats();
-                const chat = chats.find(c => c.name === groupName);
+                // Check if group actually exists before calling runPeriodicSummary
+                const groupChats = await global.client.getChats();
+                const groupChat = groupChats.find(c => c.name === groupName);
 
-                if (!chat || !chat.isGroup) {
-                    results.notFound.push(groupName);
+                if (!groupChat || !groupChat.isGroup) {
+                    logger.warn(
+                        `Debug Periodic: Group chat "${groupName}" not found or not a group.`
+                    );
+                    notFound.push(groupName);
                     continue;
                 }
 
-                const groupConfig = config.PERIODIC_SUMMARY.groups[groupName];
-                if (!groupConfig) {
-                    results.errors[groupName] = 'No configuration found';
-                    continue;
-                }
+                const result = await runPeriodicSummary(groupName, true, { returnOnly: true });
 
-                // Get messages using the same logic as in runPeriodicSummary
-                const intervalHours =
-                    groupConfig.intervalHours || config.PERIODIC_SUMMARY.defaults.intervalHours;
-                const intervalMs = intervalHours * 60 * 60 * 1000;
-
-                logger.debug(`Fetching messages for group ${groupName}`);
-
-                const messages = await chat.fetchMessages({ limit: 1000 });
-                logger.debug(`Fetched ${messages.length} messages for group ${groupName}`);
-
-                const cutoffTime = new Date(Date.now() - intervalMs);
-                const validMessages = messages.filter(
-                    message =>
-                        !message.fromMe &&
-                        message.body.trim() !== '' &&
-                        new Date(message.timestamp * 1000) > cutoffTime
-                );
-
-                logger.debug(
-                    `Found ${validMessages.length} valid messages within interval for ${groupName}`
-                );
-
-                if (validMessages.length === 0) {
-                    results.noMessages.push(groupName);
-                    continue;
-                }
-
-                // Format messages for the summary
-                const messageTexts = await Promise.all(
-                    validMessages.map(async msg => {
-                        const contact = await msg.getContact();
-                        const name = contact.pushname || contact.name || contact.number;
-                        return `>>${name}: ${msg.body}.\n`;
-                    })
-                );
-
-                logger.debug(
-                    `Formatted ${messageTexts.length} messages for summary in ${groupName}`
-                );
-
-                // Generate summary using OpenAI
-                const PERIODIC_SUMMARY = require('../prompts/periodicSummary.prompt');
-                const promptToUse = groupConfig.prompt || PERIODIC_SUMMARY.DEFAULT;
-
-                const summaryText = await runCompletion(
-                    promptToUse + '\n\n' + messageTexts.join(''),
-                    0.7
-                );
-
-                logger.debug(`Generated summary for ${groupName}:`, summaryText);
-
-                // Add the summary to the results
-                if (summaryText.trim().toLowerCase() !== 'null') {
-                    results.summaries[groupName] = {
-                        summary: summaryText,
-                        messagesCount: validMessages.length,
-                        intervalHours: intervalHours,
-                        promptType: groupConfig.prompt ? 'custom' : 'default',
-                    };
+                if (result.success) {
+                    reportResults.push({
+                        groupName,
+                        summaryText: result.summaryText,
+                        messagesCount: result.messagesCount,
+                        status: result.status, // e.g., 'summary_generated', 'no_messages', 'ai_returned_null'
+                        groupConfig: result.groupConfig,
+                    });
+                    if (result.status === 'no_messages') {
+                        noMessages.push(groupName);
+                    }
                 } else {
-                    results.errors[groupName] = 'OpenAI returned null response';
+                    logger.error(
+                        `Debug Periodic: Error running summary for ${groupName}: ${result.error}`
+                    );
+                    errors.push({ groupName, error: result.error });
                 }
-            } catch (error) {
-                logger.error(`Error generating debug summary for ${groupName}:`, error);
-                results.errors[groupName] = error.message;
+            } catch (e) {
+                logger.error(
+                    `Debug Periodic: Critical error processing group ${groupName} for debug: ${e.message}`
+                );
+                errors.push({ groupName, error: e.message });
             }
         }
 
         // Build the final message
-        let finalMessage = `*📊 PERIODIC SUMMARY DEBUG REPORT*\n\n`;
+        let finalMessage = `*📊 RELATÓRIO DE DEBUG DO RESUMO PERIÓDICO*
 
-        // Next scheduled summary
-        if (results.nextScheduled.group) {
-            finalMessage += `*Next scheduled summary:*\n`;
-            finalMessage += `Group: ${results.nextScheduled.group}\n`;
-            finalMessage += `Time: ${results.nextScheduled.time}\n`;
-            finalMessage += `Interval: ${results.nextScheduled.interval}h\n\n`;
+`;
+
+        const nextSummaryInfo = getNextSummaryInfo();
+        if (nextSummaryInfo) {
+            finalMessage += `*Próximo resumo agendado:*
+`;
+            finalMessage += `Grupo: ${nextSummaryInfo.group}
+`;
+            finalMessage += `Horário: ${new Date(nextSummaryInfo.nextValidTime).toLocaleString(
+                'pt-BR',
+                {
+                    timeZone: 'America/Sao_Paulo',
+                }
+            )}
+`;
+            finalMessage += `Intervalo: ${nextSummaryInfo.interval}h\n\n`;
         }
 
-        // Stats summary
-        finalMessage += `*Summary statistics:*\n`;
-        finalMessage += `Total groups: ${groups.length}\n`;
-        finalMessage += `Summaries generated: ${Object.keys(results.summaries).length}\n`;
-        finalMessage += `Groups with no messages: ${results.noMessages.length}\n`;
-        finalMessage += `Groups not found: ${results.notFound.length}\n`;
-        finalMessage += `Errors: ${Object.keys(results.errors).length}\n\n`;
+        finalMessage += `*Estatísticas da Simulação:*
+`;
+        finalMessage += `Total de grupos configurados: ${configuredGroupNames.length}
+`;
+        finalMessage += `Resumos gerados/tentados: ${reportResults.length}
+`;
+        finalMessage += `Grupos sem mensagens válidas: ${noMessages.length}
+`;
+        finalMessage += `Grupos não encontrados: ${notFound.length}
+`;
+        finalMessage += `Erros durante a geração: ${errors.length}\n\n`;
 
-        // Summaries section
-        if (Object.keys(results.summaries).length > 0) {
-            finalMessage += `*📝 SUMMARIES BY GROUP*\n\n`;
+        if (reportResults.length > 0) {
+            finalMessage += `*📝 RESULTADOS POR GRUPO*
 
-            for (const [groupName, data] of Object.entries(results.summaries)) {
-                finalMessage += `*📋 ${groupName}*\n`;
-                finalMessage += `Messages: ${data.messagesCount} (last ${data.intervalHours}h) | Prompt: ${data.promptType}\n\n`;
-                finalMessage += `${data.summary}\n\n`;
+`;
+            for (const res of reportResults) {
+                finalMessage += `*📋 ${res.groupName}*
+`;
+                finalMessage += `Status: ${res.status}
+`;
+                finalMessage += `Mensagens Consideradas: ${res.messagesCount} (nas últimas ${res.groupConfig.intervalHours}h)
+`;
+                finalMessage += `Prompt: ${res.groupConfig.prompt ? 'Customizado' : 'Padrão'}
+`;
+                if (res.summaryText) {
+                    finalMessage += `Resumo Gerado:\n${res.summaryText}\n`;
+                }
                 finalMessage += `${'─'.repeat(30)}\n\n`;
             }
         }
 
-        // No messages section
-        if (results.noMessages.length > 0) {
-            finalMessage += `*Groups with no messages:*\n`;
-            results.noMessages.forEach(group => {
-                finalMessage += `• ${group}\n`;
-            });
+        if (notFound.length > 0) {
+            finalMessage += `*Grupos configurados mas não encontrados:*
+`;
+            notFound.forEach(group => (finalMessage += `• ${group}\n`));
             finalMessage += `\n`;
         }
 
-        // Not found section
-        if (results.notFound.length > 0) {
-            finalMessage += `*Groups not found:*\n`;
-            results.notFound.forEach(group => {
-                finalMessage += `• ${group}\n`;
-            });
-            finalMessage += `\n`;
-        }
-
-        // Errors section
-        if (Object.keys(results.errors).length > 0) {
-            finalMessage += `*Errors:*\n`;
-            for (const [groupName, errorMsg] of Object.entries(results.errors)) {
-                finalMessage += `• ${groupName}: ${errorMsg}\n`;
+        if (errors.length > 0) {
+            finalMessage += `*Erros Detalhados:*
+`;
+            for (const err of errors) {
+                finalMessage += `• ${err.groupName}: ${err.error}\n`;
             }
         }
 
-        // Send the final consolidated message
         await message.reply(finalMessage);
-
-        // Reschedule the next regular summary
-        scheduleNextSummary();
+        scheduleNextSummary(); // Reschedule the next regular summary run
     } catch (error) {
         logger.error('Error in debug periodic summary command:', error);
         await message.reply(`Error: ${error.message}`);
-    }
-}
-
-async function handleTwitterDebug(message) {
-    logger.debug('Twitter debug command activated');
-
-    try {
-        // Get chat and user information
-        const chat = await message.getChat();
-        const chatId = chat.name || chat.id._serialized;
-        const userId = message.author || message.from;
-
-        // Check permission using whitelist configuration
-        if (!(await hasPermission('TWITTER_DEBUG', chatId, userId))) {
-            logger.debug(`Twitter debug command rejected: unauthorized in ${chatId}`);
-            return;
-        }
-
-        await chat.sendStateTyping();
-
-        // Check if Twitter accounts are configured
-        if (!config.NEWS_MONITOR.TWITTER_ACCOUNTS || !config.NEWS_MONITOR.TWITTER_ACCOUNTS.length) {
-            logger.error('No Twitter accounts configured');
-            await message.reply('No Twitter accounts configured in the system.');
-            return;
-        }
-
-        // Call the Twitter debug function
-        await debugTwitterFunctionality(message);
-    } catch (error) {
-        logger.error('Error in Twitter debug command', error);
-        await message.reply(`Debug error: ${error.message}`);
-    }
-}
-
-async function handleRssDebug(message) {
-    logger.debug('RSS debug command activated');
-
-    try {
-        // Get chat and user information
-        const chat = await message.getChat();
-        const chatId = chat.name || chat.id._serialized;
-        const userId = message.author || message.from;
-
-        // Check permission using whitelist configuration
-        if (!(await hasPermission('RSS_DEBUG', chatId, userId))) {
-            logger.debug(`RSS debug command rejected: unauthorized in ${chatId}`);
-            return;
-        }
-
-        await chat.sendStateTyping();
-
-        // Check if RSS feeds are configured
-        if (!config.NEWS_MONITOR.FEEDS || !config.NEWS_MONITOR.FEEDS.length) {
-            logger.error('No RSS feeds configured');
-            await message.reply('No RSS feeds configured in the system.');
-            return;
-        }
-
-        // Call the RSS debug function
-        await debugRssFunctionality(message);
-    } catch (error) {
-        logger.error('Error in RSS debug:', error);
-        await message.reply('Error testing RSS functionality: ' + error.message);
     }
 }
 
@@ -383,34 +252,6 @@ async function handleConfig(message, _, input) {
 
         default:
             await message.reply(`Unknown configuration option: ${option}\nAvailable options: nlp`);
-    }
-}
-
-/**
- * Handle the news monitor status command
- */
-async function handleNewsStatus(message) {
-    logger.debug('News status command activated');
-
-    try {
-        // Get chat and user information
-        const chat = await message.getChat();
-        const chatId = chat.name || chat.id._serialized;
-        const userId = message.author || message.from;
-
-        // Check permission using whitelist configuration
-        if (!(await hasPermission('NEWS_STATUS', chatId, userId))) {
-            logger.debug(`News status command rejected: unauthorized in ${chatId}`);
-            return;
-        }
-
-        await chat.sendStateTyping();
-
-        // Call the news monitor status function
-        await newsMonitorStatus(message);
-    } catch (error) {
-        logger.error('Error in news status command', error);
-        await message.reply(`Error retrieving news monitor status: ${error.message}`);
     }
 }
 
@@ -535,9 +376,8 @@ async function handleNewsToggle(message) {
             config.NEWS_MONITOR.TWITTER_ENABLED = true;
             config.NEWS_MONITOR.RSS_ENABLED = true;
 
-            // Restart both monitors
-            const { restartMonitors } = require('./newsMonitor');
-            await restartMonitors(true, true);
+            // Restart both monitors using the new restartMonitors function
+            await newRestartMonitors(true, true);
 
             await message.reply(
                 'News monitor system has been fully enabled. Both Twitter and RSS monitors have been restarted.'
@@ -570,15 +410,56 @@ async function handleNewsToggle(message) {
     }
 }
 
+/**
+ * Handle the news debug command for the main newsMonitor.js pipeline
+ */
+async function handleNewsDebug(message) {
+    logger.debug('News debug command activated for newsMonitor.js pipeline');
+
+    try {
+        const chat = await message.getChat();
+        const chatId = chat.name || chat.id._serialized;
+        const userId = message.author || message.from;
+
+        if (!(await hasPermission('NEWS_DEBUG', chatId, userId))) {
+            // Assuming NEWS_DEBUG will be the permission key
+            logger.debug(`News debug command rejected: unauthorized in ${chatId}`);
+            // Optionally send a message, or just return if no reply on unauthorized is desired
+            // await message.reply('Você não tem permissão para usar este comando.');
+            return;
+        }
+
+        await chat.sendStateTyping();
+        // Add a small delay to allow typing state to be sent before long operation
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        logger.info('Generating news cycle debug report. This may take a moment...');
+        await message.reply(
+            'Gerando relatório de debug do ciclo de notícias. Isso pode levar alguns instantes e consumirá tokens de API...'
+        );
+
+        const report = await generateNewsCycleDebugReport(); // This function will be in newsMonitor/newsMonitor.js
+
+        if (report) {
+            await message.reply(report);
+        } else {
+            await message.reply('Falha ao gerar o relatório de debug. Verifique os logs.');
+        }
+    } catch (error) {
+        logger.error('Error in news debug command (newsMonitor.js pipeline):', error);
+        await message.reply(
+            `Erro ao gerar relatório de debug do ciclo de notícias: ${error.message}`
+        );
+    }
+}
+
 module.exports = {
     handleCacheClear,
-    handleTwitterDebug,
     handleDebugPeriodic,
-    handleRssDebug,
     handleConfig,
-    handleNewsStatus,
     runtimeConfig,
     resetNewsCache,
     showCacheStats,
     handleNewsToggle,
+    handleNewsDebug,
 };

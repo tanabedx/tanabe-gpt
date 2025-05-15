@@ -35,7 +35,9 @@ function isQuietTime(quietTime) {
 }
 
 // Main periodic summary function
-async function runPeriodicSummary(groupName, forceRun = false) {
+async function runPeriodicSummary(groupName, forceRun = false, options = {}) {
+    const { returnOnly = false } = options;
+
     // Only check global enabled status if not forced
     if (!forceRun && !config.PERIODIC_SUMMARY?.enabled) {
         logger.debug('Periodic summary disabled in config');
@@ -93,7 +95,17 @@ async function runPeriodicSummary(groupName, forceRun = false) {
 
         if (validMessages.length === 0) {
             logger.debug(`No valid messages to summarize for ${groupName}`);
-            return true;
+            if (returnOnly) {
+                return {
+                    success: true,
+                    summaryText: null,
+                    messagesCount: 0,
+                    groupConfig: groupConfig,
+                    status: 'no_messages',
+                    error: null,
+                };
+            }
+            return true; // Original behavior: success, no message sent
         }
 
         // Format messages for the summary
@@ -116,16 +128,46 @@ async function runPeriodicSummary(groupName, forceRun = false) {
 
         // Only send if summary is not null
         if (summaryText.trim().toLowerCase() !== 'null') {
+            if (returnOnly) {
+                return {
+                    success: true,
+                    summaryText: summaryText,
+                    messagesCount: validMessages.length,
+                    groupConfig: groupConfig,
+                    status: 'summary_generated',
+                    error: null,
+                };
+            }
             await chat.sendMessage(summaryText);
             logger.debug(`Successfully sent summary to ${groupName}`);
-            return true;
+            return true; // Original behavior: success, message sent
         } else {
             logger.debug(`No summary sent for ${groupName} (ChatGPT returned null)`);
-            return true;
+            if (returnOnly) {
+                return {
+                    success: true,
+                    summaryText: null,
+                    messagesCount: validMessages.length, // Still useful to know messages were processed
+                    groupConfig: groupConfig,
+                    status: 'ai_returned_null',
+                    error: null,
+                };
+            }
+            return true; // Original behavior: success, no message sent (AI null)
         }
     } catch (error) {
         logger.error(`Failed to generate summary for ${groupName}:`, error);
-        return false;
+        if (returnOnly) {
+            return {
+                success: false,
+                summaryText: null,
+                messagesCount: 0,
+                groupConfig: groupConfig, // Return config even on error for context
+                status: 'error',
+                error: error.message,
+            };
+        }
+        return false; // Original behavior: failure
     }
 }
 

@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 const commandManager = require('./CommandManager');
 const { registerCommands } = require('./CommandRegistry');
 const { handleAyubLinkSummary } = require('../commands/ayub');
-const { initializeNewsMonitor } = require('../commands/newsMonitor');
+const { initialize } = require('../newsMonitor/newsMonitor.js');
 const { getUserState, handleWizard } = require('../commands/wizard');
 const nlpProcessor = require('../commands/nlpProcessor');
 const crypto = require('crypto');
@@ -524,7 +524,7 @@ function setupListeners(client) {
             if (config.NEWS_MONITOR.enabled) {
                 logger.debug('Initializing news monitor...');
                 try {
-                    await initializeNewsMonitor(client);
+                    await initialize(client);
                 } catch (error) {
                     logger.error('Failed to initialize news monitor:', error);
                 }

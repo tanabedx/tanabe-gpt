@@ -4,7 +4,8 @@
 # Node modules
 node_modules/
 
-# Logs
+# Logs & temp
+newsCache.json
 *.log
 
 # IDE specific files
@@ -31,3 +32,6 @@ tanabe_monitor.py
 start.sh
 tanabe-monitor.service
 setup.sh
+
+#WIP
+README.md

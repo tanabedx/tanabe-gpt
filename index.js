@@ -13,7 +13,7 @@ const qrcode = require('qrcode-terminal');
 const config = require('./configs');
 const { setupListeners } = require('./core/listener');
 const { initializeMessageLog } = require('./utils/messageLogger');
-const { initializeNewsMonitor } = require('./commands/newsMonitor');
+const { initialize } = require('./newsMonitor/newsMonitor.js');
 const { scheduleNextSummary: schedulePeriodicSummary } = require('./utils/periodicSummaryUtils');
 const { performStartupGitPull } = require('./utils/gitUtils');
 const {
@@ -363,7 +363,7 @@ async function initializeBot() {
         // Initialize news monitor (handles both Twitter and RSS)
         try {
             logger.debug('About to call initializeNewsMonitor...');
-            await initializeNewsMonitor();
+            await initialize();
             logger.debug('Returned from initializeNewsMonitor successfully.');
         } catch (error) {
             logger.error('Failed to initialize news monitor (caught in initializeBot):', error);

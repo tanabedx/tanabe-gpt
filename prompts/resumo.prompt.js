@@ -12,7 +12,7 @@ Deixe claro quantas mensagens ou o período de tempo de mensagens que foram resu
 
 {groupPersonality}
         `,
-    LINK_SUMMARY: `Você é um assistente especializado em resumir conteúdo. Por favor, resuma o seguinte texto em português de forma clara e concisa, mantendo os pontos principais:
+    LINK_SUMMARY: `Você é um assistente especializado em resumir conteúdo. Por favor, resuma o seguinte texto em português de forma clara e concisa, mantendo os pontos principais. Começe com uma frase resumindo tudo, em seguida no máximo 5 bullet points com informações relevantes:
 
 {pageContent}
 

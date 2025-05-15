@@ -24,6 +24,7 @@ let sentTweetIds = new Set();
 // Default cache structure
 const DEFAULT_CACHE = {
     items: [], // Single array for all content (tweets and articles)
+    twitterApiStates: {}, // For storing state of Twitter API keys { primary: {...}, fallback: {...}, ...}
 };
 
 /**
@@ -50,7 +51,7 @@ function initializeCacheFile() {
     try {
         if (!fs.existsSync(CACHE_FILE)) {
             fs.writeFileSync(CACHE_FILE, JSON.stringify(DEFAULT_CACHE, null, 2));
-            logger.debug(`Created empty cache file: ${CACHE_FILE}`);
+            logger.debug(`Created empty cache file with default structure: ${CACHE_FILE}`);
         }
     } catch (error) {
         logger.error(`Failed to initialize cache file: ${error.message}`);
@@ -156,32 +157,34 @@ function recordSentArticle(article) {
  * @returns {Object} - The pruned cache object
  */
 function pruneOldEntries(cache) {
-    // Safety check for undefined cache
-    if (!cache || typeof cache !== 'object' || !Array.isArray(cache.items)) {
-        logger.error('Invalid cache object provided to pruneOldEntries');
-        return { ...DEFAULT_CACHE };
+    // Safety check for undefined cache or missing items array
+    if (!cache || typeof cache !== 'object') {
+        logger.error('Invalid cache object provided to pruneOldEntries, returning default.');
+        return { ...DEFAULT_CACHE }; // Return a new default structure
     }
+
+    // Ensure items array exists, even if other parts of cache are present
+    const itemsToPrune = Array.isArray(cache.items) ? cache.items : [];
 
     const now = Date.now();
     const maxAgeMs = getMaxAgeMs();
 
-    // Filter out items older than the max age
-    const originalCount = cache.items.length;
-    const prunedCache = {
-        items: cache.items.filter(item => {
-            return item && item.timestamp && now - item.timestamp < maxAgeMs;
-        }),
-    };
+    const originalCount = itemsToPrune.length;
+    const prunedItems = itemsToPrune.filter(item => {
+        return item && item.timestamp && now - item.timestamp < maxAgeMs;
+    });
 
-    // Log if we pruned any entries
-    const prunedCount = originalCount - prunedCache.items.length;
-
+    const prunedCount = originalCount - prunedItems.length;
     if (prunedCount > 0) {
         const maxAgeDays = maxAgeMs / (24 * 60 * 60 * 1000);
-        logger.debug(`Pruned ${prunedCount} items older than ${maxAgeDays} days`);
+        logger.debug(`Pruned ${prunedCount} items older than ${maxAgeDays} days from items list`);
     }
 
-    return prunedCache;
+    // Return a new object with pruned items and other cache parts intact
+    return {
+        ...cache, // Spread other potential top-level keys like twitterApiStates
+        items: prunedItems,
+    };
 }
 
 /**
@@ -191,20 +194,22 @@ function pruneOldEntries(cache) {
 function readCache() {
     try {
         if (!fs.existsSync(CACHE_FILE)) {
-            initializeCacheFile();
+            initializeCacheFile(); // This will create it with DEFAULT_CACHE
             return { ...DEFAULT_CACHE };
         }
 
-        const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+        let cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
 
-        // Handle different cache formats:
-        // 1. New format: { items: [...] }
-        // 2. Old format: { tweets: [...], articles: [...] }
-        if (!cacheData.items) {
-            // Convert old format to new format
+        // Ensure basic structure for backward compatibility or corruption
+        if (typeof cacheData !== 'object' || cacheData === null) {
+            logger.warn('Cache file contained invalid data, reinitializing.');
+            initializeCacheFile();
+            cacheData = { ...DEFAULT_CACHE };
+        }
+
+        // Handle old format conversion if items is missing but tweets/articles exist
+        if (!cacheData.items && (cacheData.tweets || cacheData.articles)) {
             const combinedItems = [];
-
-            // Convert tweets to items format
             if (Array.isArray(cacheData.tweets)) {
                 cacheData.tweets.forEach(tweet => {
                     combinedItems.push({
@@ -217,8 +222,6 @@ function readCache() {
                     });
                 });
             }
-
-            // Convert articles to items format
             if (Array.isArray(cacheData.articles)) {
                 cacheData.articles.forEach(article => {
                     combinedItems.push({
@@ -231,30 +234,32 @@ function readCache() {
                     });
                 });
             }
-
-            // Sort all items by timestamp (newest first)
             combinedItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-            // Create new format
             cacheData.items = combinedItems;
-
-            // Log the conversion
+            // Remove old top-level keys after conversion
+            delete cacheData.tweets;
+            delete cacheData.articles;
             logger.debug(
-                `Converted cache from old format to new format (${combinedItems.length} items)`
+                `Converted old cache format to new items array (${combinedItems.length} items)`
             );
-
-            // Write back the converted format
-            try {
-                writeCache(cacheData);
-            } catch (writeError) {
-                logger.error(`Failed to write converted cache format: ${writeError.message}`);
-                // Continue with the in-memory converted format
-            }
+            // No immediate write here, let pruneOldEntries and subsequent write handle it
         }
 
-        const prunedCache = pruneOldEntries(cacheData);
+        // Ensure top-level keys from DEFAULT_CACHE exist
+        if (!cacheData.items) {
+            cacheData.items = []; // Ensure items array exists
+        }
+        if (cacheData.twitterApiStates === undefined) {
+            // Check for undefined specifically
+            cacheData.twitterApiStates = {}; // Ensure twitterApiStates object exists
+            logger.debug('Added missing twitterApiStates object to in-memory cache.');
+        }
 
-        return prunedCache;
+        // Pruning should only affect 'items'
+        const prunedCache = pruneOldEntries(cacheData);
+        // After pruning items, the prunedCache still contains other top-level keys like twitterApiStates
+
+        return prunedCache; // Return the full cache object, including twitterApiStates
     } catch (error) {
         logger.error(`Failed to read cache: ${error.message}`);
         return { ...DEFAULT_CACHE }; // Return empty array if there's an error
@@ -269,10 +274,11 @@ function writeCache(cacheData) {
     try {
         ensureCacheDir();
 
-        // Prune old entries before writing
-        const prunedCache = pruneOldEntries(cacheData);
+        // Prune old entries from the 'items' list before writing
+        // The cacheData object might contain other keys like twitterApiStates which should not be pruned by this logic.
+        const cacheToWrite = pruneOldEntries(cacheData); // pruneOldEntries now returns the full object with items pruned
 
-        fs.writeFileSync(CACHE_FILE, JSON.stringify(prunedCache, null, 2));
+        fs.writeFileSync(CACHE_FILE, JSON.stringify(cacheToWrite, null, 2));
     } catch (error) {
         logger.error(`Failed to write cache: ${error.message}`);
     }
@@ -443,14 +449,15 @@ function getCacheStats() {
         const now = Date.now();
 
         // Get tweets and articles from the combined array
-        const tweets = cache.items.filter(item => item.type === 'tweet');
-        const articles = cache.items.filter(item => item.type === 'article');
+        const itemsArray = Array.isArray(cache.items) ? cache.items : [];
+        const tweets = itemsArray.filter(item => item.type === 'tweet');
+        const articles = itemsArray.filter(item => item.type === 'article');
 
         // Calculate age statistics for all items
-        const itemAges = cache.items.map(item => now - (item.timestamp || 0));
+        const itemAges = itemsArray.map(item => now - (item.timestamp || 0));
 
         return {
-            totalItems: cache.items.length,
+            totalItems: itemsArray.length,
             tweetCount: tweets.length,
             articleCount: articles.length,
             newestItemHours: itemAges.length > 0 ? Math.min(...itemAges) / (1000 * 60 * 60) : 0,
@@ -486,11 +493,41 @@ function getRecentItems(count = 10) {
     }
 }
 
+// New functions for managing Twitter API states in persistent cache
+/**
+ * Gets the persisted states of Twitter API keys.
+ * @returns {object} The twitterApiStates object from the cache.
+ */
+function getTwitterApiStates() {
+    const cache = readCache();
+    return cache.twitterApiStates || {}; // Ensure an object is returned
+}
+
+/**
+ * Saves the states of Twitter API keys to persistent cache.
+ * @param {object} newApiStates - The new states object for all Twitter keys.
+ */
+function saveTwitterApiKeyStates(newApiStates) {
+    if (typeof newApiStates !== 'object' || newApiStates === null) {
+        logger.error('saveTwitterApiKeyStates received invalid states object. Aborting save.');
+        return;
+    }
+    try {
+        const cache = readCache(); // Get the full current cache
+        cache.twitterApiStates = newApiStates; // Update only the twitterApiStates part
+        writeCache(cache); // Write the entire cache object back
+        logger.debug('Successfully saved Twitter API key states to persistent cache.');
+    } catch (error) {
+        logger.error(`Failed to save Twitter API key states: ${error.message}`);
+    }
+}
+
 // Initialize cache file on module load
 initializeCacheFile();
 
 module.exports = {
     readCache,
+    writeCache,
     cacheTweet,
     cacheArticle,
     getRecentTweetsForPrompt,
@@ -500,6 +537,9 @@ module.exports = {
     clearCache,
     getCacheStats,
     pruneOldEntries,
+    // New functions for Twitter API states
+    getTwitterApiStates,
+    saveTwitterApiKeyStates,
     // In-memory cache functions (kept for backward compatibility)
     recordSentTweet,
     recordSentArticle,

@@ -13,6 +13,7 @@ const {
     resetNewsCache,
     showCacheStats,
     handleNewsToggle,
+    handleNewsDebug,
 } = require('../commands/admin');
 const { handleChat } = require('../commands/chat');
 const { handleTag } = require('../commands/tag');
@@ -45,6 +46,7 @@ function registerCommands() {
     commandManager.registerHandler('COMMAND_LIST', handleCommandList);
     commandManager.registerHandler('CACHE_RESET', resetNewsCache);
     commandManager.registerHandler('CACHE_STATS', showCacheStats);
+    commandManager.registerHandler('NEWS_DEBUG', handleNewsDebug);
 
     logger.debug('Command handlers registered successfully');
 }
