@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { execSync } = require('child_process');
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -180,6 +181,31 @@ function createDirectories() {
     }
 }
 
+// Function to install Chromium and its dependencies on Linux
+function installChromiumDependencies() {
+    if (process.platform === 'linux') {
+        console.log('\n====== Installing Chromium Dependencies (Linux) ======');
+        try {
+            console.log('Updating package list...');
+            execSync('sudo apt-get update', { stdio: 'inherit' });
+            console.log('Installing Chromium and dependencies...');
+            execSync(
+                'sudo apt-get install -y chromium-browser libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libasound2',
+                { stdio: 'inherit' }
+            );
+            console.log('Chromium dependencies installation attempt finished.');
+        } catch (error) {
+            console.error('Failed to install Chromium dependencies:', error.message);
+            console.log(
+                'Please try installing them manually. For Debian/Ubuntu, you can try:\nsudo apt-get update && sudo apt-get install -y chromium-browser libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libasound2'
+            );
+        }
+        console.log('-------------------------------------------------');
+    } else {
+        console.log('\nSkipping Chromium dependency installation (not on Linux).');
+    }
+}
+
 // Main function
 async function main() {
     console.log('====== Tanabe-GPT Setup ======');
@@ -189,6 +215,9 @@ async function main() {
 
     // Create necessary directories
     createDirectories();
+
+    // Install Chromium dependencies if on Linux
+    installChromiumDependencies();
 
     // Handle existing .env file
     const skipEnvSetup = await handleExistingEnvFile();

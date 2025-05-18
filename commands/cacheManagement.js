@@ -6,9 +6,9 @@ const logger = require('../utils/logger');
 const CACHE_DIRS = ['.wwebjs_cache'];
 
 // Memory management settings
-const MEMORY_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const MEMORY_CHECK_INTERVAL = 16 * 60 * 1000; // 16 minutes
 const MEMORY_THRESHOLD_MB = 300; // Trigger GC when memory usage exceeds this
-const MAX_MEMORY_LOGS = 10;
+const MAX_MEMORY_LOGS = 50;
 let memoryUsageLog = [];
 let memoryMonitorInterval = null;
 

@@ -48,14 +48,23 @@ function isQuietHours() {
 
 /**
  * The main function to be called periodically to fetch, filter, and process news.
+ * @param {boolean} [skipPeriodicCheck=false] - If true, skips the twitterApiHandler.periodicCheck().
  */
-async function processNewsCycle() {
+async function processNewsCycle(skipPeriodicCheck = false) {
     logger.debug('NM: Starting new processing cycle.');
-    try {
-        await twitterApiHandler.periodicCheck();
-    } catch (e) {
-        logger.error('NM: Error twitterApiHandler.periodicCheck():', e);
+
+    if (!skipPeriodicCheck) {
+        try {
+            await twitterApiHandler.periodicCheck();
+        } catch (e) {
+            logger.error('NM: Error twitterApiHandler.periodicCheck():', e);
+        }
+    } else {
+        logger.debug(
+            'NM: Skipping twitterApiHandler.periodicCheck() for this cycle (initial run).'
+        );
     }
+
     if (isQuietHours()) {
         logger.debug('NM: Processing skipped due to quiet hours.');
         return;
@@ -952,32 +961,55 @@ async function initialize() {
         targetGroup = null;
     }
 
+    let twitterApiInitialized = false;
     try {
         if (!(await twitterApiHandler.initialize())) {
             logger.warn(
                 'NM: Twitter API Handler failed/no usable keys. Twitter fetching impaired.'
             );
+            // twitterApiInitialized remains false
         } else {
-            logger.debug('NM: Twitter API Handler initialized.');
+            logger.debug('NM: Twitter API Handler initialized successfully.');
+            twitterApiInitialized = true;
         }
     } catch (e) {
-        logger.error('NM: Critical error Twitter API init:', e);
+        logger.error('NM: Critical error during Twitter API Handler initialization:', e);
+        // twitterApiInitialized remains false
     }
-    try {
-        await processNewsCycle();
-    } catch (e) {
-        logger.error('NM: Error initial processNewsCycle():', e);
+
+    // Run the first news cycle immediately after initialization,
+    // but only if the Twitter API part was successful enough to proceed.
+    // The skipPeriodicCheck=true will prevent it from immediately re-checking Twitter API keys.
+    if (twitterApiInitialized) {
+        logger.debug(
+            'NM: Performing initial news cycle immediately after Twitter API Handler init...'
+        );
+        try {
+            await processNewsCycle(true); // Pass true to skip periodicCheck
+        } catch (e) {
+            logger.error('NM: Error during initial immediate processNewsCycle():', e);
+        }
+    } else {
+        logger.warn(
+            'NM: Skipping initial news cycle due to Twitter API Handler initialization issues.'
+        );
     }
+
     if (newsMonitorIntervalId) clearInterval(newsMonitorIntervalId);
     newsMonitorIntervalId = setInterval(async () => {
         try {
+            // Subsequent cycles will call with default skipPeriodicCheck = false
             await processNewsCycle();
         } catch (e) {
             logger.error('NM: Unhandled error scheduled processNewsCycle():', e);
         }
     }, NEWS_MONITOR_CONFIG.CHECK_INTERVAL);
-    logger.debug(`NM: Initialized. Runs every ${NEWS_MONITOR_CONFIG.CHECK_INTERVAL / 60000} mins.`);
-    return true;
+    logger.debug(
+        `NM: News Monitor initialized. Subsequent cycles run every ${
+            NEWS_MONITOR_CONFIG.CHECK_INTERVAL / 60000
+        } mins.`
+    );
+    return true; // Return true if News Monitor base setup is done, regardless of Twitter API state for now
 }
 
 /**

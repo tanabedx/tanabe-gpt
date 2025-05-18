@@ -12,10 +12,9 @@ const {
 const NEWS_MONITOR_CONFIG = {
     enabled: true, // Master toggle for news monitoring
     TARGET_GROUP: process.env.GROUP_AG, // Group to send news updates to
-    CHECK_INTERVAL: 960000, // Global check interval for all sources (16 minutes) 86400000, //debug option
-    // Quiet hours configuration
+    CHECK_INTERVAL: 960000, // Global check interval for all sources (16 minutes)
     QUIET_HOURS: {
-        ENABLED: true,
+        ENABLED: false,
         START_HOUR: 22,
         END_HOUR: 8,
         TIMEZONE: 'America/Sao_Paulo',
