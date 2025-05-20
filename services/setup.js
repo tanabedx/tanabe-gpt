@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { execSync } = require('child_process');
+const os = require('os');
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -89,6 +90,15 @@ function performSystemdServiceSetup() {
 
     const templateServiceFilePath = path.join(__dirname, 'tanabe-gpt.service');
     let serviceFileContent;
+    let currentUser;
+    try {
+        currentUser = os.userInfo().username;
+    } catch (err) {
+        console.warn(
+            `\nWARNING: Could not determine current user: ${err.message}. Defaulting to 'root' for systemd service user.`
+        );
+        currentUser = 'root';
+    }
 
     try {
         console.log(`Reading systemd service template from: ${templateServiceFilePath}`);
@@ -101,20 +111,18 @@ function performSystemdServiceSetup() {
             return;
         }
         const templateContent = fs.readFileSync(templateServiceFilePath, 'utf8');
-        serviceFileContent = templateContent.replace(
+
+        // Replace WorkingDirectory
+        let tempServiceFileContent = templateContent.replace(
             'WorkingDirectory=[path]/tanabe-gpt',
             `WorkingDirectory=${rootDir}`
         );
 
-        // Check if replacement was successful
-        // It's important that the placeholder exactly matches 'WorkingDirectory=[path]/tanabe-gpt' in the template file.
+        // Check if WorkingDirectory replacement was successful
         if (
             templateContent.includes('WorkingDirectory=[path]/tanabe-gpt') &&
-            !serviceFileContent.includes(`WorkingDirectory=${rootDir}`)
+            !tempServiceFileContent.includes(`WorkingDirectory=${rootDir}`)
         ) {
-            // This case should ideally not happen if replace worked and rootDir is valid.
-            // It implies the placeholder was found, but the resulting string doesn't contain the new working directory.
-            // This could be due to an issue with rootDir, but we proceed with a warning.
             console.warn(
                 `\nWARNING: Placeholder 'WorkingDirectory=[path]/tanabe-gpt' was found, but the WorkingDirectory might not have been updated correctly in the service file content for ${templateServiceFilePath}. Please verify the generated service file.`
             );
@@ -128,7 +136,34 @@ function performSystemdServiceSetup() {
             console.warn(
                 `Ensure that ${templateServiceFilePath} either has the correct WorkingDirectory hardcoded or contains the exact placeholder 'WorkingDirectory=[path]/tanabe-gpt' for dynamic replacement.`
             );
-            serviceFileContent = templateContent; // Use template content as is if placeholder is missing
+            // If placeholder not found, use template content as is for this part,
+            // but still attempt User replacement later.
+            tempServiceFileContent = templateContent;
+        }
+
+        // Replace User
+        const userPlaceholder = 'User=root'; // Assuming the template uses User=root
+        if (tempServiceFileContent.includes(userPlaceholder)) {
+            serviceFileContent = tempServiceFileContent.replace(
+                userPlaceholder,
+                `User=${currentUser}`
+            );
+            if (!serviceFileContent.includes(`User=${currentUser}`)) {
+                console.warn(
+                    `\nWARNING: Placeholder '${userPlaceholder}' was found, but the User might not have been updated correctly to '${currentUser}' in the service file content. Please verify the generated service file.`
+                );
+            }
+        } else {
+            console.warn(
+                `\nWARNING: Could not find '${userPlaceholder}' in the service template ${templateServiceFilePath}.`
+            );
+            console.warn(
+                `The User will NOT be dynamically set to '${currentUser}'. The existing User setting (if any) or lack thereof in the template will be used.`
+            );
+            console.warn(
+                `Ensure that ${templateServiceFilePath} either has '${userPlaceholder}' for dynamic replacement, or the correct User hardcoded.`
+            );
+            serviceFileContent = tempServiceFileContent; // Use content after WorkingDirectory replacement
         }
     } catch (error) {
         console.error(
