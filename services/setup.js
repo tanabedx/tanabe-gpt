@@ -349,8 +349,6 @@ FORCE_PROMPT_LOGS=false
 // Create the necessary directories
 function createDirectories() {
     const dirs = [
-        path.join(rootDir, 'logs'),
-        path.join(rootDir, 'history'),
         path.join(rootDir, 'wwebjs'),
     ];
 
@@ -411,8 +409,10 @@ async function main() {
         await createEnvFile();
     }
 
-    // Create .env.example
+    // Only create .env.example if no .env file was created during this setup
+    if (skipEnvSetup) {
     createEnvExample();
+    }
 
     // Perform systemd service setup if requested (after all readline interactions)
     performSystemdServiceSetup();

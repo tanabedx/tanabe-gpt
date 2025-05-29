@@ -126,12 +126,14 @@ Itens Anteriores:
 Instruções:
 Compare o novo item com os itens anteriores para determinar se eles se referem essencialmente ao mesmo evento ou notícia.
 
-SEJA LENIENTE AO EXCLUIR. Em caso de dúvida, prefira considerar como não-duplicado.
+SEJA LENIENTE AO EXCLUIR. Em caso de dúvida, prefira considerar como duplicado.
 
-Considere como DUPLICADO apenas quando:
+Considere como DUPLICADO quando:
 - Trata exatamente do mesmo evento ou desenvolvimento específico
 - É obviamente a mesma notícia, mesmo que com títulos ligeiramente diferentes 
 - Cobre o mesmo tópico específico sem adicionar novas informações significativas e relevantes
+- É uma atualização de uma notícia já publicada
+- É minimamente relacionado a uma notícia já publicada
 
 Foque principalmente no conteúdo semântico e não na formulação exata. Dois itens podem parecer diferentes na redação, mas se referir ao mesmo evento.
 

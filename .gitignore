@@ -28,10 +28,7 @@ wwebjs/*/
 test_results.json
 
 # Service files
-tanabe_monitor.py
-start.sh
-tanabe-monitor.service
-setup.sh
+setup_vps.sh
 
 #WIP
 README.md

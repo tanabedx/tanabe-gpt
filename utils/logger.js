@@ -275,6 +275,104 @@ async function checkAndRotateLog() {
     }
 }
 
+// Function to parse log timestamp and return Date object
+function parseLogTimestamp(logLine) {
+    try {
+        // Extract timestamp from log line - handle both formats:
+        // Current format: [Dec 20 14:32] [LEVEL]
+        // Legacy format: [Dec 20, 14:32] [LEVEL] (with comma)
+        const timestampMatch = logLine.match(/^\[([A-Za-z]{3} \d{1,2},? \d{2}:\d{2})\]/);
+        if (!timestampMatch) return null;
+
+        let timestampStr = timestampMatch[1];
+        const currentYear = new Date().getFullYear();
+        
+        // Remove comma if present for consistent parsing
+        timestampStr = timestampStr.replace(',', '');
+        
+        // Parse the timestamp and add current year
+        const logDate = new Date(`${timestampStr} ${currentYear}`);
+        
+        // Handle year rollover - if parsed date is in the future, it's from previous year
+        if (logDate > new Date()) {
+            logDate.setFullYear(currentYear - 1);
+        }
+        
+        return logDate;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Function to check if a log line is from the last 24 hours
+function isLogFromRecentDays(logLine) {
+    const logDate = parseLogTimestamp(logLine);
+    if (!logDate) return false;
+    
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    
+    // Check if log timestamp is within the last 24 hours
+    return logDate >= twentyFourHoursAgo && logDate <= now;
+}
+
+// Function to clean old logs, keeping only logs from the last 24 hours
+async function cleanOldLogs() {
+    try {
+        // Clean main log file
+        await cleanLogFile(LOG_FILE);
+        
+        // Clean backup log file if it exists
+        try {
+            await fs.access(BACKUP_LOG_FILE);
+            await cleanLogFile(BACKUP_LOG_FILE);
+        } catch (error) {
+            // Backup file doesn't exist, which is fine
+        }
+        
+        console.log(`[${new Date().toLocaleString('en-US', {
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        })}] [INFO] Log cleanup completed - kept logs from the last 24 hours only`);
+        
+    } catch (error) {
+        console.error('Error cleaning old logs:', formatError(error));
+    }
+}
+
+// Function to clean a specific log file
+async function cleanLogFile(filePath) {
+    try {
+        // Read the current log file
+        const logContent = await fs.readFile(filePath, 'utf8').catch(() => '');
+        if (!logContent.trim()) return;
+
+        // Split into lines and filter to keep only recent logs
+        const lines = logContent.split('\n');
+        const recentLines = lines.filter(line => {
+            // Keep empty lines and lines that don't match timestamp format
+            if (!line.trim() || !line.match(/^\[[A-Za-z]{3} \d{1,2},? \d{2}:\d{2}\]/)) {
+                return false;
+            }
+            return isLogFromRecentDays(line);
+        });
+
+        // Write filtered content back to file
+        if (recentLines.length > 0) {
+            await fs.writeFile(filePath, recentLines.join('\n') + '\n');
+        } else {
+            // If no recent logs, create empty file
+            await fs.writeFile(filePath, '');
+        }
+        
+    } catch (error) {
+        console.error(`Error cleaning log file ${filePath}:`, formatError(error));
+    }
+}
+
 // Function to write to log file
 async function writeToLogFile(message) {
     try {
@@ -448,8 +546,12 @@ const logger = {
     },
 
     // Specific event loggers
-    startup: message => {
-        log('STARTUP', message, null, true);
+    startup: async message => {
+        // Clean old logs first, keeping only logs from the last 24 hours
+        await cleanOldLogs();
+        
+        // Then proceed with normal startup logging
+        await log('STARTUP', message, null, true);
         startSpinner();
     },
     shutdown: message => {
@@ -460,6 +562,9 @@ const logger = {
 
     // Export notifyAdmin for external use
     notifyAdmin,
+    
+    // Export cleanOldLogs for external use
+    cleanOldLogs,
 };
 
 module.exports = logger;

@@ -34,16 +34,6 @@ const NEWS_MONITOR_CONFIG = {
         {
             type: 'twitter',
             enabled: true,
-            username: 'BrazilianReport',
-            lastTweetId: null,
-            mediaOnly: false,
-            skipEvaluation: false,
-            promptSpecific: false,
-            priority: 7,
-        },
-        {
-            type: 'twitter',
-            enabled: true,
             username: 'SITREP_artorias',
             lastTweetId: null,
             mediaOnly: true,
@@ -60,15 +50,6 @@ const NEWS_MONITOR_CONFIG = {
             url: 'https://g1.globo.com/rss/g1/',
             language: 'pt',
             priority: 6,
-        },
-        {
-            type: 'rss',
-            enabled: true,
-            id: 'ge',
-            name: 'Globo Esporte',
-            url: 'https://ge.globo.com/Esportes/Rss/0,,AS0-9645,00.xml',
-            language: 'pt',
-            priority: 5,
         },
         // Webscraper Source Placeholder
         {

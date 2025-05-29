@@ -394,7 +394,7 @@ async function main() {
         await initializeBot();
         logger.debug('Bot initialization completed.');
         // Start the spinner after initialization is complete
-        logger.startup('🤖 Bot has been started successfully!');
+        await logger.startup('🤖 Bot has been started successfully!');
 
         // Schedule periodic summaries
         schedulePeriodicSummary();

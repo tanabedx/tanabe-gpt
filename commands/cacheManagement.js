@@ -124,7 +124,7 @@ function forceGarbageCollection() {
             const beforeGC = process.memoryUsage().heapUsed / 1024 / 1024;
             global.gc();
             const afterGC = process.memoryUsage().heapUsed / 1024 / 1024;
-            logger.info(
+            logger.debug(
                 `Garbage collection complete: freed ${Math.round(
                     beforeGC - afterGC
                 )}MB. Current heap: ${Math.round(afterGC)}MB`
