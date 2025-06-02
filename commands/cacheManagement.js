@@ -22,36 +22,59 @@ async function performCacheClearing(maxAgeInDays = 5) {
     const now = Date.now();
     const maxAgeMs = maxAgeInDays * 24 * 60 * 60 * 1000;
 
-    for (const dir of CACHE_DIRS) {
-        const dirPath = path.join(__dirname, '..', dir);
+    /**
+     * Recursively clear a directory while preserving auth files
+     * @param {string} dirPath - Path to the directory to clear
+     * @returns {Promise<number>} Number of files cleared
+     */
+    async function clearDirectory(dirPath) {
+        let localClearedFiles = 0;
         try {
-            const files = await fs.readdir(dirPath);
-            for (const file of files) {
-                const filePath = path.join(dirPath, file);
+            const items = await fs.readdir(dirPath);
+            for (const item of items) {
+                const itemPath = path.join(dirPath, item);
                 try {
-                    const stats = await fs.stat(filePath);
-                    // Skip auth files
-                    if (file.includes('session') || file.includes('auth')) {
+                    const stats = await fs.stat(itemPath);
+                    
+                    // Skip auth files and directories
+                    if (item.includes('session') || item.includes('auth')) {
+                        logger.debug(`Skipping auth-related item: ${itemPath}`);
                         continue;
                     }
 
-                    // Check file age if maxAgeInDays > 0, otherwise clear all files
+                    // Check file/directory age if maxAgeInDays > 0, otherwise clear all
                     const shouldClear =
                         maxAgeInDays === 0 || now - stats.mtime.getTime() > maxAgeMs;
 
-                    if (stats.isFile() && shouldClear) {
-                        await fs.unlink(filePath);
-                        clearedFiles++;
+                    if (shouldClear) {
+                        if (stats.isDirectory()) {
+                            // Recursively clear subdirectory
+                            localClearedFiles += await clearDirectory(itemPath);
+                            // Remove the empty directory
+                            await fs.rmdir(itemPath);
+                            logger.debug(`Removed directory: ${itemPath}`);
+                        } else if (stats.isFile()) {
+                            await fs.unlink(itemPath);
+                            localClearedFiles++;
+                            logger.debug(`Removed file: ${itemPath}`);
+                        }
                     }
                 } catch (error) {
-                    logger.error(`Error deleting cache file ${filePath}:`, error);
+                    logger.error(`Error processing cache item ${itemPath}:`, error);
                 }
             }
         } catch (error) {
             if (error.code !== 'ENOENT') {
-                logger.error(`Error accessing cache directory ${dir}:`, error);
+                logger.error(`Error accessing directory ${dirPath}:`, error);
             }
         }
+        return localClearedFiles;
+    }
+
+    for (const dir of CACHE_DIRS) {
+        const dirPath = path.join(__dirname, '..', dir);
+        logger.debug(`Clearing cache directory: ${dirPath}`);
+        clearedFiles += await clearDirectory(dirPath);
     }
 
     return { clearedFiles };
@@ -182,3 +205,4 @@ module.exports = {
     stopMemoryMonitoring,
     forceGarbageCollection,
 };
+

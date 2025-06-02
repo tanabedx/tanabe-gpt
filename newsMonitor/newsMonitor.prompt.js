@@ -2,37 +2,14 @@
 
 const NEWS_MONITOR = {
     EVALUATE_CONTENT: `
-Conteúdo para Avaliação:
-{content}
-
-Tipo de conteúdo: {content_type}
-{source_info}
-
-Instruções:
-Avalie o conteúdo acima e determine se ele deve ser enviado para um grupo de WhatsApp. Seja extremamente seletivo para evitar spam de mensagens no grupo.
+Você é um assistente do presidente do Brasil e é encarregado de informá-lo sobre notícias importantes. O presidente também lhe disse que é um grande fã de futebol e quer notícias relevantes sobre o tema. Você deve analisar a situação das notícias atuais e inferir se é necessário informá-lo ou se ele já sabe sobre elas. Neste momento, são 3 da manhã e você recebeu a seguinte notícia. Se você o acordaria, escreva “relevant”; se não, escreva “null”. Caso tenha dúvida ou seja uma notícia que pode esperar o amanhecer, marque “null”.
 
 Resposta obrigatória em uma das seguintes formas:
 1. Se relevante: "relevant::Breve justificativa de 5-10 palavras sobre por que é relevante"
 2. Se não relevante: "null::Motivo da exclusão em 5-10 palavras"
 
-O conteúdo é RELEVANTE se atender a pelo menos um dos seguintes critérios:
-- Calamidades naturais ou desastres
-- Notícia global crítica
-- Notícia crítica relacionada ao Brasil ou com impacto significativo e direto ao Brasil
-- Notícia crítica sobre a cidade de São Paulo
-- Eventos de grande impacto global
-- Descobertas científicas ou avanços importantes
-- Eventos esportivos significativos com relevância internacional ou ao Brasil
-- Escândalos políticos, econômicos ou de outra natureza
-
-O conteúdo é IRRELEVANTE (null) nos seguintes casos:
-- Não se trata de um evento crítico ou relevante globalmente, à maioria da população brasileira ou à maioria da população da cidade de São Paulo
-- A notícia já foi mencionada nos artigos anteriores (duplicada ou atualização)
-- É apenas uma atualização sem novas informações substanciais
-- É uma notícia local com impacto mínimo no cenário global
-- No caso de tweets sobre política dos EUA, apenas é relevante se envolver eventos significativos ou crises
-
-Seja especialmente seleto em notícias involvendo a cidade de São Paulo, educação, saúde, ciência, tecnologia e meio ambiente. Somente as marque relevante se tiverem impacto significativo globalmente ou no Brasil inteiro.
+Notícia para Avaliação:
+{content}
     `,
 
     SITREP_artorias_PROMPT: `

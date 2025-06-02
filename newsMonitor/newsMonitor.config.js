@@ -6,13 +6,13 @@ const {
     PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT,
     DETECT_DUPLICATE,
     DETECT_TOPIC_REDUNDANCY,
-} = require('../prompts/newsMonitor.prompt');
+} = require('./newsMonitor.prompt');
 
 // Unified News Monitor configuration
 const NEWS_MONITOR_CONFIG = {
     enabled: true, // Master toggle for news monitoring
     TARGET_GROUP: process.env.GROUP_AG, // Group to send news updates to
-    CHECK_INTERVAL: 960000, // Global check interval for all sources (16 minutes)
+    CHECK_INTERVAL: 86400000, //960000, // Global check interval for all sources (16 minutes)
     QUIET_HOURS: {
         ENABLED: false,
         START_HOUR: 22,

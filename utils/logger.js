@@ -330,13 +330,13 @@ async function cleanOldLogs() {
             // Backup file doesn't exist, which is fine
         }
         
-        console.log(`[${new Date().toLocaleString('en-US', {
+        logger.debug(`[${new Date().toLocaleString('en-US', {
             month: 'short',
             day: '2-digit',
             hour: '2-digit',
             minute: '2-digit',
             hour12: false,
-        })}] [INFO] Log cleanup completed - kept logs from the last 24 hours only`);
+        })}] Log cleanup completed - kept logs from the last 24 hours only`);
         
     } catch (error) {
         console.error('Error cleaning old logs:', formatError(error));

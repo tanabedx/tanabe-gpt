@@ -3,7 +3,7 @@
 // Import configurations
 const CREDENTIALS = require('./credentials');
 const COMMANDS = require('./commandConfigs');
-const NEWS_MONITOR = require('./commandConfigs/newsMonitor.config');
+const NEWS_MONITOR = require('../newsMonitor/newsMonitor.config');
 
 // Avoid circular dependency with periodicSummary.config
 let PERIODIC_SUMMARY;

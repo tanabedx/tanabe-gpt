@@ -131,7 +131,7 @@ async function initializeBot() {
         // Clear cache if enabled
         if (config.SYSTEM?.ENABLE_STARTUP_CACHE_CLEARING) {
             logger.debug('Cache clearing is enabled, performing cleanup...');
-            const { clearedFiles } = await performCacheClearing();
+            const { clearedFiles } = await performCacheClearing(0);
             if (clearedFiles > 0) {
                 logger.info(`Cache cleared successfully: ${clearedFiles} files removed`);
             }
