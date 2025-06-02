@@ -12,7 +12,7 @@ const {
 const NEWS_MONITOR_CONFIG = {
     enabled: true, // Master toggle for news monitoring
     TARGET_GROUP: process.env.GROUP_AG, // Group to send news updates to
-    CHECK_INTERVAL: 86400000, //960000, // Global check interval for all sources (16 minutes)
+    CHECK_INTERVAL: 960000, // Global check interval for all sources (16 minutes)
     QUIET_HOURS: {
         ENABLED: false,
         START_HOUR: 22,
@@ -97,7 +97,7 @@ const NEWS_MONITOR_CONFIG = {
 
     // AI model configurations
     AI_MODELS: {
-        EVALUATE_CONTENT: 'gpt-4o',
+        EVALUATE_CONTENT: 'o4-mini',
         BATCH_EVALUATE_TITLES: 'gpt-4o',
         SUMMARIZE_CONTENT: 'gpt-4o-mini',
         SITREP_artorias_PROMPT: 'gpt-4o-mini',
