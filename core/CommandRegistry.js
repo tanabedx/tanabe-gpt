@@ -15,7 +15,7 @@ const {
     handleNewsToggle,
     handleNewsDebug,
 } = require('../commands/admin');
-const { handleChat } = require('../commands/chat');
+const { handleChat } = require('../chat/chat');
 const { handleTag } = require('../commands/tag');
 const { handleAudio } = require('../commands/audio');
 const { startWizard } = require('../commands/wizard');

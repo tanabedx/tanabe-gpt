@@ -1,7 +1,7 @@
 // chat.config.js
 // Configuration for the chat command
 
-const CHAT_PROMPT = require('../../prompts/chatgpt.prompt');
+const CHAT_PROMPT = require('./chatgpt.prompt');
 
 const CHAT_CONFIG = {
     prefixes: ['#', '#!'],

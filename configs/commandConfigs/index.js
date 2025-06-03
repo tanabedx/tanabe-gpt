@@ -2,7 +2,7 @@
 // Export all command configurations
 
 const TAG_CONFIG = require('./tag.config');
-const CHAT_CONFIG = require('./chat.config');
+const CHAT_CONFIG = require('../../chat/chat.config');
 const RESUMO_CONFIG = require('./resumo.config');
 const STICKER_CONFIG = require('./sticker.config');
 const DESENHO_CONFIG = require('./desenho.config');

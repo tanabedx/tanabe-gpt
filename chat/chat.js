@@ -3,8 +3,8 @@ const logger = require('../utils/logger');
 const { handleAutoDelete } = require('../utils/messageUtils');
 const { runCompletion } = require('../utils/openaiUtils');
 const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUtils');
-const { getPromptWithContext } = require('../utils/old_promptUtils');
-const { getMessageHistory } = require('../utils/messageLogger');
+const { getChatPromptWithContext } = require('./promptUtils');
+const { getMessageHistory } = require('./messageLogger');
 
 async function handleChat(message, command, _) {
     let name, groupName;
@@ -47,10 +47,9 @@ async function handleChat(message, command, _) {
                         link: unshortenedLink,
                         contentLength: pageContent.length,
                     });
-                    prompt = await getPromptWithContext(
+                    prompt = await getChatPromptWithContext(
                         message,
                         config,
-                        'CHAT_GPT',
                         'WITH_CONTEXT',
                         {
                             name,
@@ -72,7 +71,7 @@ async function handleChat(message, command, _) {
                 logger.debug('Using quoted message as context', {
                     quotedLength: quotedText.length,
                 });
-                prompt = await getPromptWithContext(message, config, 'CHAT_GPT', 'WITH_CONTEXT', {
+                prompt = await getChatPromptWithContext(message, config, 'WITH_CONTEXT', {
                     name,
                     question,
                     context: quotedText,
@@ -87,7 +86,7 @@ async function handleChat(message, command, _) {
                 messageHistoryLength: messageHistory?.length || 0,
                 groupName,
             });
-            prompt = await getPromptWithContext(message, config, 'CHAT_GPT', 'DEFAULT', {
+            prompt = await getChatPromptWithContext(message, config, 'DEFAULT', {
                 name,
                 question,
                 maxMessages: config.SYSTEM.MAX_LOG_MESSAGES,

@@ -1,4 +1,4 @@
-const logger = require('./logger');
+const logger = require('../utils/logger');
 const config = require('../configs');
 
 let messageHistory = new Map();

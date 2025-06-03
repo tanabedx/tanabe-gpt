@@ -1,7 +1,7 @@
 const config = require('../configs');
 const { runCompletion } = require('../utils/openaiUtils');
 const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUtils');
-const { getPromptWithContext } = require('../utils/promptUtils');
+const { getResumoPrompt } = require('../utils/resumoPromptUtils');
 const logger = require('../utils/logger');
 const { handleAutoDelete } = require('../utils/messageUtils');
 const { downloadAndProcessDocument } = require('../utils/documentUtils');
@@ -17,15 +17,9 @@ async function handleQuotedMessage(message, command) {
                 const text = await downloadAndProcessDocument(quotedMsg);
 
                 // Get prompt template for document summarization
-                const prompt = await getPromptWithContext(
-                    message,
-                    config,
-                    'RESUMO',
-                    'DOCUMENT_SUMMARY',
-                    {
-                        text,
-                    }
-                );
+                const prompt = getResumoPrompt('DOCUMENT_SUMMARY', {
+                    text,
+                });
 
                 const summary = await runCompletion(prompt, 0.7);
                 const response = await quotedMsg.reply(summary);
@@ -56,15 +50,9 @@ async function handleQuotedMessage(message, command) {
                 logger.debug('Found link in quoted message, processing');
                 const unshortenedLink = await unshortenLink(links[0]);
                 const pageContent = await getPageContent(unshortenedLink);
-                const prompt = await getPromptWithContext(
-                    message,
-                    config,
-                    'RESUMO',
-                    'LINK_SUMMARY',
-                    {
-                        pageContent,
-                    }
-                );
+                const prompt = getResumoPrompt('LINK_SUMMARY', {
+                    pageContent,
+                });
                 const summary = await runCompletion(prompt, 1);
                 const response = await quotedMsg.reply(summary);
                 await handleAutoDelete(response, command);
@@ -77,7 +65,7 @@ async function handleQuotedMessage(message, command) {
             logger.debug('No links found, summarizing quoted text');
             const contact = await message.getContact();
             const name = contact.name || 'Unknown';
-            const prompt = await getPromptWithContext(message, config, 'RESUMO', 'QUOTED_MESSAGE', {
+            const prompt = getResumoPrompt('QUOTED_MESSAGE', {
                 name,
                 quotedText,
             });
@@ -171,7 +159,7 @@ async function handleSpecificMessageCount(message, limit) {
 
     const contact = await message.getContact();
     const name = contact.name || 'Unknown';
-    const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DEFAULT', {
+    const prompt = getResumoPrompt('DEFAULT', {
         name,
         messageTexts: messageTexts.join(' '),
         timeDescription: `as últimas ${limit} mensagens desta conversa`,
@@ -262,7 +250,7 @@ async function handleTimeBasedSummary(message, timeInfo) {
 
     const contact = await message.getContact();
     const name = contact.name || 'Unknown';
-    const prompt = await getPromptWithContext(message, config, 'RESUMO', 'DEFAULT', {
+    const prompt = getResumoPrompt('DEFAULT', {
         name,
         messageTexts: messageTexts.join(' '),
         timeDescription: timeInfo.timeDescription,
@@ -295,15 +283,9 @@ async function handleResumo(message, command, input) {
                 const text = await downloadAndProcessDocument(message);
 
                 // Get prompt template for document summarization
-                const prompt = await getPromptWithContext(
-                    message,
-                    config,
-                    'RESUMO',
-                    'DOCUMENT_SUMMARY',
-                    {
-                        text,
-                    }
-                );
+                const prompt = getResumoPrompt('DOCUMENT_SUMMARY', {
+                    text,
+                });
 
                 const summary = await runCompletion(prompt, 0.7);
                 const response = await message.reply(summary);

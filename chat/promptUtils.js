@@ -1,37 +1,24 @@
-const logger = require('./logger');
-const CHAT_GPT = require('../prompts/chatgpt.prompt');
+const logger = require('../utils/logger');
+const CHAT_GPT = require('./chatgpt.prompt');
 const GROUP_PERSONALITIES = require('../prompts/personalities.prompt');
-const RESUMO = require('../prompts/resumo.prompt');
-const DESENHO = require('../prompts/desenho.prompt');
 
 // Get group names from environment variables
 const GROUP_LF = process.env.GROUP_LF;
 
 /**
- * Get a prompt template with group personality
+ * Get a chat prompt template with group personality
  * @param {Object} config - The application configuration
- * @param {string} commandName - The name of the command
  * @param {string} promptName - The name of the prompt template
  * @param {string|null} groupName - The name of the group, or null for DMs
  * @returns {string} The prompt template with personality applied
  */
-function getPrompt(config, commandName, promptName, groupName = null) {
-    let prompt;
-    switch (commandName) {
-        case 'CHAT_GPT':
-            prompt = CHAT_GPT[promptName];
-            break;
-        case 'RESUMO':
-            prompt = RESUMO[promptName];
-            break;
-        case 'DESENHO':
-            prompt = DESENHO[promptName];
-            break;
-        default:
-            throw new Error(`Unknown command: ${commandName}`);
+function getChatPrompt(config, promptName, groupName = null) {
+    const prompt = CHAT_GPT[promptName];
+    if (!prompt) {
+        throw new Error(`Unknown chat prompt: ${promptName}`);
     }
 
-    const command = config.COMMANDS[commandName];
+    const command = config.COMMANDS.CHAT_GPT;
     let personality = '';
 
     // Check if this is the admin chat
@@ -53,34 +40,30 @@ function getPrompt(config, commandName, promptName, groupName = null) {
     }
 
     // Replace the personality placeholder
-    prompt = prompt.replace('{groupPersonality}', personality);
-
-    return prompt;
+    return prompt.replace('{groupPersonality}', personality);
 }
 
 /**
- * Get a prompt template with context and variables replaced
+ * Get a chat prompt with context and variables replaced
  * @param {Object} message - The message object
  * @param {Object} config - The application configuration
- * @param {string} commandName - The name of the command
  * @param {string} promptName - The name of the prompt template
  * @param {Object} variables - Variables to replace in the prompt
  * @returns {Promise<string>} The prompt with context and variables replaced
  */
-async function getPromptWithContext(message, config, commandName, promptName, variables = {}) {
+async function getChatPromptWithContext(message, config, promptName, variables = {}) {
     const chat = await message.getChat();
     const groupName = chat.isGroup ? chat.name : null;
 
-    logger.debug('Getting prompt with context', {
-        command: commandName,
+    logger.debug('Getting chat prompt with context', {
         promptType: promptName,
         groupName,
         variables: Object.keys(variables),
     });
 
-    let prompt = getPrompt(config, commandName, promptName, groupName);
+    let prompt = getChatPrompt(config, promptName, groupName);
 
-    logger.debug('Initial prompt template', {
+    logger.debug('Initial chat prompt template', {
         length: prompt.length,
         firstChars: prompt.substring(0, 100) + '...',
     });
@@ -110,7 +93,7 @@ async function getPromptWithContext(message, config, commandName, promptName, va
         prompt = prompt.replace(regex, stringValue);
     }
 
-    logger.debug('Final prompt after replacements', {
+    logger.debug('Final chat prompt after replacements', {
         length: prompt.length,
         firstChars: prompt.substring(0, 100) + '...',
     });
@@ -119,6 +102,6 @@ async function getPromptWithContext(message, config, commandName, promptName, va
 }
 
 module.exports = {
-    getPrompt,
-    getPromptWithContext,
-};
+    getChatPrompt,
+    getChatPromptWithContext,
+}; 
