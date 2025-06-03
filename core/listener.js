@@ -341,7 +341,7 @@ function setupListeners(client) {
                     // Try NLP processing
                     try {
                         logger.debug('Attempting NLP processing');
-                        const nlpResult = await nlpProcessor.processNaturalLanguage(message);
+                        const nlpResult = await nlpProcessor.processNaturalLanguage(message, chat);
                         if (nlpResult) {
                             logger.debug('NLP produced a command', { nlpResult });
                             await chat.sendStateTyping();

@@ -10,7 +10,7 @@ async function handleChat(message, command, _) {
     let name, groupName;
     try {
         const contact = await message.getContact();
-        name = contact.name || 'Unknown';
+        name = contact.name || contact.pushname || 'Unknown';
         const question = message.body.substring(1);
         const chat = await message.getChat();
         groupName = chat.isGroup ? chat.name : null;

@@ -16,9 +16,7 @@ class CommandManager {
     }
 
     // Parse command from message
-    async parseCommand(messageBody, mentions = []) {
-        if (!messageBody) return { command: null, input: '' };
-
+    async parseCommand(messageBody, mentions = [], chat = null) {
         // First, normalize the message: trim it and handle # followed by spaces
         let trimmedBody = messageBody.trim();
 
@@ -33,12 +31,17 @@ class CommandManager {
             trimmedBody = normalizedBody;
         }
 
+        // Check for empty messages
+        if (!trimmedBody) {
+            return { command: null, input: '' };
+        }
+
         logger.debug('Parsing command from message', {
             messageBody: trimmedBody,
             hasMentions: mentions.length > 0,
         });
 
-        // Check if the bot is mentioned
+        // Handle bot mentions with NLP
         if (mentions && mentions.length > 0) {
             try {
                 const botNumber = config.CREDENTIALS.BOT_NUMBER;
@@ -51,14 +54,17 @@ class CommandManager {
                         .replace(new RegExp(`@${botNumber}\\s*`, 'i'), '')
                         .trim();
 
-                    // Process the cleaned message with NLP
-                    const nlpResult = await nlpProcessor.processNaturalLanguage({
+                    // Create a proper message-like object for NLP processing
+                    const nlpMessageObj = {
                         body: cleanedBody,
                         hasQuotedMsg: false,
                         mentionedIds: mentions,
-                        getChat: async () => ({ isGroup: true }),
+                        getChat: async () => chat || ({ isGroup: true }),
                         getContact: async () => ({ id: { _serialized: 'unknown' } }),
-                    });
+                    };
+
+                    // Process with NLP, passing the chat object if available
+                    const nlpResult = await nlpProcessor.processNaturalLanguage(nlpMessageObj, chat);
 
                     if (nlpResult && nlpResult.startsWith('#')) {
                         // Handle whitespace after # prefix
@@ -498,13 +504,15 @@ class CommandManager {
     // Main command processing function
     async processCommand(message, nlpInput = null) {
         try {
-            // Parse the command from the message
+            // Get chat object first
+            const chat = await message.getChat();
+            
+            // Parse the command from the message, passing the chat object
             const mentions = message.mentionedIds || [];
-            const { command, input } = await this.parseCommand(message.body, mentions);
+            const { command, input } = await this.parseCommand(message.body, mentions, chat);
 
             if (!command) return false;
 
-            const chat = await message.getChat();
             const contact = await message.getContact();
 
             // Use NLP input if provided (for tag commands)

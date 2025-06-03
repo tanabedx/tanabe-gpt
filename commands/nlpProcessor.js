@@ -122,12 +122,18 @@ class NLPProcessor {
             } else if (chat._serialized) {
                 chatId = chat._serialized;
             } else {
-                logger.error('Invalid chat object structure:', { chat });
+                logger.error('Invalid chat object structure:', { 
+                    isGroup: chat.isGroup,
+                    name: chat.name,
+                    hasId: !!chat.id,
+                    hasSerialized: !!chat._serialized
+                });
                 return false;
             }
 
-            // Format location string consistently
-            const locationStr = chat.isGroup ? `in ${chat.name}` : 'in DM';
+            // Format location string consistently with fallbacks for undefined names
+            const chatName = chat.name || 'unknown';
+            const locationStr = chat.isGroup ? `in ${chatName}` : 'in DM';
 
             // Check if this is a direct message from the admin
             if (chatId === `${config.CREDENTIALS.ADMIN_NUMBER}@c.us`) {
@@ -138,6 +144,15 @@ class NLPProcessor {
 
             // For group chats, check against group name
             if (chat.isGroup) {
+                // Handle case where chat.name might be undefined
+                if (!chat.name) {
+                    logger.warn('Group chat has undefined name, denying NLP access', {
+                        chatId,
+                        locationStr,
+                    });
+                    return false;
+                }
+                
                 const isAllowed = await whitelist.hasPermission('CHAT_GPT', chat.name);
                 logger.debug('Checking group chat NLP permissions', {
                     chatLocation: locationStr,
@@ -147,9 +162,9 @@ class NLPProcessor {
             }
 
             // For DM chats, check against chat ID or special DM format
-            const dmChatId = `dm.${chat.name}`;
+            const dmChatId = `dm.${chatName}`;
             const isAllowed =
-                (await whitelist.hasPermission('CHAT_GPT', chat.name)) ||
+                (await whitelist.hasPermission('CHAT_GPT', chatName)) ||
                 (await whitelist.hasPermission('CHAT_GPT', dmChatId));
 
             // Format chat ID consistently
@@ -167,7 +182,55 @@ class NLPProcessor {
         }
     }
 
-    async shouldProcessMessage(message) {
+    /**
+     * Robust method to get chat object with retries and fallbacks
+     * @param {Object} message - The message object
+     * @returns {Object|null} - The chat object or null if failed
+     */
+    async getRobustChatObject(message) {
+        try {
+            // First attempt: standard getChat()
+            let chat = await message.getChat();
+            
+            // Check if we have a minimally valid chat object
+            if (chat && (chat.id || chat._serialized)) {
+                // If it's a group chat but doesn't have a name, try to get it from global client
+                if (chat.isGroup && !chat.name && global.client) {
+                    try {
+                        const chatId = chat.id?._serialized || chat._serialized;
+                        const fullChat = await global.client.getChatById(chatId);
+                        if (fullChat && fullChat.name) {
+                            return fullChat;
+                        }
+                    } catch (error) {
+                        logger.warn('Failed to retrieve full chat object from client', error);
+                    }
+                }
+                return chat;
+            }
+            
+            // If first attempt failed, try alternative approach
+            const chatId = message.chatId || message.to || message.from;
+            if (chatId && global.client) {
+                try {
+                    const fallbackChat = await global.client.getChatById(chatId);
+                    if (fallbackChat) {
+                        return fallbackChat;
+                    }
+                } catch (error) {
+                    logger.error('Fallback getChatById failed:', error);
+                }
+            }
+            
+            logger.error('All chat retrieval methods failed');
+            return null;
+        } catch (error) {
+            logger.error('Error in getRobustChatObject:', error);
+            return null;
+        }
+    }
+
+    async shouldProcessMessage(message, chat = null) {
         try {
             // Skip processing for messages from the bot itself
             if (message.fromMe) {
@@ -181,8 +244,15 @@ class NLPProcessor {
                 return false;
             }
 
-            // Get chat information
-            const chat = await message.getChat();
+            // Use provided chat object or get it using robust method
+            if (!chat) {
+                chat = await this.getRobustChatObject(message);
+                if (!chat) {
+                    logger.error('Failed to retrieve chat object, skipping NLP processing');
+                    return false;
+                }
+            }
+            
             const contact = await message.getContact();
             const userId = contact.id._serialized;
             const isAdmin = userId === `${config.CREDENTIALS.ADMIN_NUMBER}@c.us`;
@@ -222,8 +292,9 @@ class NLPProcessor {
             // Check if NLP is allowed in this chat
             const isAllowed = await this.isAllowedChat(chat);
 
-            // Generate location string consistently
-            const locationStr = chat.isGroup ? `in ${chat.name}` : 'in DM';
+            // Generate location string consistently with fallbacks for undefined names
+            const chatName = chat.name || 'unknown';
+            const locationStr = chat.isGroup ? `in ${chatName}` : 'in DM';
 
             logger.debug('NLP permission check', {
                 chatLocation: locationStr,
@@ -244,7 +315,7 @@ class NLPProcessor {
         }
     }
 
-    async processNaturalLanguage(message) {
+    async processNaturalLanguage(message, chat = null) {
         try {
             logger.debug('Starting NLP processing attempt');
 
@@ -255,15 +326,22 @@ class NLPProcessor {
             }
 
             // First check if we should process this message
-            const shouldProcess = await this.shouldProcessMessage(message);
+            const shouldProcess = await this.shouldProcessMessage(message, chat);
             logger.debug('NLP processing decision', { shouldProcess });
 
             if (!shouldProcess) {
                 return null;
             }
 
-            // Get chat and contact info
-            const chat = await message.getChat();
+            // Use provided chat object or get it using robust method
+            if (!chat) {
+                chat = await this.getRobustChatObject(message);
+                if (!chat) {
+                    logger.error('Failed to retrieve chat object for NLP processing');
+                    return null;
+                }
+            }
+            
             const contact = await message.getContact();
             const userId = contact.id._serialized;
             const chatId = chat.id._serialized;
