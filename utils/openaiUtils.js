@@ -79,6 +79,9 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
             }
         }
 
+        // Log the final model selection before API call
+        logger.debug(`OpenAI API Call - Model: ${modelToUse} | Temperature: ${effectiveTemperature} | Type: Single Completion`);
+
         const openai = getOpenAIClient();
         const completion = await openai.chat.completions.create({
             model: modelToUse,
@@ -110,7 +113,12 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
 
         // Log the conversation if enabled
         if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
-            logger.prompt('ChatGPT Conversation Messages', JSON.stringify(messages, null, 2));
+            // Format messages for readable display instead of JSON.stringify
+            const formattedMessages = messages.map((msg, index) => {
+                return `Message ${index + 1} (${msg.role}):\n${msg.content}\n${'='.repeat(50)}`;
+            }).join('\n');
+            
+            logger.prompt('ChatGPT Conversation Messages', formattedMessages);
         }
 
         let modelToUse = model;
@@ -159,12 +167,19 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
             }
         }
 
+        // Log the final model selection before API call
+        logger.debug(`OpenAI API Call - Model: ${modelToUse} | Temperature: ${effectiveTemperature} | Type: Conversation Completion`);
+
         const openai = getOpenAIClient();
-        const completion = await openai.chat.completions.create({
+        
+        // Create the completion request (no tools since web search is not available)
+        const completionOptions = {
             model: modelToUse,
             messages: messages,
             temperature: effectiveTemperature,
-        });
+        };
+
+        const completion = await openai.chat.completions.create(completionOptions);
 
         const result = completion.choices[0].message.content;
 
@@ -172,11 +187,22 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
             logger.prompt('ChatGPT Conversation Response', result);
         }
 
-        return result;
+        return {
+            content: result,
+            usedWebSearch: false, // Web search is not available in API
+            searchQueries: [], // No search queries since web search is not supported
+            rawResponse: completion
+        };
     } catch (error) {
         logger.error('Error in runConversationCompletion:', error);
         throw error;
     }
+};
+
+// Legacy function for backward compatibility - returns just the content
+const runConversationCompletionLegacy = async (messages, temperature = 1, model = null, promptType = null) => {
+    const result = await runConversationCompletion(messages, temperature, model, promptType);
+    return result.content;
 };
 
 async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = null) {
@@ -271,5 +297,6 @@ module.exports = {
     getOpenAIClient,
     runCompletion,
     runConversationCompletion,
+    runConversationCompletionLegacy,
     extractTextFromImageWithOpenAI,
 };

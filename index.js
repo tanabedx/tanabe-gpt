@@ -12,7 +12,8 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const config = require('./configs');
 const { setupListeners } = require('./core/listener');
-const { initializeMessageLog } = require('./chat/messageLogger');
+const { initializeContextManager } = require('./chat/contextManager');
+const { initializeConversationManager } = require('./chat/conversationManager');
 const { initialize } = require('./newsMonitor/newsMonitor.js');
 const { scheduleNextSummary: schedulePeriodicSummary } = require('./utils/periodicSummaryUtils');
 const { performStartupGitPull } = require('./utils/gitUtils');
@@ -357,7 +358,8 @@ async function initializeBot() {
 
         // Initialize message logging
         logger.debug('Initializing message logging...');
-        initializeMessageLog();
+        initializeContextManager();
+        initializeConversationManager();
         logger.debug('Message logging initialized successfully');
 
         // Initialize news monitor (handles both Twitter and RSS)

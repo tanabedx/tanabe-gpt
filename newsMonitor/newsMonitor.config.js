@@ -11,7 +11,7 @@ const {
 // Unified News Monitor configuration
 const NEWS_MONITOR_CONFIG = {
     enabled: true, // Master toggle for news monitoring
-    TARGET_GROUP: process.env.GROUP_AG, // Group to send news updates to
+    TARGET_GROUP: process.env.GROUP_LF, // Group to send news updates to
     CHECK_INTERVAL: 960000, // Global check interval for all sources (16 minutes)
     QUIET_HOURS: {
         ENABLED: false,
