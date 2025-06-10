@@ -17,7 +17,7 @@ Tweet de SITREP_artorias para Avaliação:
 {post}
 
 Instruções:
-Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Responda com apenas 'sim' ou 'não'.
+Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Se for algum tipo de anúncio comercial, responda 'não.'  Responda com apenas 'sim' ou 'não,' sem aspas, pontuação, letr ou outros caracteres.
     `,
 
     BATCH_EVALUATE_TITLES: `

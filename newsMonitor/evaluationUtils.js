@@ -44,12 +44,26 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
             `NM: Evaluating @${item.accountName}'s item with "${promptName}" using model ${modelName}. Using ${item.originalText ? 'original' : 'current'} text.`
         );
         const result = await runCompletion(formattedPrompt, 0.3, modelName, promptName);
-        const cleanedResult = result.trim().toLowerCase();
+        
+        // More permissive response parsing - handle punctuation, quotes, and whitespace
+        let cleanedResult = result.trim().toLowerCase();
+        
+        // Remove common punctuation and quotes
+        cleanedResult = cleanedResult.replace(/[.!?",';:()[\]{}]/g, '').trim();
+        
+        // Check for positive responses (sim/yes)
+        if (cleanedResult === 'sim' || cleanedResult === 'yes' || cleanedResult === 'sí') {
+            return true;
+        }
+        
+        // Check for negative responses (não/no)
+        if (cleanedResult === 'não' || cleanedResult === 'nao' || cleanedResult === 'no') {
+            return false;
+        }
 
-        if (cleanedResult === 'sim') return true;
-
+        // If response doesn't match expected format, log warning and fail
         logger.debug(
-            `NM: Item from @${item.accountName} FAILED "${promptName}". Response: "${result}"`
+            `NM: Item from @${item.accountName} FAILED "${promptName}". Unexpected response format: "${result}" (cleaned: "${cleanedResult}")`
         );
         return false;
     } catch (error) {

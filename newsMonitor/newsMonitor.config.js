@@ -21,11 +21,14 @@ const NEWS_MONITOR_CONFIG = {
     },
     sources: [
         // Twitter Sources
+            // mediaOnly: When mediaOnly=true: Image text extraction happens BEFORE content evaluation
+                // - If image extraction fails for mediaOnly tweets, original text is used as fallback
+            // skipEvaluation: All evaluation steps (except promptSpecific) use extracted image text instead of original tweet text
+            // promptSpecific: Account-specific evaluation always uses original tweet text (before image extraction) - Account-specific evaluation always uses original tweet text (before image extraction)
         {
             type: 'twitter',
             enabled: true,
             username: 'BreakingNews',
-            lastTweetId: '1874590993955123330',
             mediaOnly: false,
             skipEvaluation: false,
             promptSpecific: false,
@@ -35,10 +38,9 @@ const NEWS_MONITOR_CONFIG = {
             type: 'twitter',
             enabled: true,
             username: 'SITREP_artorias',
-            lastTweetId: null,
-            mediaOnly: true,        // When mediaOnly=true: Image text extraction happens BEFORE content evaluation  // - If image extraction fails for mediaOnly tweets, original text is used as fallback
-            skipEvaluation: false,   // All evaluation steps (except promptSpecific) use extracted image text instead of original tweet text
-            promptSpecific: true,   // Account-specific evaluation always uses original tweet text (before image extraction)
+            mediaOnly: true,        
+            skipEvaluation: false,   
+            promptSpecific: true,
             priority: 9,
         },
         // RSS Sources
