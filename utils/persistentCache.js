@@ -7,7 +7,7 @@ const logger = require('./logger');
 const config = require('../configs');
 
 // Constants for cache configuration
-const CACHE_DIR = path.join(process.cwd(), 'temp');
+const CACHE_DIR = path.join(process.cwd(), 'newsMonitor');
 const CACHE_FILE = path.join(CACHE_DIR, 'newsCache.json');
 const MAX_CACHE_ITEMS = 50; // Maximum number of items in the cache
 

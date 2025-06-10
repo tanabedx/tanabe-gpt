@@ -3,8 +3,6 @@ const logger = require('../utils/logger'); // Assuming logger is in utils
 const NEWS_MONITOR_CONFIG = require('./newsMonitor.config');
 const persistentCache = require('../utils/persistentCache');
 
-const API_KEYS_CONFIG = NEWS_MONITOR_CONFIG.CREDENTIALS.TWITTER_API_KEYS;
-
 let apiKeyStates = {}; // Stores the live state of each API key
 let currentKeyName = null;
 
@@ -14,41 +12,36 @@ const COOLDOWN_DURATION_MS = 16 * 60 * 1000; // 16 minutes
  * Initializes the base structure for API key states from config and loads persisted states.
  */
 function _initializeKeyObjects() {
-    const configuredKeyNames = Object.keys(API_KEYS_CONFIG || {});
+    const keyConfigs = NEWS_MONITOR_CONFIG.CREDENTIALS.TWITTER_API_KEYS || {};
     const persistedStates = persistentCache.getTwitterApiStates() || {};
 
-    apiKeyStates = {}; // Reset states before populating
-
-    configuredKeyNames.forEach(name => {
-        if (API_KEYS_CONFIG[name] && API_KEYS_CONFIG[name].bearer_token) {
-            const pState = persistedStates[name] || {};
-            apiKeyStates[name] = {
-                name: name,
-                bearer_token: API_KEYS_CONFIG[name].bearer_token,
-                usage: pState.usage ? parseInt(pState.usage, 10) : 0,
-                limit: pState.limit ? parseInt(pState.limit, 10) : 100, // Default, updated from API or cache
-                capResetDay: pState.capResetDay || null,
-                usageApiCooldownUntil: pState.usageApiCooldownUntil
-                    ? parseInt(pState.usageApiCooldownUntil, 10)
-                    : null,
-                contentApiCooldownUntil: pState.contentApiCooldownUntil
-                    ? parseInt(pState.contentApiCooldownUntil, 10)
-                    : null,
-                lastSuccessfulCheckTimestamp: pState.lastSuccessfulCheckTimestamp
-                    ? parseInt(pState.lastSuccessfulCheckTimestamp, 10)
-                    : null,
-                status: pState.status || 'unchecked', // 'ok', 'usage_api_cooldown', 'content_api_cooldown', 'cap_reached', 'error'
-            };
+    apiKeyStates = {};
+    for (const keyName in keyConfigs) {
+        const keyConfig = keyConfigs[keyName];
+        if (!keyConfig || !keyConfig.bearer_token) {
+            logger.warn(`Twitter API key ${keyName} is missing or has no bearer_token. Skipping.`);
+            continue;
         }
-    });
 
-    // Set initial currentKeyName to the first valid key found, if any
-    const validKeyNames = Object.keys(apiKeyStates);
-    if (validKeyNames.length > 0) {
-        currentKeyName = validKeyNames[0]; // This will be re-evaluated by _selectActiveKey later
-    } else {
-        currentKeyName = null;
+        // Load persisted state if available
+        const persistedState = persistedStates[keyName] || {};
+
+        apiKeyStates[keyName] = {
+            name: keyName,
+            bearer_token: keyConfig.bearer_token,
+            usage: persistedState.usage || 0,
+            limit: persistedState.limit || 100, // Default limit, will be updated from API
+            capResetDay: persistedState.capResetDay || null,
+            unifiedCooldownUntil: persistedState.unifiedCooldownUntil || null, // Single unified cooldown
+            lastSuccessfulCheckTimestamp: persistedState.lastSuccessfulCheckTimestamp || null,
+            status: persistedState.status || 'unchecked', // 'unchecked', 'ok', 'error', 'unified_api_cooldown'
+        };
     }
+
+    logger.debug(`Initialized ${Object.keys(apiKeyStates).length} Twitter API key states`, {
+        keys: Object.keys(apiKeyStates),
+        anyWithUnifiedCooldown: Object.values(apiKeyStates).some(k => k.unifiedCooldownUntil && k.unifiedCooldownUntil > Date.now())
+    });
 }
 
 /**
@@ -61,19 +54,19 @@ async function _fetchKeyUsageFromApi(keyState) {
         return { status: 'error', error: 'Missing bearer token' };
     }
 
-    if (keyState.usageApiCooldownUntil && Date.now() < keyState.usageApiCooldownUntil) {
+    if (keyState.unifiedCooldownUntil && Date.now() < keyState.unifiedCooldownUntil) {
         const minutesRemaining = Math.max(
             0,
-            Math.round((keyState.usageApiCooldownUntil - Date.now()) / 60000)
+            Math.round((keyState.unifiedCooldownUntil - Date.now()) / 60000)
         );
         logger.debug(
-            `Key ${keyState.name} is on usage API cooldown for ${minutesRemaining} minute${
+            `Key ${keyState.name} is on unified API cooldown for ${minutesRemaining} minute${
                 minutesRemaining === 1 ? '' : 's'
             }. Skipping fetch.`
         );
         return {
-            status: 'usage_api_cooldown',
-            usageApiCooldownUntil: keyState.usageApiCooldownUntil,
+            status: 'unified_api_cooldown',
+            unifiedCooldownUntil: keyState.unifiedCooldownUntil,
         };
     }
 
@@ -95,7 +88,7 @@ async function _fetchKeyUsageFromApi(keyState) {
                 limit: parseInt(usageData.project_cap, 10),
                 capResetDay: usageData.cap_reset_day,
                 status: 'ok',
-                usageApiCooldownUntil: null,
+                unifiedCooldownUntil: null,
                 lastSuccessfulCheckTimestamp: Date.now(),
             };
         }
@@ -113,7 +106,7 @@ async function _fetchKeyUsageFromApi(keyState) {
                     minutesRemaining === 1 ? '' : 's'
                 }.`
             );
-            return { status: 'usage_api_cooldown', usageApiCooldownUntil: cooldownUntil };
+            return { status: 'unified_api_cooldown', unifiedCooldownUntil: cooldownUntil };
         }
         logger.error(`Error fetching Twitter API usage for key ${keyState.name}: ${error.message}`);
         return { status: 'error', error: error.message }; // Keep old usage data on other errors
@@ -146,7 +139,7 @@ async function _updateAllKeyStates() {
                 apiKeyStates[keyName] = {
                     ...currentKeyState,
                     ...newUsageData, // includes usage, limit, capResetDay, status, lastSuccessfulCheckTimestamp
-                    usageApiCooldownUntil: null, // Clear specific API cooldown on success
+                    unifiedCooldownUntil: null, // Clear unified API cooldown on success
                 };
                 const statesToPersist = {};
                 for (const name in apiKeyStates) {
@@ -156,16 +149,15 @@ async function _updateAllKeyStates() {
                         usage: key.usage,
                         limit: key.limit,
                         capResetDay: key.capResetDay,
-                        usageApiCooldownUntil: key.usageApiCooldownUntil,
-                        contentApiCooldownUntil: key.contentApiCooldownUntil,
+                        unifiedCooldownUntil: key.unifiedCooldownUntil,
                         lastSuccessfulCheckTimestamp: key.lastSuccessfulCheckTimestamp,
                         status: key.status,
                     };
                 }
                 persistentCache.saveTwitterApiKeyStates(statesToPersist);
-            } else if (newUsageData.status === 'usage_api_cooldown') {
-                apiKeyStates[keyName].status = 'usage_api_cooldown';
-                apiKeyStates[keyName].usageApiCooldownUntil = newUsageData.usageApiCooldownUntil;
+            } else if (newUsageData.status === 'unified_api_cooldown') {
+                apiKeyStates[keyName].status = 'unified_api_cooldown';
+                apiKeyStates[keyName].unifiedCooldownUntil = newUsageData.unifiedCooldownUntil;
                 const statesToPersist = {};
                 for (const name in apiKeyStates) {
                     const key = apiKeyStates[name];
@@ -174,8 +166,7 @@ async function _updateAllKeyStates() {
                         usage: key.usage,
                         limit: key.limit,
                         capResetDay: key.capResetDay,
-                        usageApiCooldownUntil: key.usageApiCooldownUntil,
-                        contentApiCooldownUntil: key.contentApiCooldownUntil,
+                        unifiedCooldownUntil: key.unifiedCooldownUntil,
                         lastSuccessfulCheckTimestamp: key.lastSuccessfulCheckTimestamp,
                         status: key.status,
                     };
@@ -191,8 +182,7 @@ async function _updateAllKeyStates() {
                         usage: key.usage,
                         limit: key.limit,
                         capResetDay: key.capResetDay,
-                        usageApiCooldownUntil: key.usageApiCooldownUntil,
-                        contentApiCooldownUntil: key.contentApiCooldownUntil,
+                        unifiedCooldownUntil: key.unifiedCooldownUntil,
                         lastSuccessfulCheckTimestamp: key.lastSuccessfulCheckTimestamp,
                         status: key.status,
                     };
@@ -206,21 +196,14 @@ async function _updateAllKeyStates() {
             usage,
             limit,
             capResetDay,
-            usageApiCooldownUntil,
-            contentApiCooldownUntil,
+            unifiedCooldownUntil,
             lastSuccessfulCheckTimestamp,
         } = apiKeyStates[keyName];
         let logMsg = `Key ${keyName} state: Status=${status}, Usage=${usage}/${limit}`;
         if (capResetDay) logMsg += `, MonthlyResetDay=${capResetDay}`;
-        if (usageApiCooldownUntil && usageApiCooldownUntil > Date.now()) {
-            const minutesRemaining = Math.ceil((usageApiCooldownUntil - Date.now()) / 60000);
-            logMsg += `, UsageAPIEndpointCooldown for ${minutesRemaining} minute${
-                minutesRemaining === 1 ? '' : 's'
-            }`;
-        }
-        if (contentApiCooldownUntil && contentApiCooldownUntil > Date.now()) {
-            const minutesRemaining = Math.ceil((contentApiCooldownUntil - Date.now()) / 60000);
-            logMsg += `, ContentAPIEndpointCooldown for ${minutesRemaining} minute${
+        if (unifiedCooldownUntil && unifiedCooldownUntil > Date.now()) {
+            const minutesRemaining = Math.ceil((unifiedCooldownUntil - Date.now()) / 60000);
+            logMsg += `, UnifiedAPIEndpointCooldown for ${minutesRemaining} minute${
                 minutesRemaining === 1 ? '' : 's'
             }`;
         }
@@ -255,30 +238,21 @@ function _selectActiveKey() {
 
             // Check for active usage API cooldown.
             const isUsageApiCoolingDown =
-                keyState.usageApiCooldownUntil && Date.now() < keyState.usageApiCooldownUntil;
-
-            // Check for active content API cooldown.
-            const isContentApiCoolingDown =
-                keyState.contentApiCooldownUntil && Date.now() < keyState.contentApiCooldownUntil;
+                keyState.unifiedCooldownUntil && Date.now() < keyState.unifiedCooldownUntil;
 
             if (
                 isError ||
                 isMonthlyCapReached ||
-                isUsageApiCoolingDown ||
-                isContentApiCoolingDown
+                isUsageApiCoolingDown
             ) {
                 // This key is not usable now. Log if it was unexpected for an 'ok' status.
                 if (
                     keyState.status === 'ok' &&
-                    (isUsageApiCoolingDown || isContentApiCoolingDown)
+                    isUsageApiCoolingDown
                 ) {
                     logger.debug(
-                        `Key ${name} (status 'ok') is on ${
-                            isUsageApiCoolingDown ? 'usage API cooldown' : 'content API cooldown'
-                        } until ${new Date(
-                            isUsageApiCoolingDown
-                                ? keyState.usageApiCooldownUntil
-                                : keyState.contentApiCooldownUntil
+                        `Key ${name} (status 'ok') is on usage API cooldown until ${new Date(
+                            keyState.unifiedCooldownUntil
                         ).toLocaleTimeString()}. Skipping.`
                     );
                 }
@@ -290,8 +264,7 @@ function _selectActiveKey() {
             // - Not in 'error' state.
             // - Not at its monthly cap.
             // - Not on an active usage API cooldown.
-            // - Not on an active content API cooldown.
-            // Its status could be 'ok', 'unchecked', or a cooldown status ('usage_api_cooldown', 'content_api_cooldown')
+            // Its status could be 'ok', 'unchecked', or a cooldown status ('unified_api_cooldown')
             // where the actual cooldown period has expired.
             // Such a key is considered available.
             newActiveKeyName = name;
@@ -320,6 +293,193 @@ function _selectActiveKey() {
 }
 
 /**
+ * Perform a unified API session that calls both usage and content APIs together
+ * This prevents individual API cooldowns from blocking the other API call
+ * @param {string} keyName - The key to use for both API calls
+ * @param {Function} usageCallback - Function that performs the usage API call
+ * @param {Function} contentCallback - Function that performs the content API call
+ * @returns {Promise<Object>} Results from both API calls
+ */
+async function performUnifiedApiSession(keyName, usageCallback, contentCallback) {
+    if (!apiKeyStates[keyName]) {
+        throw new Error(`Key ${keyName} not found for unified session`);
+    }
+
+    const keyState = apiKeyStates[keyName];
+    
+    logger.debug(`Starting unified API session for key: ${keyName}`);
+    
+    try {
+        // Call both APIs simultaneously
+        const [usageResult, contentResult] = await Promise.allSettled([
+            usageCallback(),
+            contentCallback()
+        ]);
+        
+        // Check if either hit 429
+        const usageHit429 = usageResult.status === 'rejected' && 
+                           usageResult.reason?.response?.status === 429;
+        const contentHit429 = contentResult.status === 'rejected' && 
+                             contentResult.reason?.response?.status === 429;
+        
+        if (usageHit429 || contentHit429) {
+            // Set unified cooldown if either API hits rate limit
+            let cooldownUntil = Date.now() + COOLDOWN_DURATION_MS;
+            
+            // Use the longer cooldown if we have reset headers from either
+            if (usageHit429 && usageResult.reason?.response?.headers?.['x-rate-limit-reset']) {
+                const usageCooldown = parseInt(usageResult.reason.response.headers['x-rate-limit-reset']) * 1000;
+                cooldownUntil = Math.max(cooldownUntil, usageCooldown);
+            }
+            if (contentHit429 && contentResult.reason?.response?.headers?.['x-rate-limit-reset']) {
+                const contentCooldown = parseInt(contentResult.reason.response.headers['x-rate-limit-reset']) * 1000;
+                cooldownUntil = Math.max(cooldownUntil, contentCooldown);
+            }
+            
+            keyState.unifiedCooldownUntil = cooldownUntil;
+            keyState.status = 'unified_api_cooldown';
+            
+            const minutesRemaining = Math.max(0, Math.round((cooldownUntil - Date.now()) / 60000));
+            logger.debug(
+                `Key ${keyName} hit 429 in unified session (usage: ${usageHit429}, content: ${contentHit429}). ` +
+                `Unified cooldown for ${minutesRemaining} minute${minutesRemaining === 1 ? '' : 's'}.`
+            );
+            
+            // Trigger key switching
+            _selectActiveKey();
+        } else {
+            // Clear any existing unified cooldown on success
+            if (keyState.unifiedCooldownUntil) {
+                keyState.unifiedCooldownUntil = null;
+                if (keyState.status === 'unified_api_cooldown') {
+                    keyState.status = 'ok';
+                }
+            }
+        }
+        
+        return { 
+            usageResult, 
+            contentResult,
+            sessionSuccessful: !usageHit429 && !contentHit429,
+            unifiedCooldownSet: usageHit429 || contentHit429
+        };
+        
+    } catch (error) {
+        logger.error(`Error in unified API session for key ${keyName}:`, error);
+        throw error;
+    } finally {
+        // Persist state changes
+        const statesToPersist = {};
+        for (const name in apiKeyStates) {
+            const key = apiKeyStates[name];
+            statesToPersist[name] = {
+                name: key.name,
+                usage: key.usage,
+                limit: key.limit,
+                capResetDay: key.capResetDay,
+                unifiedCooldownUntil: key.unifiedCooldownUntil,
+                lastSuccessfulCheckTimestamp: key.lastSuccessfulCheckTimestamp,
+                status: key.status,
+            };
+        }
+        persistentCache.saveTwitterApiKeyStates(statesToPersist);
+        
+        logger.debug(`Unified API session completed for key: ${keyName}`);
+    }
+}
+
+/**
+ * Check usage and fetch content in a unified session
+ * This is useful during initialization or when both operations are needed together
+ * @param {Array} accountsToFetch - Array of account objects for content fetching
+ * @returns {Promise<Object>} Results from both operations
+ */
+async function checkUsageAndFetchContent(accountsToFetch = []) {
+    const currentKey = getCurrentKey();
+    if (!currentKey) {
+        throw new Error('No active API key available for unified session');
+    }
+
+    const keyName = currentKey.name;
+    const bearerToken = currentKey.bearer_token;
+
+    // Define usage check callback
+    const usageCallback = async () => {
+        const url = 'https://api.twitter.com/2/usage/tweets';
+        return await axios.get(url, {
+            headers: { Authorization: `Bearer ${bearerToken}` },
+            params: { 'usage.fields': 'cap_reset_day,project_usage,project_cap' },
+        });
+    };
+
+    // Define content fetch callback
+    const contentCallback = async () => {
+        if (!accountsToFetch || accountsToFetch.length === 0) {
+            // Return a successful empty response if no accounts to fetch
+            return { data: { data: [] } };
+        }
+
+        let url = `https://api.twitter.com/2/tweets/search/recent?query=`;
+        const queryParts = accountsToFetch.map(account => {
+            if (account.mediaOnly) {
+                return `(from:${account.username} has:images -is:reply -is:retweet)`;
+            } else {
+                return `(from:${account.username} -is:reply -is:retweet)`;
+            }
+        });
+        url += queryParts.join(' OR ');
+        url += '&tweet.fields=created_at,attachments,text,id';
+        url += '&media.fields=type,url,preview_image_url,media_key';
+        url += '&user.fields=username';
+        url += '&expansions=author_id,attachments.media_keys';
+        url += '&max_results=10';
+
+        return await axios.get(url, {
+            headers: { Authorization: `Bearer ${bearerToken}` },
+        });
+    };
+
+    // Perform unified session
+    const sessionResult = await performUnifiedApiSession(keyName, usageCallback, contentCallback);
+    
+    // Process results
+    let usageData = null;
+    let contentData = null;
+    let errors = [];
+
+    // Process usage result
+    if (sessionResult.usageResult.status === 'fulfilled') {
+        const response = sessionResult.usageResult.value;
+        if (response.data && response.data.data) {
+            const rawUsageData = response.data.data;
+            usageData = {
+                usage: parseInt(rawUsageData.project_usage, 10),
+                limit: parseInt(rawUsageData.project_cap, 10),
+                capResetDay: rawUsageData.cap_reset_day,
+            };
+        }
+    } else {
+        errors.push(`Usage check failed: ${sessionResult.usageResult.reason?.message || 'Unknown error'}`);
+    }
+
+    // Process content result
+    if (sessionResult.contentResult.status === 'fulfilled') {
+        contentData = sessionResult.contentResult.value.data;
+    } else {
+        errors.push(`Content fetch failed: ${sessionResult.contentResult.reason?.message || 'Unknown error'}`);
+    }
+
+    return {
+        sessionSuccessful: sessionResult.sessionSuccessful,
+        unifiedCooldownSet: sessionResult.unifiedCooldownSet,
+        usageData,
+        contentData,
+        errors,
+        keyUsed: keyName
+    };
+}
+
+/**
  * Initializes the Twitter API handler.
  */
 async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: true }) {
@@ -334,11 +494,8 @@ async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: t
     let maxCooldownEndTime = 0;
     for (const keyName in apiKeyStates) {
         const keyState = apiKeyStates[keyName];
-        if (keyState.usageApiCooldownUntil && keyState.usageApiCooldownUntil > Date.now()) {
-            maxCooldownEndTime = Math.max(maxCooldownEndTime, keyState.usageApiCooldownUntil);
-        }
-        if (keyState.contentApiCooldownUntil && keyState.contentApiCooldownUntil > Date.now()) {
-            maxCooldownEndTime = Math.max(maxCooldownEndTime, keyState.contentApiCooldownUntil);
+        if (keyState.unifiedCooldownUntil && keyState.unifiedCooldownUntil > Date.now()) {
+            maxCooldownEndTime = Math.max(maxCooldownEndTime, keyState.unifiedCooldownUntil);
         }
     }
 
@@ -405,8 +562,7 @@ async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: t
         const allTrulyCappedAndNotCoolingDown = Object.values(apiKeyStates).every(
             s =>
                 s.usage >= s.limit &&
-                !(s.usageApiCooldownUntil && Date.now() < s.usageApiCooldownUntil) &&
-                !(s.contentApiCooldownUntil && Date.now() < s.contentApiCooldownUntil) &&
+                !(s.unifiedCooldownUntil && Date.now() < s.unifiedCooldownUntil) &&
                 s.status !== 'error'
         );
 
@@ -427,16 +583,9 @@ async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: t
 
                 Object.values(apiKeyStates).forEach(ks => {
                     let keySpecificNextTry = Infinity;
-                    if (ks.usageApiCooldownUntil && ks.usageApiCooldownUntil > Date.now()) {
-                        keySpecificNextTry = Math.min(keySpecificNextTry, ks.usageApiCooldownUntil);
+                    if (ks.unifiedCooldownUntil && ks.unifiedCooldownUntil > Date.now()) {
+                        keySpecificNextTry = Math.min(keySpecificNextTry, ks.unifiedCooldownUntil);
                     }
-                    if (ks.contentApiCooldownUntil && ks.contentApiCooldownUntil > Date.now()) {
-                        keySpecificNextTry = Math.min(
-                            keySpecificNextTry,
-                            ks.contentApiCooldownUntil
-                        );
-                    }
-                    // During this initialize retry loop (after a full forced update), we only care about explicit API cooldowns.
                     if (keySpecificNextTry < earliestNextAvailability) {
                         earliestNextAvailability = keySpecificNextTry;
                     }
@@ -517,8 +666,8 @@ async function handleRequestOutcome(keyNameUsed, error) {
         } else {
             logger.debug(`Key ${keyNameUsed} hit 429 (content fetch). Cooldown duration unknown.`);
         }
-        apiKeyStates[keyNameUsed].status = 'content_api_cooldown';
-        apiKeyStates[keyNameUsed].contentApiCooldownUntil = cooldownUntil;
+        apiKeyStates[keyNameUsed].status = 'unified_api_cooldown';
+        apiKeyStates[keyNameUsed].unifiedCooldownUntil = cooldownUntil;
         _selectActiveKey(); // Attempt to switch to another key
     } else if (error) {
         logger.error(
@@ -538,8 +687,7 @@ async function handleRequestOutcome(keyNameUsed, error) {
             usage: key.usage,
             limit: key.limit,
             capResetDay: key.capResetDay,
-            usageApiCooldownUntil: key.usageApiCooldownUntil,
-            contentApiCooldownUntil: key.contentApiCooldownUntil,
+            unifiedCooldownUntil: key.unifiedCooldownUntil,
             lastSuccessfulCheckTimestamp: key.lastSuccessfulCheckTimestamp,
             status: key.status,
         };
@@ -560,6 +708,8 @@ module.exports = {
     getCurrentKey,
     handleRequestOutcome,
     periodicCheck,
+    performUnifiedApiSession,
     _getApiKeyStates: () => ({ ...apiKeyStates }), // For testing: return a copy
     _getCurrentKeyName: () => currentKeyName, // For testing
+    checkUsageAndFetchContent,
 };

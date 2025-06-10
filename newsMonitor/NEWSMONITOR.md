@@ -61,6 +61,8 @@ The system applies content through multiple filtering stages:
 - **Usage Monitoring** - Real-time tracking of monthly API limits
 - **Cooldown Management** - Handles both usage and content API rate limits
 - **Persistent State** - Saves API key states across bot restarts
+- **Unified Session Management** - Coordinated usage and content API calls to prevent conflicts
+- **Dynamic Key Selection** - Intelligent switching based on availability, usage, and cooldown status
 
 ### 5. Content Processing & Distribution 📤
 - **Smart Summarization** - AI-generated summaries with automatic translation
@@ -162,6 +164,250 @@ await restartMonitors(true, true); // Twitter and RSS
 3. **Duplicate Check** → Semantic similarity against cache
 4. **Summarization** → AI-generated concise summaries
 5. **Translation** → Automatic Portuguese translation when needed
+
+## 🔑 Twitter API Key Management
+
+The news monitor system implements a sophisticated multi-key Twitter API management system that provides automatic failover, intelligent usage monitoring, and persistent state management across bot restarts.
+
+### Key Management Architecture
+
+#### 1. Multi-Key Configuration
+```javascript
+CREDENTIALS: {
+    TWITTER_API_KEYS: {
+        primary: { bearer_token: process.env.TWITTER_PRIMARY_BEARER_TOKEN },
+        fallback1: { bearer_token: process.env.TWITTER_FALLBACK_BEARER_TOKEN },
+        fallback2: { bearer_token: process.env.TWITTER_FALLBACK2_BEARER_TOKEN },
+        fallback3: { bearer_token: process.env.TWITTER_FALLBACK3_BEARER_TOKEN },
+        fallback4: { bearer_token: process.env.TWITTER_FALLBACK4_BEARER_TOKEN },
+    }
+}
+```
+
+#### 2. Key State Management
+Each API key maintains comprehensive state information:
+
+```javascript
+keyState = {
+    name: 'primary',                           // Key identifier
+    bearer_token: 'Bearer_Token_Here',         // API credentials
+    usage: 1250,                              // Current monthly usage
+    limit: 10000,                             // Monthly usage limit
+    capResetDay: 15,                          // Day of month when usage resets
+    unifiedCooldownUntil: null,               // Timestamp when cooldown expires
+    lastSuccessfulCheckTimestamp: 1640995200, // Last successful API call
+    status: 'ok'                              // Current status: 'ok', 'error', 'unified_api_cooldown', 'unchecked'
+}
+```
+
+### Core Management Functions
+
+#### 1. Initialization Process (`initialize`)
+**Purpose**: Bootstrap the API key management system with intelligent cooldown handling
+
+**Process Flow**:
+1. **Config Loading** → Load all configured API keys from environment variables
+2. **State Restoration** → Restore persistent state from cache (usage, cooldowns, limits)
+3. **Cooldown Check** → Wait for any existing cooldowns to expire before first attempt
+4. **Usage Validation** → Attempt to fetch current usage for all keys
+5. **Key Selection** → Select the best available key as active
+6. **Retry Logic** → Dynamic retry with intelligent delay calculation
+
+**Retry Strategy**:
+- Uses dynamic delays based on cooldown end times
+- Waits for earliest key availability rather than fixed intervals
+- Maximum 3 attempts with up to 20-minute delays
+- Fails gracefully if all keys are truly exhausted
+
+#### 2. Key Selection Logic (`_selectActiveKey`)
+**Purpose**: Intelligently choose the best available API key based on multiple criteria
+
+**Selection Priority** (in order):
+1. **Error Status** → Skip keys with `status: 'error'`
+2. **Monthly Cap** → Skip keys where `usage >= limit`
+3. **Active Cooldown** → Skip keys with `unifiedCooldownUntil > now`
+4. **Configuration Order** → Select first available key from config order
+
+**Dynamic Switching**:
+- Automatically switches when current key becomes unavailable
+- Logs key switches for monitoring
+- Sets `currentKeyName = null` when no keys available
+
+#### 3. Usage Monitoring (`_fetchKeyUsageFromApi`)
+**Purpose**: Track monthly API usage and detect limit approaching
+
+**API Endpoint**: `https://api.twitter.com/2/usage/tweets`
+**Response Data**:
+- `project_usage` → Current month's API calls used
+- `project_cap` → Monthly limit for this key
+- `cap_reset_day` → Day of month when usage resets
+
+**Error Handling**:
+- **429 Rate Limit** → Sets unified cooldown (16 minutes default)
+- **Other Errors** → Marks key as error status, preserves old usage data
+- **Success** → Updates usage, clears cooldowns, saves state
+
+#### 4. Unified Session Management (`performUnifiedApiSession`)
+**Purpose**: Coordinate usage and content API calls to prevent individual cooldowns
+
+**Key Innovation**: Calls both APIs simultaneously to prevent timing conflicts
+
+**Process**:
+1. **Parallel Execution** → Calls usage and content APIs with `Promise.allSettled`
+2. **429 Detection** → Monitors both calls for rate limit responses
+3. **Unified Cooldown** → Sets single cooldown affecting both APIs if either hits 429
+4. **Header Parsing** → Uses `x-rate-limit-reset` for precise cooldown timing
+5. **State Persistence** → Saves all state changes immediately
+
+**Benefits**:
+- Prevents API call timing conflicts
+- Ensures consistent cooldown handling
+- Maximizes API efficiency
+
+#### 5. Error Handling & Recovery (`handleRequestOutcome`)
+**Purpose**: Process results from actual Twitter content fetching requests
+
+**Handles Three Scenarios**:
+
+1. **429 Rate Limit**:
+   - Extracts reset time from `x-rate-limit-reset` header
+   - Sets unified cooldown for the affected key
+   - Triggers automatic key switching
+   - Logs cooldown duration for monitoring
+
+2. **Other Errors**:
+   - Marks key with `status: 'error'`
+   - Triggers immediate key switching
+   - Preserves error details for debugging
+
+3. **Success**:
+   - No immediate action (usage updates handled by periodic checks)
+   - Maintains key availability
+
+### Advanced Features
+
+#### 1. Persistent State Management
+**Cache Storage**: All key states persist across bot restarts
+**Saved Data**:
+- Usage counts and limits
+- Cooldown timestamps
+- Last successful check times
+- Error states and status
+
+**Benefits**:
+- No usage rechecking on restart
+- Preserves cooldown timings
+- Maintains API efficiency
+
+#### 2. Intelligent Cooldown Handling
+**Unified Cooldown System**:
+- Single cooldown affects all API endpoints for a key
+- Prevents partial availability confusion
+- Eliminates timing conflicts between usage and content APIs
+
+**Dynamic Waiting**:
+- Calculates exact wait times from headers
+- Uses earliest available key for retry timing
+- Minimizes unnecessary delays
+
+#### 3. Monitoring & Logging
+**Comprehensive Logging**:
+```
+Key primary state: Status=ok, Usage=1250/10000, MonthlyResetDay=15, LastGoodCheck=10:30:45
+Key fallback1 state: Status=unified_api_cooldown, Usage=8500/10000, UnifiedAPIEndpointCooldown for 12 minutes
+```
+
+**Status Indicators**:
+- Real-time usage tracking with reset date calculation
+- Cooldown timing with minute precision
+- Error status with reason tracking
+- Key switching notifications
+
+#### 4. Periodic Maintenance (`periodicCheck`)
+**Purpose**: Regular health checks and state updates
+
+**Schedule**: Called by main news monitor cycle
+**Actions**:
+- Updates usage for all non-cooling keys
+- Refreshes monthly limits and reset dates
+- Clears expired cooldowns
+- Maintains accurate key availability
+
+### Configuration Examples
+
+#### Basic Multi-Key Setup
+```javascript
+TWITTER_API_KEYS: {
+    primary: { bearer_token: process.env.TWITTER_PRIMARY },
+    backup: { bearer_token: process.env.TWITTER_BACKUP }
+}
+```
+
+#### Production Setup (5 Keys)
+```javascript
+TWITTER_API_KEYS: {
+    primary: { bearer_token: process.env.TWITTER_PRIMARY_BEARER_TOKEN },
+    fallback1: { bearer_token: process.env.TWITTER_FALLBACK_BEARER_TOKEN },
+    fallback2: { bearer_token: process.env.TWITTER_FALLBACK2_BEARER_TOKEN },
+    fallback3: { bearer_token: process.env.TWITTER_FALLBACK3_BEARER_TOKEN },
+    fallback4: { bearer_token: process.env.TWITTER_FALLBACK4_BEARER_TOKEN }
+}
+```
+
+### Monitoring Commands
+
+#### Debug API Key States
+```javascript
+// Get current active key
+const currentKey = twitterApiHandler.getCurrentKey();
+
+// Get all key states (for debugging)
+const allStates = twitterApiHandler._getApiKeyStates();
+
+// Force usage check
+await twitterApiHandler.periodicCheck();
+```
+
+### Error Scenarios & Recovery
+
+#### 1. All Keys Hit Monthly Limits
+**Detection**: All keys show `usage >= limit`
+**Behavior**: System waits until next monthly reset
+**Recovery**: Automatic on reset day based on `capResetDay`
+
+#### 2. All Keys on Cooldown
+**Detection**: All keys have `unifiedCooldownUntil > now`
+**Behavior**: System waits for earliest cooldown expiry
+**Recovery**: Automatic key switching when cooldown expires
+
+#### 3. API Key Revoked/Invalid
+**Detection**: Authentication errors from API calls
+**Behavior**: Mark key as `status: 'error'`, switch to backup
+**Recovery**: Manual key replacement in environment variables
+
+#### 4. Twitter API Outage
+**Detection**: Connection errors, timeouts, 5xx responses
+**Behavior**: Preserve existing usage data, retry with backoff
+**Recovery**: Automatic when Twitter API becomes available
+
+### Performance Optimization
+
+#### 1. Usage API Efficiency
+- Batch updates during periodic checks
+- Skip usage calls for cooling keys
+- Cache results to minimize API calls
+
+#### 2. Smart Initialization
+- Wait for cached cooldowns on startup
+- Dynamic retry delays based on key availability
+- Parallel key validation when possible
+
+#### 3. Memory Management
+- Lightweight key state objects
+- Efficient state persistence
+- Minimal logging overhead
+
+This robust API key management system ensures maximum Twitter API availability while respecting all rate limits and providing comprehensive monitoring and automatic recovery capabilities.
 
 ## 🛡️ Safety & Limits
 

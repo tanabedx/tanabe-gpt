@@ -129,6 +129,7 @@ const NEWS_MONITOR_CONFIG = {
             fallback1: { bearer_token: process.env.TWITTER_FALLBACK_BEARER_TOKEN },
             fallback2: { bearer_token: process.env.TWITTER_FALLBACK2_BEARER_TOKEN },
             fallback3: { bearer_token: process.env.TWITTER_FALLBACK3_BEARER_TOKEN},
+            fallback4: { bearer_token: process.env.TWITTER_FALLBACK4_BEARER_TOKEN},
             // Add more keys here if you have them, following the same pattern:
             // your_key_name: { bearer_token: process.env.YOUR_ENV_VARIABLE_FOR_TOKEN }
         },

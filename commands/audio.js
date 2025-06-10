@@ -40,15 +40,9 @@ async function handleAudio(message, command) {
             filename: media.filename,
         });
 
-        // Save audio to temp file
-        const tempDir = path.join(__dirname, '..', 'temp');
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-        }
-
-        // Always use .ogg extension as it's supported by Whisper
+        // Save audio to temporary file in parent directory
         const randomName = crypto.randomBytes(16).toString('hex');
-        audioPath = path.join(tempDir, `${randomName}.ogg`);
+        audioPath = path.join(__dirname, '..', `${randomName}.ogg`);
 
         // Write audio data to file
         fs.writeFileSync(audioPath, Buffer.from(media.data, 'base64'));
