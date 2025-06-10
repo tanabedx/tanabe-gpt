@@ -10,7 +10,12 @@ const { runCompletion } = require('../utils/openaiUtils');
 async function evaluateItemWithAccountSpecificPrompt(item, config) {
     // If item is not a tweet, or has no text, this filter doesn't apply directly based on accountName.
     // However, the logic allows it to be called for any item; it will pass non-tweets or empty text tweets.
-    if (!item.accountName || !item.text || item.text.trim() === '') return true;
+    
+    // For mediaOnly tweets, use original text for account-specific evaluation (before image extraction)
+    // For regular tweets, use current text (which is the original text)
+    const textToEvaluate = item.originalText || item.text;
+    
+    if (!item.accountName || !textToEvaluate || textToEvaluate.trim() === '') return true;
 
     const accountConfig = config.sources.find(
         source => source.type === 'twitter' && source.username === item.accountName
@@ -29,14 +34,14 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
 
     const modelName = config.AI_MODELS[promptName] || config.AI_MODELS.DEFAULT;
     let formattedPrompt = promptTemplate.includes('{post}')
-        ? promptTemplate.replace('{post}', item.text)
+        ? promptTemplate.replace('{post}', textToEvaluate)
         : promptTemplate.includes('{content}')
-        ? promptTemplate.replace('{content}', item.text)
-        : promptTemplate; // Fallback if no placeholder, though unlikely for this type of prompt
+        ? promptTemplate.replace('{content}', textToEvaluate)
+        : promptTemplate;
 
     try {
         logger.debug(
-            `NM: Evaluating @${item.accountName}'s item with "${promptName}" using model ${modelName}.`
+            `NM: Evaluating @${item.accountName}'s item with "${promptName}" using model ${modelName}. Using ${item.originalText ? 'original' : 'current'} text.`
         );
         const result = await runCompletion(formattedPrompt, 0.3, modelName, promptName);
         const cleanedResult = result.trim().toLowerCase();

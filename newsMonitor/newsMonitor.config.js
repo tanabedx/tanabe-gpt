@@ -36,9 +36,9 @@ const NEWS_MONITOR_CONFIG = {
             enabled: true,
             username: 'SITREP_artorias',
             lastTweetId: null,
-            mediaOnly: true,
-            skipEvaluation: true,
-            promptSpecific: true,
+            mediaOnly: true,        // When mediaOnly=true: Image text extraction happens BEFORE content evaluation  // - If image extraction fails for mediaOnly tweets, original text is used as fallback
+            skipEvaluation: false,   // All evaluation steps (except promptSpecific) use extracted image text instead of original tweet text
+            promptSpecific: true,   // Account-specific evaluation always uses original tweet text (before image extraction)
             priority: 9,
         },
         // RSS Sources

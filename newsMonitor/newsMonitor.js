@@ -277,6 +277,174 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
+    // 3.5: Image Text Extraction and `item.text` Update for `mediaOnly` Tweets
+    // IMPORTANT: This happens BEFORE content evaluation so that mediaOnly tweets are evaluated using extracted image text
+    if (filteredItems.length > 0) {
+        logger.debug(
+            `NM: Starting image text extraction & update for mediaOnly tweets (before evaluation). Items: ${filteredItems.length}`
+        );
+        const itemsPostImageTextProcessing = [];
+        for (const item of filteredItems) {
+            let removeItemDueToImageIssue = false;
+            if (item.accountName) {
+                // It's a tweet
+                const sourceConfig = NEWS_MONITOR_CONFIG.sources.find(
+                    s => s.type === 'twitter' && s.username === item.accountName
+                );
+
+                if (sourceConfig && sourceConfig.mediaOnly) {
+                    item.originalText = item.text; // Preserve original text
+
+                    const photoMedia = item.media?.find(m => m.type === 'photo');
+
+                    if (photoMedia && photoMedia.url) {
+                        // Always use the generic image text extraction prompt now
+                        const imageTextExtractionPromptName =
+                            'PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT';
+                        const imageTextExtractionPrompt =
+                            NEWS_MONITOR_CONFIG.PROMPTS[imageTextExtractionPromptName];
+                        const modelForImageText =
+                            NEWS_MONITOR_CONFIG.AI_MODELS[imageTextExtractionPromptName] ||
+                            NEWS_MONITOR_CONFIG.AI_MODELS.DEFAULT;
+
+                        if (imageTextExtractionPrompt) {
+                            try {
+                                logger.debug(
+                                    `NM: Extracting image text for @${item.accountName} (tweet ${item.id}) using ${imageTextExtractionPromptName} with model ${modelForImageText}`
+                                );
+                                const extractedText = await extractTextFromImageWithOpenAI(
+                                    photoMedia.url,
+                                    imageTextExtractionPrompt,
+                                    modelForImageText
+                                );
+
+                                // Validate extracted text quality
+                                function isValidExtractedText(text) {
+                                    if (!text || text.trim() === '') return false;
+                                    
+                                    const trimmedText = text.trim().toLowerCase();
+                                    
+                                    // Check for specific "no text" responses
+                                    if (trimmedText === 'nenhum texto relevante detectado na imagem.' ||
+                                        trimmedText === 'nenhum texto detectado na imagem.') {
+                                        return false;
+                                    }
+                                    
+                                    // Check if text is too short to be meaningful (less than 10 characters)
+                                    if (trimmedText.length < 10) return false;
+                                    
+                                    // Check for excessive character repetition (more than 70% same character)
+                                    const charCounts = {};
+                                    for (const char of trimmedText.replace(/\s/g, '')) {
+                                        charCounts[char] = (charCounts[char] || 0) + 1;
+                                    }
+                                    const maxCount = Math.max(...Object.values(charCounts));
+                                    const totalChars = trimmedText.replace(/\s/g, '').length;
+                                    if (totalChars > 0 && (maxCount / totalChars) > 0.7) return false;
+                                    
+                                    // Check if text has reasonable word structure (at least 2 words with 2+ chars each)
+                                    const words = trimmedText.split(/\s+/).filter(word => word.length >= 2);
+                                    if (words.length < 2) return false;
+                                    
+                                    // Check for random character sequences (too many consecutive consonants/vowels)
+                                    const consecutivePattern = /[bcdfghjklmnpqrstvwxyz]{6,}|[aeiou]{5,}/i;
+                                    if (consecutivePattern.test(trimmedText)) return false;
+                                    
+                                    return true;
+                                }
+
+                                if (extractedText && isValidExtractedText(extractedText)) {
+                                    item.text = extractedText; // REPLACE item.text
+                                    logger.debug(
+                                        `NM: item.text for @${item.accountName} (tweet ${
+                                            item.id
+                                        }) UPDATED with extracted image text: "${extractedText.substring(
+                                            0,
+                                            100
+                                        )}..."`
+                                    );
+                                } else {
+                                    const msg = `NM: Invalid/nonsensical text from image for @${
+                                        item.accountName
+                                    } (tweet ${
+                                        item.id
+                                    }). Extracted: "${(extractedText || '').substring(
+                                        0,
+                                        100
+                                    )}...". Using original: "${item.originalText.substring(
+                                        0,
+                                        100
+                                    )}..."`;
+                                    logger.debug(msg);
+                                    item.text = item.originalText; // Keep original if extraction yields nonsensical text
+                                    if (sourceConfig.username === 'SITREP_artorias') {
+                                        // SITREP needs meaningful image text
+                                        logger.warn(
+                                            `NM: SITREP_artorias tweet ${item.id} got nonsensical image text. Marking for removal.`
+                                        );
+                                        removeItemDueToImageIssue = true;
+                                    }
+                                }
+                            } catch (imgExtractError) {
+                                logger.error(
+                                    `NM: Error extracting image text for @${item.accountName} (tweet ${item.id}): ${imgExtractError.message}. Using original text.`
+                                );
+                                item.text = item.originalText;
+                                if (sourceConfig.username === 'SITREP_artorias') {
+                                    // SITREP needs image text
+                                    logger.warn(
+                                        `NM: SITREP_artorias tweet ${item.id} failed image extraction. Marking for removal.`
+                                    );
+                                    removeItemDueToImageIssue = true;
+                                }
+                            }
+                        } else {
+                            logger.warn(
+                                `NM: The standard image text extraction prompt (${imageTextExtractionPromptName}) is not configured. Cannot process image for @${item.accountName}. Original text kept.`
+                            ); // Changed from debug to warn
+                            item.text = item.originalText;
+                            // If even the standard prompt is missing, SITREP (and potentially others if configured strictly) would fail
+                            if (sourceConfig.username === 'SITREP_artorias') {
+                                logger.warn(
+                                    `NM: SITREP_artorias tweet ${item.id} cannot extract image text due to missing standard prompt. Marking for removal.`
+                                );
+                                removeItemDueToImageIssue = true;
+                            }
+                        }
+                    } else {
+                        // No photo URL found for mediaOnly tweet
+                        logger.debug(
+                            `NM: mediaOnly tweet @${item.accountName} (tweet ${item.id}) has no photo URL. Original text kept.`
+                        );
+                        item.text = item.originalText;
+                        if (sourceConfig.username === 'SITREP_artorias') {
+                            // SITREP MUST have an image
+                            logger.warn(
+                                `NM: SITREP_artorias tweet ${item.id} missing photo. Marking for removal.`
+                            );
+                            removeItemDueToImageIssue = true;
+                        }
+                    }
+                }
+            }
+            if (!removeItemDueToImageIssue) {
+                itemsPostImageTextProcessing.push(item);
+            }
+        }
+        const itemsActuallyRemovedCount =
+            filteredItems.length - itemsPostImageTextProcessing.length;
+        filteredItems = itemsPostImageTextProcessing;
+        if (itemsActuallyRemovedCount > 0) {
+            logger.debug(
+                `NM: Image Text Processing & Update: Removed ${itemsActuallyRemovedCount} items (SITREP/mediaOnly issues). ${filteredItems.length} remaining.`
+            );
+        } else {
+            logger.debug(
+                `NM: Image Text Processing & Update: All ${filteredItems.length} items retained or original text kept.`
+            );
+        }
+    }
+
     // 4. Apply account-specific filters (for Twitter).
     const itemsBeforeAccountSpecificFilter = [...filteredItems];
     const accountSpecificFilteredOutItems = [];
@@ -426,17 +594,16 @@ async function processNewsCycle(skipPeriodicCheck = false) {
             let passedFullContentEval = true; // Default to pass
 
             if (item.accountName) {
-                // It's a tweet. Evaluation uses original text.
+                // It's a tweet. For mediaOnly tweets, evaluation now uses extracted image text (from step 3.5).
                 const sourceConfig = NEWS_MONITOR_CONFIG.sources.find(
                     s => s.type === 'twitter' && s.username === item.accountName
                 );
                 if (sourceConfig && sourceConfig.skipEvaluation) {
                     item.relevanceJustification = 'Evaluation skipped (Source Config)';
                 } else {
-                    // Ensure original text is used if this is a mediaOnly tweet that *might* get its text replaced later
-                    // No, evaluateItemFullContent for tweets should use item.text which is original at this stage
+                    // evaluateItemFullContent uses item.text which is now extracted image text for mediaOnly tweets
                     passedFullContentEval = await evaluateItemFullContent(
-                        item, // item.text is original here
+                        item, // item.text is extracted image text for mediaOnly, original text for others
                         NEWS_MONITOR_CONFIG
                     );
                 }
@@ -468,142 +635,6 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         } else {
             logger.debug(
                 `NM: Full Content Evaluation: No items filtered out. ${itemsBeforeFullContentEval.length} before, ${filteredItems.length} after.`
-            );
-        }
-    }
-
-    // NEW STEP 6.5: Image Text Extraction and `item.text` Update for `mediaOnly` Tweets
-    if (filteredItems.length > 0) {
-        logger.debug(
-            `NM: Starting image text extraction & update for relevant mediaOnly tweets. Items: ${filteredItems.length}`
-        );
-        const itemsPostImageTextProcessing = [];
-        for (const item of filteredItems) {
-            let removeItemDueToImageIssue = false;
-            if (item.accountName) {
-                // It's a tweet
-                const sourceConfig = NEWS_MONITOR_CONFIG.sources.find(
-                    s => s.type === 'twitter' && s.username === item.accountName
-                );
-
-                if (sourceConfig && sourceConfig.mediaOnly) {
-                    item.originalText = item.text; // Preserve original text
-
-                    const photoMedia = item.media?.find(m => m.type === 'photo');
-
-                    if (photoMedia && photoMedia.url) {
-                        // Always use the generic image text extraction prompt now
-                        const imageTextExtractionPromptName =
-                            'PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT';
-                        const imageTextExtractionPrompt =
-                            NEWS_MONITOR_CONFIG.PROMPTS[imageTextExtractionPromptName];
-                        const modelForImageText =
-                            NEWS_MONITOR_CONFIG.AI_MODELS[imageTextExtractionPromptName] ||
-                            NEWS_MONITOR_CONFIG.AI_MODELS.DEFAULT;
-
-                        if (imageTextExtractionPrompt) {
-                            try {
-                                logger.debug(
-                                    `NM: Extracting image text for @${item.accountName} (tweet ${item.id}) using ${imageTextExtractionPromptName} with model ${modelForImageText}`
-                                );
-                                const extractedText = await extractTextFromImageWithOpenAI(
-                                    photoMedia.url,
-                                    imageTextExtractionPrompt,
-                                    modelForImageText
-                                );
-
-                                if (
-                                    extractedText &&
-                                    extractedText.trim().toLowerCase() !==
-                                        'nenhum texto relevante detectado na imagem.' &&
-                                    extractedText.trim().toLowerCase() !==
-                                        'nenhum texto detectado na imagem.' &&
-                                    extractedText.trim() !== ''
-                                ) {
-                                    item.text = extractedText; // REPLACE item.text
-                                    logger.debug(
-                                        `NM: item.text for @${item.accountName} (tweet ${
-                                            item.id
-                                        }) UPDATED with extracted image text: "${extractedText.substring(
-                                            0,
-                                            100
-                                        )}..."`
-                                    );
-                                } else {
-                                    const msg = `NM: No relevant/empty text from image for @${
-                                        item.accountName
-                                    } (tweet ${
-                                        item.id
-                                    }). Using original: "${item.originalText.substring(
-                                        0,
-                                        100
-                                    )}..."`;
-                                    logger.debug(msg);
-                                    item.text = item.originalText; // Keep original if extraction fails or yields nothing relevant
-                                    if (sourceConfig.username === 'SITREP_artorias') {
-                                        // SITREP needs image text
-                                        logger.warn(
-                                            `NM: SITREP_artorias tweet ${item.id} got no usable image text. Marking for removal.`
-                                        );
-                                        removeItemDueToImageIssue = true;
-                                    }
-                                }
-                            } catch (imgExtractError) {
-                                logger.error(
-                                    `NM: Error extracting image text for @${item.accountName} (tweet ${item.id}): ${imgExtractError.message}. Using original text.`
-                                );
-                                item.text = item.originalText;
-                                if (sourceConfig.username === 'SITREP_artorias') {
-                                    // SITREP needs image text
-                                    logger.warn(
-                                        `NM: SITREP_artorias tweet ${item.id} failed image extraction. Marking for removal.`
-                                    );
-                                    removeItemDueToImageIssue = true;
-                                }
-                            }
-                        } else {
-                            logger.warn(
-                                `NM: The standard image text extraction prompt (${imageTextExtractionPromptName}) is not configured. Cannot process image for @${item.accountName}. Original text kept.`
-                            ); // Changed from debug to warn
-                            item.text = item.originalText;
-                            // If even the standard prompt is missing, SITREP (and potentially others if configured strictly) would fail
-                            if (sourceConfig.username === 'SITREP_artorias') {
-                                logger.warn(
-                                    `NM: SITREP_artorias tweet ${item.id} cannot extract image text due to missing standard prompt. Marking for removal.`
-                                );
-                                removeItemDueToImageIssue = true;
-                            }
-                        }
-                    } else {
-                        // No photo URL found for mediaOnly tweet
-                        logger.debug(
-                            `NM: mediaOnly tweet @${item.accountName} (tweet ${item.id}) has no photo URL. Original text kept.`
-                        );
-                        item.text = item.originalText;
-                        if (sourceConfig.username === 'SITREP_artorias') {
-                            // SITREP MUST have an image
-                            logger.warn(
-                                `NM: SITREP_artorias tweet ${item.id} missing photo. Marking for removal.`
-                            );
-                            removeItemDueToImageIssue = true;
-                        }
-                    }
-                }
-            }
-            if (!removeItemDueToImageIssue) {
-                itemsPostImageTextProcessing.push(item);
-            }
-        }
-        const itemsActuallyRemovedCount =
-            filteredItems.length - itemsPostImageTextProcessing.length;
-        filteredItems = itemsPostImageTextProcessing;
-        if (itemsActuallyRemovedCount > 0) {
-            logger.debug(
-                `NM: Image Text Processing & Update: Removed ${itemsActuallyRemovedCount} items (SITREP/mediaOnly issues). ${filteredItems.length} remaining.`
-            );
-        } else {
-            logger.debug(
-                `NM: Image Text Processing & Update: All ${filteredItems.length} items retained or original text kept.`
             );
         }
     }
@@ -697,8 +728,8 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                     : null;
 
                 if (item.accountName && sourceConfig) {
-                    // Twitter Item - ALL KINDS (regular, mediaOnly, SITREP after step 6.5)
-                    // item.text is the original tweet text, or image-extracted text from step 6.5
+                    // Twitter Item - ALL KINDS (regular, mediaOnly, SITREP after step 3.5)
+                    // item.text is the original tweet text, or image-extracted text from step 3.5
                     // This text is untranslated at this point.
                     logger.debug(
                         `NM: Generating summary for Tweet @${item.accountName} (ID: ${
@@ -746,7 +777,7 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                         item.id;
 
                     // Handle media for tweets (mediaOnly or regular tweets with optional photos)
-                    // SITREP_artorias is now text-based by this point due to step 6.5; its media was the source of item.text.
+                    // SITREP_artorias is now text-based by this point due to step 3.5; its media was the source of item.text.
                     // For other mediaOnly, or regular tweets with photos, attach the photo.
                     if (sourceConfig.mediaOnly && item.accountName !== 'SITREP_artorias') {
                         // Non-SITREP mediaOnly
@@ -819,7 +850,7 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                         }
                     }
                     // Note: The complex SITREP_artorias specific image re-extraction and translation block is removed here
-                    // as item.text is already populated from image (step 6.5) and generateSummary handles translation.
+                    // as item.text is already populated from image (step 3.5) and generateSummary handles translation.
                 } else if (item.feedName) {
                     // RSS Item
                     // item.title and item.content are original, untranslated.
