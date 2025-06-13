@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
-const config = require('../configs');
+const NEWS_MONITOR_CONFIG = require('./newsMonitor.config');
 
 // Constants for cache configuration
 const CACHE_DIR = path.join(process.cwd(), 'newsMonitor');
@@ -64,7 +64,7 @@ function initializeCacheFile() {
  * @returns {number} Maximum age in milliseconds
  */
 function getMaxAgeMs() {
-    const retentionDays = config.NEWS_MONITOR?.HISTORICAL_CACHE?.RETENTION_DAYS || 2;
+    const retentionDays = NEWS_MONITOR_CONFIG?.HISTORICAL_CACHE?.RETENTION_DAYS || 2;
     return retentionDays * 24 * 60 * 60 * 1000; // Convert days to milliseconds
 }
 
@@ -92,7 +92,7 @@ function cleanupSentArticleCache() {
  * @returns {Promise<boolean>} - true if a similar article has been sent
  */
 async function isArticleSentRecently(article) {
-    if (!config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+    if (!NEWS_MONITOR_CONFIG.HISTORICAL_CACHE?.ENABLED) {
         return false;
     }
 
@@ -119,7 +119,7 @@ function recordSentTweet(tweet, username, justification) {
         }
 
         // Save directly to persistent cache
-        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+        if (NEWS_MONITOR_CONFIG.HISTORICAL_CACHE?.ENABLED) {
             cacheTweet(tweet, username, justification);
             logger.debug(`Added tweet ${tweet.id} to persistent cache`);
         }
@@ -140,7 +140,7 @@ function recordSentArticle(article) {
         }
 
         // Save directly to persistent cache
-        if (config.NEWS_MONITOR.HISTORICAL_CACHE?.ENABLED) {
+        if (NEWS_MONITOR_CONFIG.HISTORICAL_CACHE?.ENABLED) {
             cacheArticle(article);
             logger.debug(
                 `Added article to persistent cache: ${article.title?.substring(0, 30)}...`

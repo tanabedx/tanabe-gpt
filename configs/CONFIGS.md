@@ -24,7 +24,6 @@ const hasAccess = await hasPermission('CHAT_GPT', chatId, userId);
 
 // Use system settings
 const defaultModel = config.SYSTEM.OPENAI_MODELS.DEFAULT;
-const logLevels = config.SYSTEM.CONSOLE_LOG_LEVELS;
 
 // Access discovered commands
 const commands = config.COMMANDS;  // Auto-discovered command configurations
@@ -139,11 +138,6 @@ SYSTEM = {
             VISION_DEFAULT: 'gpt-4o-mini'
         }
     },
-    logging: {
-        CONSOLE_LOG_LEVELS: { ERROR: true, WARN: true, INFO: true, DEBUG: false },
-        NOTIFICATION_LEVELS: { ERROR: true, WARN: false, SUMMARY: true },
-        ADMIN_NOTIFICATION_CHAT: CREDENTIALS.ADMIN_WHATSAPP_ID
-    },
     maintenance: {
         ENABLE_STARTUP_CACHE_CLEARING: true,
         PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js']
@@ -186,6 +180,28 @@ Cross-Module Usage → Dynamic Member Discovery → Runtime Configuration
 config.js → Import Dependencies → Circular Dependency Resolution (setTimeout) →
   ↓ (configuration assembly)
 Export Aggregation → Module Distribution → Runtime Access
+```
+
+### System Configuration
+```javascript
+SYSTEM = {
+    limits: {
+        MAX_LOG_MESSAGES: 1000,
+        MESSAGE_DELETE_TIMEOUT: 60000,
+        MAX_RECONNECT_ATTEMPTS: 5
+    },
+    models: {
+        OPENAI_MODELS: {
+            DEFAULT: 'gpt-4o-mini',
+            VOICE: 'whisper-1',
+            VISION_DEFAULT: 'gpt-4o-mini'
+        }
+    },
+    maintenance: {
+        ENABLE_STARTUP_CACHE_CLEARING: true,
+        PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js']
+    }
+}
 ```
 
 ## Configuration Schema
@@ -244,11 +260,6 @@ SYSTEM = {
             VISION_DEFAULT: string
         }
     },
-    logging: {
-        CONSOLE_LOG_LEVELS: { [level]: boolean },
-        NOTIFICATION_LEVELS: { [level]: boolean },
-        ADMIN_NOTIFICATION_CHAT: string
-    },
     maintenance: {
         ENABLE_STARTUP_CACHE_CLEARING: boolean,
         PRESERVED_FILES_ON_UPDATE: string[]
@@ -274,6 +285,21 @@ SYSTEM = {
 - **Dynamic Imports**: Automatic configuration discovery and loading
 - **Circular Dependency Resolution**: Lazy loading with setTimeout for complex dependencies
 
+### Node.js `fs`, `path`
+- **File system access for dynamic configuration loading
+
+### `../utils/logger`
+- **Centralized logging for startup and error messages
+
+### `../admin/admin`
+- **Runtime configuration access
+
+### `../core/commandDiscovery`
+- **Automatic command configuration detection
+
+### Cross-Module Dependencies
+- **`../newsMonitor/newsMonitor.config`**: News monitoring settings
+
 ## Internal Dependencies
 
 ### Cross-Module Configuration Dependencies
@@ -298,4 +324,7 @@ SYSTEM = {
 - **Centralized Credentials**: Single source of truth for all authentication
 - **Permission Matrix**: Unified authorization system across all commands
 - **System Settings**: Shared configuration for logging, models, and operational parameters
-- **Command Registry**: Auto-discovered command configurations available to all modules 
+- **Command Registry**: Auto-discovered command configurations available to all modules
+- **`config.js` Import** → `commandDiscovery.discoverCommands()` → File System Scan →
+  ↓ (discovered commands)
+  `COMMANDS` Object → Exported to the rest of the application 

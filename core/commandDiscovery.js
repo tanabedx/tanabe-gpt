@@ -1,4 +1,4 @@
-// utils/commandDiscovery.js
+// core/commandDiscovery.js
 // Automatic command configuration discovery
 
 const fs = require('fs');

@@ -1,10 +1,9 @@
 # Utils System Documentation
 
 ## Overview
-Comprehensive utility library providing command discovery, environment management, Git integration, link processing, advanced logging, message handling, and OpenAI API integration with centralized configuration and cross-module shared infrastructure for the WhatsApp bot system.
+Comprehensive utility library providing environment management, Git integration, link processing, advanced logging, message handling, and OpenAI API integration with centralized configuration and cross-module shared infrastructure for the WhatsApp bot system.
 
 ## Core Features
-- **Command Discovery**: Automatic scanning and loading of command configurations from `.config.js` files across project directories
 - **Environment Management**: Environment variable parsing with escape sequence handling and configuration templating
 - **Git Integration**: Startup git pull functionality with commit tracking and update notifications
 - **Link Processing**: URL extraction, unshortening, content fetching with retry logic and rate limiting
@@ -14,13 +13,9 @@ Comprehensive utility library providing command discovery, environment managemen
 
 ## Usage Examples
 ```javascript
-// Command Discovery
-const { discoverCommands } = require('./utils/commandDiscovery');
-const commands = discoverCommands(); // Auto-discover all command configs
-
 // Environment Utilities
 const { getEnvWithEscapes } = require('./utils/envUtils');
-const message = getEnvWithEscapes('WELCOME_MESSAGE', 'Default message\nWith newlines');
+const message = getEnvWithEscapes('WELCOME_MESSAGE', 'Default message\\nWith newlines');
 
 // Git Operations
 const { performStartupGitPull } = require('./utils/gitUtils');
@@ -44,10 +39,10 @@ const response = await runCompletion(prompt, 1, 'gpt-4o', 'CHAT');
 ## Architecture Overview
 
 ### Core Design Pattern
-Modular utility architecture with centralized configuration dependency, shared logging infrastructure, and external API abstraction layers. Uses function-based exports with lazy configuration loading to avoid circular dependencies.
+Modular utility architecture with shared logging infrastructure and external API abstraction layers. Most utilities depend on a centralized configuration, while the logger is self-contained. Uses function-based exports with lazy configuration loading to avoid circular dependencies.
 
 ### Processing Flow
-1. **Initialization** → Configuration loading + command discovery + logging setup
+1. **Initialization** → Configuration loading + logging setup
 2. **Runtime Operations** → Utility function calls with shared logger and config access
 3. **External Integrations** → OpenAI API calls + HTTP requests + Git operations
 4. **State Management** → Log rotation + admin notifications + error handling
@@ -56,7 +51,6 @@ Modular utility architecture with centralized configuration dependency, shared l
 ## File Structure & Roles
 
 ### Configuration & Discovery Files
-- **`commandDiscovery.js`**: Automatic command configuration scanning with recursive directory traversal and config validation
 - **`envUtils.js`**: Environment variable processing with escape sequence parsing and template message handling
 - **`gitUtils.js`**: Git operation utilities with commit tracking and startup update functionality
 
@@ -65,49 +59,22 @@ Modular utility architecture with centralized configuration dependency, shared l
 - **`messageUtils.js`**: Message handling utilities with auto-delete functionality and contact name resolution
 
 ### Infrastructure & Integration Files
-- **`logger.js`**: Advanced logging infrastructure with multi-level output, file rotation, admin notifications, and spinner UI
+- **`logger.js`**: Self-contained, advanced logging infrastructure with multi-level output, file rotation, admin notifications, and spinner UI.
 - **`openaiUtils.js`**: OpenAI API integration with model selection, conversation handling, and vision processing
 
 ## Core Components
 
-### Command Discovery System (`commandDiscovery.js`)
-```javascript
-// Recursive directory scanning with config validation
-function discoverCommands() {
-    const commands = {};
-    const rootDir = path.resolve(__dirname, '..');
-    
-    // Special name mappings for non-standard patterns
-    const nameMapping = {
-        'CHAT': 'CHAT_GPT',
-        'AYUB': 'AYUB_NEWS',
-        'WIZARD': 'RESUMO_CONFIG'
-    };
-    
-    // Recursive scanning with depth control
-    function scanDirectory(dirPath, maxDepth = 2, currentDepth = 0) {
-        const files = fs.readdirSync(dirPath);
-        const configFiles = files.filter(file => file.endsWith('.config.js'));
-        
-        // Process each config file with error handling
-        for (const configFile of configFiles) {
-            try {
-                const config = require(relativePath);
-                const commandName = nameMapping[baseCommandName] || baseCommandName;
-                commands[commandName] = config;
-            } catch (error) {
-                configFailures.push(`Failed to load ${configFile}: ${error.message}`);
-            }
-        }
-    }
-    
-    return commands;
-}
-```
-
 ### Advanced Logging System (`logger.js`)
 ```javascript
-// Multi-level logging with environment control and admin notifications
+// Self-contained, multi-level logging with environment control and admin notifications
+const CONSOLE_LOG_LEVELS = {
+    ERROR: true, WARN: true, INFO: true, DEBUG: false, PROMPT: false, /* ... */
+};
+
+const NOTIFICATION_LEVELS = {
+    ERROR: true, WARN: false, INFO: false, /* ... */
+};
+
 const logger = {
     error: (message, error = null) => log('ERROR', message, error, true),
     warn: (message, error = null, shouldNotifyAdmin = true) => log('WARN', message, error, shouldNotifyAdmin),
@@ -249,24 +216,34 @@ async function getPageContent(url, attempt = 1) {
 }
 ```
 
+### Message Handling System (`messageUtils.js`)
+```javascript
+// ... existing code ...
+```
+
+### Environment Management System (`envUtils.js`)
+```javascript
+// ... existing code ...
+```
+
+### Git Integration System (`gitUtils.js`)
+```javascript
+// ... existing code ...
+```
+
 ## Data Flows
 
-### Command Discovery Flow
+### Startup Flow
 ```
-Startup → commandDiscovery.js → Directory Scanning → Config File Detection →
-Module Loading → Name Mapping → Validation → Error Collection → Command Registry
+Startup → gitUtils.js → Git Pull →
+  ↓ (bot updated)
+Logging Initialization → Admin Notification
 ```
 
-### Logging Flow
+### Standard Logging Flow
 ```
 Log Call → Level Check → Message Formatting → Console Output → File Writing →
 Admin Notification Check → Spinner Management → Error Handling
-```
-
-### OpenAI API Flow
-```
-Function Call → Model Selection → Temperature Adjustment → API Request →
-Response Processing → Error Handling → Result Return
 ```
 
 ### Link Processing Flow
@@ -275,25 +252,23 @@ URL Extraction → Google Redirect Detection → Unshortening → Content Fetchi
 Rate Limit Handling → Retry Logic → Content Cleaning → Length Limiting
 ```
 
+### OpenAI Completion Flow
+```
+Function Call → Model Selection → Temperature Adjustment → API Request →
+Response Processing → Error Handling → Result Return
+```
+
 ## Configuration Schema
 
-### Logging Configuration
+### Link Processing Configuration
 ```javascript
-const logConfig = {
-    SYSTEM: {
-        CONSOLE_LOG_LEVELS: {
-            ERROR: boolean,     // Error messages
-            WARN: boolean,      // Warning messages
-            INFO: boolean,      // Information messages
-            DEBUG: boolean,     // Debug messages
-            PROMPT: boolean,    // OpenAI prompt/response logs
-            STARTUP: boolean    // Startup messages
-        },
-        NOTIFICATION_LEVELS: {
-            ERROR: boolean,     // Send errors to admin
-            WARN: boolean,      // Send warnings to admin
-            INFO: boolean,      // Send info to admin
-            PROMPT: boolean     // Send prompts to admin
+const linkConfig = {
+    RESUMO: {
+        linkSettings: {
+            maxCharacters: number,  // Maximum content length
+            timeout: number,        // Request timeout in milliseconds
+            retryAttempts: number,  // Number of retry attempts
+            retryDelay: number      // Base delay between retries
         }
     }
 };
@@ -318,64 +293,21 @@ const openaiConfig = {
 };
 ```
 
-### Link Processing Configuration
-```javascript
-const linkConfig = {
-    RESUMO: {
-        linkSettings: {
-            maxCharacters: number,  // Maximum content length
-            timeout: number,        // Request timeout in milliseconds
-            retryAttempts: number,  // Number of retry attempts
-            retryDelay: number      // Base delay between retries
-        }
-    }
-};
-```
-
 ## External Dependencies
 
-### OpenAI Integration
-- **`openai`**: Official OpenAI API client for ChatGPT completions, conversation handling, and vision processing
-- **API Endpoints**: Chat completions for text generation, vision API for image analysis
-
-### HTTP Operations
-- **`axios`**: HTTP client for link processing, content fetching, and web requests with retry logic
-- **Request Features**: Redirects, timeouts, headers, rate limiting, and response streaming
-
-### File System Operations
-- **`fs`**: File operations for log rotation, config discovery, and directory scanning
-- **`fs.promises`**: Async file operations for non-blocking I/O in logging system
-
-### Process Management
-- **`child_process.execSync`**: Git operations execution for startup updates and version tracking
-- **Process APIs**: Environment variable access, signal handling, and system detection
-
-### Terminal Operations
-- **`readline`**: Cursor control and line clearing for spinner animation in logging system
+- **`axios`**: HTTP requests for link processing and external API calls
+- **`ora`**: Spinner UI for console logging
+- **`simple-git`**: Git operations for startup updates
+- **`openai`**: OpenAI API integration for completions and vision
 
 ## Internal Dependencies
 
+### Configuration Dependencies
+- **`../configs`**: Centralized configuration access for API keys, system settings, and feature flags, used by most utilities except the logger.
+
 ### Cross-Module Dependencies
-- **`logger.js`** ← imported by ← ALL utility modules (centralized logging infrastructure)
-- **`../configs`** ← imported by ← `logger.js`, `openaiUtils.js`, `linkUtils.js`, `messageUtils.js` (configuration access)
-- **`commandDiscovery.js`** ← imported by ← main application (command registration)
-- **`openaiUtils.js`** ← imported by ← chat system, summary system, news system (AI processing)
-- **`linkUtils.js`** ← imported by ← summary system, chat system (content processing)
-
-### Data Sharing Patterns
-- **Logger Instance**: Singleton pattern across all modules with shared configuration and state management
-- **Configuration Access**: Lazy loading pattern to avoid circular dependencies with setTimeout wrapper
-- **OpenAI Client**: Factory pattern with configuration-based initialization and model selection
-- **Command Registry**: Centralized discovery with error collection and validation reporting
-
-### Error Handling Architecture
-- **Graceful Degradation**: Failed config loads don't stop discovery, missing models fall back to defaults
-- **Retry Logic**: Network operations implement exponential backoff with configurable retry limits
-- **Error Propagation**: Structured error objects with context preservation and admin notification triggers
-- **Resource Cleanup**: File handle management, stream destruction, and interval clearing on errors
-
-### Configuration Integration
-- **Hierarchical Model Selection**: Multiple configuration layers with clear precedence rules
-- **Environment-Based Behavior**: Development vs production logging levels and output formatting
-- **Dynamic Configuration**: Runtime configuration updates without requiring restarts
-- **Validation and Fallbacks**: Configuration validation with sensible default values for missing settings 
+- **`logger.js`** ← used by ← all other utility modules and core components (self-contained configuration).
+- **`openaiUtils.js`** ← used by ← core components requiring AI completions
+- **`linkUtils.js`** ← used by ← modules handling links (e.g., `resumo`)
+- **`messageUtils.js`** ← used by ← core components for message handling
+- **`gitUtils.js`** ← used by ← main application startup sequence 

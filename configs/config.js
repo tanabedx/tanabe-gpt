@@ -2,7 +2,9 @@
 
 // Import configurations
 const CREDENTIALS = require('./credentials');
-const { discoverCommands } = require('../utils/commandDiscovery');
+const logger = require('../utils/logger');
+const { runtimeConfig } = require('../admin/admin');
+const { discoverCommands } = require('../core/commandDiscovery');
 const NEWS_MONITOR = require('../newsMonitor/newsMonitor.config');
 
 // Discover commands automatically
@@ -24,29 +26,6 @@ const SYSTEM = {
         DEFAULT: 'gpt-4o-mini',
         VOICE: 'whisper-1', // Model for voice transcription
         VISION_DEFAULT: 'gpt-4o-mini', // Added default vision model
-    },
-    // Logging and notification settings
-    CONSOLE_LOG_LEVELS: {
-        ERROR: true,
-        WARN: true,
-        INFO: true,
-        DEBUG: false,
-        SUMMARY: true,
-        STARTUP: true,
-        SHUTDOWN: true,
-        PROMPT: false,
-        COMMAND: true,
-    },
-    NOTIFICATION_LEVELS: {
-        ERROR: true,
-        WARN: false,
-        INFO: false,
-        DEBUG: false,
-        SUMMARY: true,
-        STARTUP: true,
-        SHUTDOWN: true,
-        PROMPT: false,
-        COMMAND: false,
     },
     ADMIN_NOTIFICATION_CHAT: CREDENTIALS.ADMIN_WHATSAPP_ID,
     PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js'], // Files to stash before git pull

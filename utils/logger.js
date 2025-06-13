@@ -1,5 +1,4 @@
 const fs = require('fs').promises;
-const config = require('../configs');
 
 // Log levels
 const LOG_LEVELS = {
@@ -11,6 +10,36 @@ const LOG_LEVELS = {
     PROMPT: 'PROMPT',
     STARTUP: 'STARTUP',
 };
+
+// --- START OF LOCAL LOGGER CONFIGURATION ---
+
+// Console Log Levels: Determines which log types are written to the console.
+const CONSOLE_LOG_LEVELS = {
+    ERROR: true,
+    WARN: true,
+    INFO: true,
+    DEBUG: false, // Set to true for detailed debugging logs
+    SUMMARY: true,
+    STARTUP: true,
+    SHUTDOWN: true,
+    PROMPT: false, // Set to true to log full AI prompts
+    COMMAND: true,
+};
+
+// Notification Levels: Determines which log types trigger a WhatsApp notification to the admin.
+const NOTIFICATION_LEVELS = {
+    ERROR: true,
+    WARN: false,
+    INFO: false,
+    DEBUG: false,
+    SUMMARY: true,
+    STARTUP: true,
+    SHUTDOWN: true,
+    PROMPT: false,
+    COMMAND: false,
+};
+
+// --- END OF LOCAL LOGGER CONFIGURATION ---
 
 // Log file configuration
 const LOG_FILE = 'tanabe-gpt.log';
@@ -171,8 +200,8 @@ function formatLogWithTimestamp(level, message, error = null) {
     let formattedMessage = message;
     let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
 
-    // Show location for all log types when DEBUG is enabled in config
-    const showLocation = config.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG === true;
+    // Show location for all log types when DEBUG is enabled
+    const showLocation = CONSOLE_LOG_LEVELS.DEBUG === true;
 
     // Get caller location if needed
     const location = showLocation ? getCallerLocation() : '';
@@ -386,7 +415,9 @@ async function writeToLogFile(message) {
 // Functionto notify admin
 async function notifyAdmin(message) {
     try {
-        if (!global.client) {
+        // Lazy-load credentials only when needed to avoid cycles
+        const { ADMIN_NUMBER } = require('../configs/credentials');
+        if (!global.client || !ADMIN_NUMBER) {
             if (!global.pendingAdminNotifications) {
                 global.pendingAdminNotifications = [];
             }
@@ -394,11 +425,12 @@ async function notifyAdmin(message) {
             return;
         }
 
-        const adminContact = `${config.CREDENTIALS.ADMIN_NUMBER}@c.us`;
+        const adminContact = `${ADMIN_NUMBER}@c.us`;
 
         try {
             await global.client.sendMessage(adminContact, message);
         } catch (error) {
+            // Handle case where client is ready but sending fails
             if (!global.pendingAdminNotifications) {
                 global.pendingAdminNotifications = [];
             }
@@ -412,7 +444,7 @@ async function notifyAdmin(message) {
 // Core logging function
 async function log(level, message, error = null, shouldNotifyAdmin = false) {
     // Check if this log level is enabled in console settings
-    if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || config.SYSTEM.CONSOLE_LOG_LEVELS[level] !== true) {
+    if (CONSOLE_LOG_LEVELS[level] !== true) {
         return;
     }
 
@@ -445,11 +477,7 @@ async function log(level, message, error = null, shouldNotifyAdmin = false) {
     }
 
     // Check if this log level should be sent to admin
-    if (
-        shouldNotifyAdmin &&
-        config.SYSTEM?.NOTIFICATION_LEVELS &&
-        config.SYSTEM.NOTIFICATION_LEVELS[level] === true
-    ) {
+    if (shouldNotifyAdmin && NOTIFICATION_LEVELS[level] === true) {
         const adminMessage = formatAdminMessage(message, error);
         await notifyAdmin(adminMessage);
     }
@@ -463,7 +491,7 @@ const logger = {
     info: message => log(LOG_LEVELS.INFO, message, null, true),
     debug: (message, obj = null) => {
         // Only proceed if DEBUG is explicitly set to true
-        if (!config.SYSTEM?.CONSOLE_LOG_LEVELS || config.SYSTEM.CONSOLE_LOG_LEVELS.DEBUG !== true) {
+        if (CONSOLE_LOG_LEVELS.DEBUG !== true) {
             return;
         }
 
@@ -498,10 +526,7 @@ const logger = {
     summary: message => log(LOG_LEVELS.SUMMARY, message, null, true),
     prompt: (message, promptText) => {
         // Only proceed if PROMPT is explicitly set to true
-        if (
-            !config.SYSTEM?.CONSOLE_LOG_LEVELS ||
-            config.SYSTEM.CONSOLE_LOG_LEVELS.PROMPT !== true
-        ) {
+        if (CONSOLE_LOG_LEVELS.PROMPT !== true) {
             return;
         }
 
@@ -535,10 +560,7 @@ const logger = {
             console.error('Error writing prompt to log file:', err)
         );
 
-        if (
-            config.SYSTEM?.NOTIFICATION_LEVELS &&
-            config.SYSTEM.NOTIFICATION_LEVELS.PROMPT === true
-        ) {
+        if (NOTIFICATION_LEVELS.PROMPT === true) {
             notifyAdmin(`[PROMPT] ${message}\n\n${promptText}`).catch(error =>
                 console.error('Failed to notify admin of prompt:', formatError(error))
             );

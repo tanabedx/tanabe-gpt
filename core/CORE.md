@@ -56,6 +56,7 @@ Event-driven orchestration system with centralized command management, intellige
 ### Utility & Support Files
 - **`commandList.js`**: Dynamic command list generation, permission-aware command display, tag information aggregation
 - **`commandProcessor.prompt.js`**: OpenAI prompt configuration for natural language command interpretation and user intent analysis
+- **`commandDiscovery.js`**: Automatic command configuration discovery and loading
 
 ### Integration Components
 - **Command Registration**: Automatic handler mapping for all bot commands
@@ -193,6 +194,27 @@ commandListGeneration = {
 }
 ```
 
+### Command Discovery System (`commandDiscovery.js`)
+```javascript
+// Automatic discovery of command configurations
+commandDiscovery = {
+    scanMechanism: {
+        recursiveSearch: 'scan directories for .config.js files',
+        skipDirectories: 'ignore node_modules, .git, etc.',
+        maxDepth: 'limit recursion depth for performance'
+    },
+    configLoading: {
+        dynamicRequire: 'load configurations using require()',
+        errorHandling: 'handle and log loading failures gracefully',
+        multiConfigSupport: 'support for files exporting multiple configs'
+    },
+    nameMapping: {
+        specialCases: 'map file names to command names (e.g., CHAT -> CHAT_GPT)',
+        standardization: 'convert filenames to uppercase command names'
+    }
+}
+```
+
 ## Data Flows
 
 ### Standard Message Processing Flow
@@ -202,6 +224,15 @@ WhatsApp Message → listener.js (event routing) → Message Type Detection →
 CommandManager.js (parsing + validation) → CommandRegistry.js (handler lookup) →
   ↓ (handler execution)
 Command Handler → Response Generation → Auto-Delete Management
+```
+
+### Command Discovery Flow
+```
+Application Startup → commandDiscovery.discoverCommands() → File System Scan →
+  ↓ (found .config.js)
+Require Config → Apply Name Mapping → Add to Command List →
+  ↓ (scan complete)
+Return All Commands → CommandRegistry Registration
 ```
 
 ### Natural Language Processing Flow
@@ -344,7 +375,7 @@ eventConfig = {
 ### Utility Dependencies
 - **`../utils/messageUtils`**: Auto-delete functionality and message lifecycle management
 - **`../utils/envUtils`**: Environment variable access and welcome message generation
-- **`../utils/commandDiscovery`**: Automatic command configuration detection
+- **`./commandDiscovery`**: Automatic command configuration detection
 
 ### State Management Dependencies
 - **Wizard System**: Multi-user configuration state tracking across chats
