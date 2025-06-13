@@ -7,7 +7,7 @@
  * @returns {string[]} Array of available tags
  */
 function getAvailableTagsForGroup(config, groupName) {
-    const tagCommand = config.COMMANDS.TAG;
+    const tagCommand = config.COMMANDS.TAGS;
     const tags = [...Object.keys(tagCommand.specialTags)];
 
     if (tagCommand.groupTags[groupName]) {

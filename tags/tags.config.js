@@ -22,7 +22,7 @@ const LF_MEMBERS = getMembersByPrefix('LF');
 const AG_MEMBERS = getMembersByPrefix('AG');
 
 // Tag command configuration
-const TAG_CONFIG = {
+const TAGS_CONFIG = {
     description: 'Sistema de tags para mencionar grupos específicos de pessoas.',
     autoDelete: {
         errorMessages: false,
@@ -111,4 +111,4 @@ const TAG_CONFIG = {
     },
 };
 
-module.exports = TAG_CONFIG;
+module.exports = TAGS_CONFIG;

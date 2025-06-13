@@ -3,7 +3,7 @@
 
 const RESUMO_PROMPT = require('./resumo.prompt');
 
-const RESUMO_CONFIG = {
+const RESUMOS_CONFIG = {
     prefixes: ['#resumo'],
     description:
         'Resume mensagens do grupo. Use #resumo [número] para resumir X mensagens, cite uma mensagem para resumi-la, envie um link para resumir seu conteúdo, ou cite uma mensagem com documento (PDF/DOCX) para resumir seu conteúdo. Também pode ser ativado com o sticker de resumo.',
@@ -42,4 +42,4 @@ const RESUMO_CONFIG = {
     prompt: RESUMO_PROMPT,
 };
 
-module.exports = RESUMO_CONFIG;
+module.exports = RESUMOS_CONFIG;

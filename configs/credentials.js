@@ -7,17 +7,6 @@ const CREDENTIALS = {
     ADMIN_WHATSAPP_ID: `${process.env.ADMIN_NUMBER}@c.us`,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     GETIMG_AI_API_KEY: process.env.GETIMG_AI_API_KEY,
-    TWITTER_API_KEYS: {
-        primary: {
-            bearer_token: process.env.TWITTER_PRIMARY_BEARER_TOKEN,
-        },
-        fallback: {
-            bearer_token: process.env.TWITTER_FALLBACK_BEARER_TOKEN,
-        },
-        fallback2: {
-            bearer_token: process.env.TWITTER_FALLBACK2_BEARER_TOKEN,
-        },
-    },
     // Add group names and phone numbers
     GROUPS: {
         LF: process.env.GROUP_LF,
@@ -51,17 +40,8 @@ const validateCredentials = () => {
         'BOT_NUMBER',
         'OPENAI_API_KEY',
         'GETIMG_AI_API_KEY',
-        'TWITTER_PRIMARY_BEARER_TOKEN',
-        'TWITTER_FALLBACK_BEARER_TOKEN',
-        'TWITTER_FALLBACK2_BEARER_TOKEN',
-        // Add group names and phone numbers
-        'GROUP_LF',
-        'GROUP_AG',
-        'PHONE_DS1',
-        'PHONE_DS2',
         'GROUP_LF_PERSONALITY',
         'WIZARD_WELCOME_MESSAGE',
-        // Member names are no longer required
     ];
 
     const missingVars = requiredVars.filter(varName => !process.env[varName]);

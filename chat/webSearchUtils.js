@@ -297,7 +297,7 @@ async function performGoogleSearch(query, limit = 5, timeout = 10000) {
 async function getPageContent(url, maxLength = 2000, timeout = 15000, config = null) {
     try {
         // Get content extraction settings from config
-        const webSearchConfig = config?.COMMANDS?.CHAT_GPT?.webSearch?.contentExtraction || {};
+        const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch?.contentExtraction || {};
         const configMaxLength = webSearchConfig.maxLength || maxLength;
         const fallbackOnError = webSearchConfig.fallbackOnError !== false; // Default true
         const minLength = webSearchConfig.minLength || 50;
@@ -388,7 +388,7 @@ async function getPageContent(url, maxLength = 2000, timeout = 15000, config = n
             logger.debug(`SSL/Certificate issue for ${url}, skipping content extraction`);
         } else if (errorMessage.includes('maxContentLength') || errorMessage.includes('size') || errorMessage.includes('exceeded')) {
             // For size errors, try to extract what we can if fallback is enabled
-            const webSearchConfig = config?.COMMANDS?.CHAT_GPT?.webSearch?.contentExtraction || {};
+            const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch?.contentExtraction || {};
             const fallbackOnError = webSearchConfig.fallbackOnError !== false;
             
             if (fallbackOnError) {
@@ -456,7 +456,7 @@ async function getPageContent(url, maxLength = 2000, timeout = 15000, config = n
 async function searchWithContent(query, numResults = 3, includeContent = true, config = null) {
     try {
         // Use config settings if available
-        const webSearchConfig = config?.COMMANDS?.CHAT_GPT?.webSearch || {};
+        const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
         const contentConfig = webSearchConfig.contentExtraction || {};
         const maxResults = webSearchConfig.maxResults || numResults;
         const timeout = webSearchConfig.timeout || 10000;
@@ -549,7 +549,7 @@ function createSearchSummary(query, results, config = null) {
         return `Não foram encontrados resultados para "${query}".`;
     }
 
-    const contentConfig = config?.COMMANDS?.CHAT_GPT?.webSearch?.contentExtraction || {};
+    const contentConfig = config?.COMMANDS?.CHAT?.webSearch?.contentExtraction || {};
     const minContentLength = contentConfig.minLength || 50;
 
     let summary = `Pesquisa na internet sobre "${query}":\n\n`;
@@ -593,7 +593,7 @@ function shouldPerformWebSearch(text, config = null) {
     }
 
     // Check if web search is enabled in config
-    const webSearchConfig = config?.COMMANDS?.CHAT_GPT?.webSearch;
+    const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch;
     if (webSearchConfig && webSearchConfig.enabled === false) {
         return false;
     }

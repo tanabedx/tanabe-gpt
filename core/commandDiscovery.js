@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const logger = require('../utils/logger');
 
 // Log file configuration
 const LOG_FILE = 'tanabe-gpt.log';
@@ -249,5 +250,35 @@ function discoverCommands() {
     return commands;
 }
 
-// Export the discovery function
-module.exports = { discoverCommands }; 
+/**
+ * Generates a dynamic command prefix mapping from discovered commands.
+ * Maps command prefixes (without #) to command names.
+ * @returns {Object} - A map of prefixes to command names.
+ */
+function generateCommandPrefixMap() {
+    const commands = discoverCommands();
+    const prefixMap = {};
+    
+    for (const [commandName, commandConfig] of Object.entries(commands)) {
+        if (commandConfig.prefixes && Array.isArray(commandConfig.prefixes)) {
+            for (const prefix of commandConfig.prefixes) {
+                // Remove # from prefix if present
+                const cleanPrefix = prefix.startsWith('#') ? prefix.substring(1) : prefix;
+                
+                // Skip empty prefixes (like '#' -> '') to avoid conflicts
+                if (cleanPrefix.trim() !== '') {
+                    prefixMap[cleanPrefix.toLowerCase()] = commandName;
+                }
+            }
+        }
+    }
+    
+    logger.debug('Generated dynamic command prefix map', { 
+        prefixCount: Object.keys(prefixMap).length,
+        prefixes: Object.keys(prefixMap)
+    });
+    
+    return prefixMap;
+}
+
+module.exports = { discoverCommands, generateCommandPrefixMap }; 

@@ -35,7 +35,7 @@ function initializeConversationManager() {
 function cleanupExpiredConversations() {
     const now = new Date();
     const config = require('../configs');
-    const timeoutMs = (config?.COMMANDS?.CHAT_GPT?.conversation?.timeoutMinutes || 30) * 60 * 1000;
+    const timeoutMs = (config?.COMMANDS?.CHAT?.conversation?.timeoutMinutes || 30) * 60 * 1000;
 
     for (const [groupName, conversation] of conversations.entries()) {
         if (now - conversation.lastActivity > timeoutMs) {
@@ -73,8 +73,8 @@ function getConversationGroupName(originalGroupName, adminNumber) {
  * @returns {string} Model name to use
  */
 function selectModel(contextMessageCount, config) {
-    const rules = config?.COMMANDS?.CHAT_GPT?.modelSelection?.rules || [];
-    const defaultModel = config?.COMMANDS?.CHAT_GPT?.modelSelection?.default || 'gpt-4o-mini';
+    const rules = config?.COMMANDS?.CHAT?.modelSelection?.rules || [];
+    const defaultModel = config?.COMMANDS?.CHAT?.modelSelection?.default || 'gpt-4o-mini';
 
     // Find the appropriate model based on context message count
     for (const rule of rules) {
@@ -96,10 +96,10 @@ function selectModel(contextMessageCount, config) {
  * @returns {string} System prompt
  */
 function getSystemPrompt(config, groupName, promptType = 'initial') {
-    let systemPrompt = config?.COMMANDS?.CHAT_GPT?.systemPrompts?.[promptType] || '';
+    let systemPrompt = config?.COMMANDS?.CHAT?.systemPrompts?.[promptType] || '';
     
     // Add group personality if enabled
-    if (config?.COMMANDS?.CHAT_GPT?.useGroupPersonality && GROUP_PERSONALITIES[groupName]) {
+    if (config?.COMMANDS?.CHAT?.useGroupPersonality && GROUP_PERSONALITIES[groupName]) {
         const personality = GROUP_PERSONALITIES[groupName];
         systemPrompt += `\n\nPersonalidade do grupo:\n ${personality}`;
     }
@@ -199,7 +199,7 @@ function addContextToConversation(groupName, adminNumber, context, config, origi
     if (context && context.trim()) {
         // Get the appropriate context prompt - use aggressive prompt if auto-injected
         const contextPromptKey = isAutoInjected ? 'autoContextAdded' : 'contextAdded';
-        const contextPrompt = config?.COMMANDS?.CHAT_GPT?.contextPrompts?.[contextPromptKey] || 
+        const contextPrompt = config?.COMMANDS?.CHAT?.contextPrompts?.[contextPromptKey] || 
                              'Use as mensagens de contexto do chat anexadas abaixo para responder à pergunta do usuário de forma mais precisa e contextualizada.';
         
         // Structure: Prompt first with original question reminder, then clear separation, then context attachment
@@ -318,7 +318,7 @@ async function getAIResponse(groupName, adminNumber, config) {
                 logger.debug(`Performing web search for query: "${query}"`);
                 try {
                     // Use config settings for web search
-                    const webSearchConfig = config?.COMMANDS?.CHAT_GPT?.webSearch || {};
+                    const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
                     const maxResults = webSearchConfig.maxResults || 3;
                     
                     searchResults = await searchWithContent(query, maxResults, true, config);

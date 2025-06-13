@@ -4,6 +4,7 @@ const COMMAND_PROCESSOR = require('./commandProcessor.prompt');
 const logger = require('../utils/logger');
 const whitelist = require('../configs/whitelist');
 const { runtimeConfig } = require('../admin/admin');
+const { generateCommandPrefixMap } = require('./commandDiscovery');
 
 class NLPProcessor {
     constructor() {
@@ -391,7 +392,7 @@ class NLPProcessor {
 
             // Check for wizard mode activation
             if (lowerBody.includes('ferramentaresumo') || lowerBody.includes('ferramenta resumo')) {
-                logger.debug('Detected resumo_config command via pattern matching');
+                logger.debug('Detected WIZARD command via pattern matching');
                 return '#ferramentaresumo';
             }
 
@@ -414,8 +415,8 @@ class NLPProcessor {
                     const capabilities = this.getCommandCapabilities(cmd);
                     logger.debug('Command capability check', { command: name, capabilities });
 
-                    // Add tag information for the TAG command
-                    if (name === 'TAG' && chat.isGroup) {
+                    // Add tag information for the TAGS command
+                    if (name === 'TAGS' && chat.isGroup) {
                         let tagInfo = '';
 
                         // Add special tags
@@ -509,24 +510,20 @@ class NLPProcessor {
                 let commandName = commandParts[0].toUpperCase();
                 const commandInput = commandParts.slice(1).join(' ');
 
-                // Map command names to their actual command prefixes
-                const commandMap = {
-                    AYUB_NEWS: 'ayubnews',
-                    CHAT_GPT: null, // Special case - just return the input without command prefix
-                    RESUMO: 'resumo',
-                    STICKER: 'sticker',
-                    DESENHO: 'desenho',
-                    COMMAND_LIST: '?',
-                    AUDIO: 'audio',
-                    RESUMO_CONFIG: 'ferramentaresumo',
-                    TWITTER_DEBUG: 'twitterdebug',
-                    RSS_DEBUG: 'rssdebug',
-                    DEBUG_PERIODIC: 'debugperiodic',
-                    CACHE_CLEAR: 'clearcache',
-                };
+                // Get dynamic command prefix mapping and reverse it for NLP use
+                const prefixMap = generateCommandPrefixMap();
+                const commandMap = {};
+                
+                // Reverse the mapping: command name -> prefix
+                for (const [prefix, commandName] of Object.entries(prefixMap)) {
+                    commandMap[commandName] = prefix;
+                }
+                
+                // Special case for CHAT - just return the input without command prefix
+                commandMap['CHAT'] = null;
 
-                // Handle special case for CHAT_GPT - return just the input with # prefix
-                if (commandName === 'CHAT_GPT') {
+                // Handle special case for CHAT - return just the input with # prefix
+                if (commandName === 'CHAT') {
                     logger.info(`NLP detected command: ${commandName} with input: ${commandInput}`);
                     logger.debug(`Mapped to actual command: # (ChatGPT default)`);
                     return `#${commandInput}`.trim();
@@ -545,7 +542,7 @@ class NLPProcessor {
                 return processedCommand;
             }
 
-            // Special handling for resumo_config command
+            // Special handling for WIZARD command
             if (processedCommand.toLowerCase().startsWith('#ferramentaresumo')) {
                 const contact = await message.getContact();
                 this.setWizardState(contact.id._serialized, chat.id._serialized, true);

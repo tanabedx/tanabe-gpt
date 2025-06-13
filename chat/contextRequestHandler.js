@@ -115,7 +115,13 @@ async function handleContextRequest(response, groupName, config) {
             logger.error(`Context fetching failed with status: ${fetchStatus}`, { groupName });
             result.error = `Error fetching context: ${fetchStatus}`;
         } else if (!context || context.trim().length === 0) {
-            logger.warn(`No new context messages content returned by fetchContextMessages or context is empty. Status: ${fetchStatus}`, { groupName });
+            // Only warn if this is truly an unexpected empty context situation
+            // Don't warn for expected completion states
+            if (fetchStatus === 'ALL_MESSAGES_RETRIEVED' || fetchStatus === 'MAX_MESSAGES_LIMIT_REACHED' || fetchStatus === 'NO_NEW_MESSAGES_IN_CACHE') {
+                logger.debug(`Context request completed with status: ${fetchStatus}`, { groupName });
+            } else {
+                logger.warn(`No new context messages content returned by fetchContextMessages or context is empty. Status: ${fetchStatus}`, { groupName });
+            }
         } else {
             logger.debug(`Context fetched by fetchContextMessages. Status: ${fetchStatus}`, {
                 groupName,
@@ -148,8 +154,8 @@ async function handleContextRequest(response, groupName, config) {
  * @returns {Object} Validation result
  */
 function validateContextRequest(groupName, currentRequests, config) {
-    const maxRequests = config?.COMMANDS?.CHAT_GPT?.contextManagement?.maxContextRequests || 10;
-    const contextEnabled = config?.COMMANDS?.CHAT_GPT?.contextManagement?.enabled !== false;
+    const maxRequests = config?.COMMANDS?.CHAT?.contextManagement?.maxContextRequests || 10;
+    const contextEnabled = config?.COMMANDS?.CHAT?.contextManagement?.enabled !== false;
 
     if (!contextEnabled) {
         return {
@@ -232,7 +238,7 @@ function shouldAutoRequestContext(response, originalQuestion, contextRequestCoun
         return false;
     }
 
-    const maxRequests = config?.COMMANDS?.CHAT_GPT?.contextManagement?.maxContextRequests || 10;
+    const maxRequests = config?.COMMANDS?.CHAT?.contextManagement?.maxContextRequests || 10;
     
     // Don't auto-request if we're at the limit
     if (contextRequestCount >= maxRequests) {

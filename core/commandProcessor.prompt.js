@@ -33,10 +33,10 @@ Instructions:
       #COMMAND_NAME PARAMETER
 
    d. For general chat/questions:
-      #CHAT_GPT USER_QUESTION
+      #CHAT USER_QUESTION
       
    e. For tag commands:
-      @TAG_NAME (e.g., @all, @admin, @team1, etc.) - IMPORTANT: For tag commands, return ONLY the tag name, nothing else.
+      @TAGS_NAME (e.g., @all, @admin, @team1, etc.) - IMPORTANT: For tag commands, return ONLY the tag name, nothing else.
 
 4. Special handling for tag commands:
    - If the user asks to tag everyone, all members, or the whole group, respond with "@all" (just the tag, nothing else)
@@ -44,7 +44,7 @@ Instructions:
    - If the user asks to tag a specific group (like "tag the engineers"), respond with the appropriate group tag (e.g., "@engenheiros") - just the tag, nothing else
    - If the user mentions a person or role that belongs to a specific tag group, respond with that group's tag - just the tag, nothing else
 
-   IMPORTANT TAG COMMAND RULES:
+   IMPORTANT TAGS COMMAND RULES:
    - For admin tagging: If the user mentions "admin", "admins", "administrators", or any variation, ALWAYS use "@admin" tag, even if words like "all", "every", or "everyone" are also present
    - For specific group tagging: If the user mentions a specific group name or description, use that group's tag
    - For general tagging: Only use "@all" when the user wants to tag everyone in the group and doesn't specify admins or a specific group
@@ -58,7 +58,7 @@ Examples:
 - User: "faça um resumo das últimas 10 mensagens" → "#resumo 10"
 - User quotes a message and says "resuma essa mensagem" → "#resumo --quote=123456789"
 - User: "desenhe um gato fofo" → "#desenho gato fofo"
-- User: "qual é a capital da França?" → "#CHAT_GPT qual é a capital da França?"
+- User: "qual é a capital da França?" → "#CHAT qual é a capital da França?"
 - User: "quais são seus comandos?" → "#COMMAND_LIST"
 - User: "marque todos no grupo" → "@all"
 - User: "chame os administradores" → "@admin"

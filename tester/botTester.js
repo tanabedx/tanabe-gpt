@@ -148,17 +148,6 @@ function startBot() {
                 FORCE_PROMPT_LOGS: 'true',
                 FORCE_DEBUG_LOGS: 'true',
 
-                // Override the bot's logging configuration to show everything
-                CONSOLE_LOG_LEVEL_ERROR: 'true',
-                CONSOLE_LOG_LEVEL_WARN: 'true',
-                CONSOLE_LOG_LEVEL_INFO: 'true',
-                CONSOLE_LOG_LEVEL_DEBUG: 'true',
-                CONSOLE_LOG_LEVEL_SUMMARY: 'true',
-                CONSOLE_LOG_LEVEL_STARTUP: 'true',
-                CONSOLE_LOG_LEVEL_SHUTDOWN: 'true',
-                CONSOLE_LOG_LEVEL_PROMPT: 'true',
-                CONSOLE_LOG_LEVEL_COMMAND: 'true',
-
                 // Force test mode to ensure consistent behavior
                 TEST_MODE: 'true',
             },

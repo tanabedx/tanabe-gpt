@@ -259,7 +259,7 @@ async function handleConfig(message, _, input) {
  * Reset the news cache (create empty cache)
  * @param {Object} message - The message triggering the command
  */
-async function resetNewsCache(message) {
+async function handleCacheReset(message) {
     try {
         // Get chat and user information
         const chat = await message.getChat();
@@ -280,52 +280,6 @@ async function resetNewsCache(message) {
     } catch (error) {
         logger.error('Error resetting news cache:', error);
         await message.reply(`Error resetting news cache: ${error.message}`);
-    }
-}
-
-/**
- * Display stats about the persistent cache
- * @param {Object} message - The message triggering the command
- */
-async function showCacheStats(message) {
-    try {
-        // Get chat and user information
-        const chat = await message.getChat();
-        const chatId = chat.name || chat.id._serialized;
-        const userId = message.author || message.from;
-
-        // Check permission using whitelist configuration
-        if (!(await hasPermission('CACHE_STATS', chatId, userId))) {
-            logger.debug(`Cache stats command rejected: unauthorized in ${chatId}`);
-            return;
-        }
-
-        const stats = persistentCache.getCacheStats();
-
-        // Format the stats into a readable message
-        const statsMessage = `*Persistent Cache Statistics*
-
-- Total cached items: ${stats.totalItems}
-- Tweet entries: ${stats.tweetCount}
-- Article entries: ${stats.articleCount}
-- Maximum cache age: ${stats.maxCacheAge} days
-- Maximum cache size: ${stats.maxCacheItems} items
-
-*Age Statistics*
-- Newest item: ${stats.newestItemHours.toFixed(1)} hours old
-- Oldest item: ${stats.oldestItemHours.toFixed(1)} hours old
-
-*Cache Health*
-All entries older than ${stats.maxCacheAge} days are automatically pruned.
-Cache is limited to maximum ${stats.maxCacheItems} entries total.
-
-To reset the cache, use !cachereset
-To completely clear the cache, use !cacheclear`;
-
-        await message.reply(statsMessage);
-    } catch (error) {
-        logger.error('Error showing cache stats:', error);
-        await message.reply(`Error retrieving cache statistics: ${error.message}`);
     }
 }
 
@@ -455,8 +409,7 @@ module.exports = {
     handleDebugPeriodic,
     handleConfig,
     runtimeConfig,
-    resetNewsCache,
-    showCacheStats,
+    handleCacheReset,
     handleNewsToggle,
     handleNewsDebug,
 };

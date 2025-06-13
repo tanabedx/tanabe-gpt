@@ -2,6 +2,7 @@ const config = require('../configs');
 const logger = require('../utils/logger');
 const nlpProcessor = require('./nlpProcessor');
 const whitelist = require('../configs/whitelist');
+const { generateCommandPrefixMap } = require('./commandDiscovery');
 
 class CommandManager {
     constructor() {
@@ -71,25 +72,8 @@ class CommandManager {
                         const cleanedResult = nlpResult.replace(/^#\s*/, '').trim();
                         const [commandName, ...inputParts] = cleanedResult.split(/\s+/);
 
-                        // Map command prefixes to command names
-                        const commandPrefixMap = {
-                            ayubnews: 'AYUB_NEWS',
-                            resumo: 'RESUMO',
-                            sticker: 'STICKER',
-                            desenho: 'DESENHO',
-                            '?': 'COMMAND_LIST',
-                            audio: 'AUDIO',
-                            ferramentaresumo: 'RESUMO_CONFIG',
-                            twitterdebug: 'TWITTER_DEBUG',
-                            rssdebug: 'RSS_DEBUG',
-                            news: 'NEWS_TOGGLE',
-                            debugperiodic: 'DEBUG_PERIODIC',
-                            clearcache: 'CACHE_CLEAR',
-                            cachereset: 'CACHE_RESET',
-                            resetcache: 'CACHE_RESET',
-                            cachestats: 'CACHE_STATS',
-                            cacheinfo: 'CACHE_STATS',
-                        };
+                        // Get dynamic command prefix mapping
+                        const commandPrefixMap = generateCommandPrefixMap();
 
                         // Get the command name from the prefix map or use the original
                         const commandKey =
@@ -98,29 +82,6 @@ class CommandManager {
                         const command = config.COMMANDS[commandKey];
 
                         if (command) {
-                            // Special case for AYUB_NEWS_FUT
-                            if (
-                                commandKey === 'AYUB_NEWS' &&
-                                inputParts.length > 0 &&
-                                inputParts[0].toLowerCase() === 'fut'
-                            ) {
-                                const futCommand = config.COMMANDS['AYUB_NEWS_FUT'];
-                                if (futCommand) {
-                                    logger.debug(
-                                        'NLP detected AYUB_NEWS_FUT command from bot mention',
-                                        {
-                                            commandPrefix: commandName.toLowerCase(),
-                                            commandKey: 'AYUB_NEWS_FUT',
-                                            input: inputParts.slice(1).join(' '), // Remove 'fut' from input
-                                        }
-                                    );
-                                    return {
-                                        command: { ...futCommand, name: 'AYUB_NEWS_FUT' },
-                                        input: inputParts.slice(1).join(' '), // Remove 'fut' from input
-                                    };
-                                }
-                            }
-
                             logger.debug('NLP detected command from bot mention', {
                                 commandPrefix: commandName.toLowerCase(),
                                 commandKey,
@@ -136,10 +97,10 @@ class CommandManager {
                         logger.debug('NLP detected tag command from bot mention', {
                             tag: nlpResult,
                         });
-                        const tagCommand = config.COMMANDS.TAG;
+                        const tagCommand = config.COMMANDS.TAGS;
                         if (tagCommand) {
                             // Use the NLP result as the input, not the original message
-                            return { command: { ...tagCommand, name: 'TAG' }, input: nlpResult };
+                            return { command: { ...tagCommand, name: 'TAGS' }, input: nlpResult };
                         }
                     }
 
@@ -157,13 +118,13 @@ class CommandManager {
             logger.debug('Detected potential tag command', { tag: tagPart });
 
             // Check if it's a valid tag
-            const tagCommand = config.COMMANDS.TAG;
+            const tagCommand = config.COMMANDS.TAGS;
             if (tagCommand) {
                 // Check special tags (case insensitive)
                 const specialTags = Object.keys(tagCommand.specialTags).map(t => t.toLowerCase());
                 if (specialTags.includes(tagPart)) {
                     logger.debug('Found matching special tag', { tag: tagPart });
-                    return { command: { ...tagCommand, name: 'TAG' }, input: trimmedBody };
+                    return { command: { ...tagCommand, name: 'TAGS' }, input: trimmedBody };
                 }
 
                 // Check group-specific tags for each group
@@ -174,7 +135,7 @@ class CommandManager {
                             tag: tagPart,
                             group: groupName,
                         });
-                        return { command: { ...tagCommand, name: 'TAG' }, input: trimmedBody };
+                        return { command: { ...tagCommand, name: 'TAGS' }, input: trimmedBody };
                     }
                 }
             }
@@ -231,10 +192,10 @@ class CommandManager {
                     trimmedBody.toLowerCase().startsWith(prefix.toLowerCase() + ' ') ||
                     trimmedBody.toLowerCase().startsWith(prefix.toLowerCase())
                 ) {
-                    // Special handling for RESUMO command
-                    if (commandName === 'RESUMO') {
+                    // Special handling for RESUMOS command
+                    if (commandName === 'RESUMOS') {
                         const input = trimmedBody.slice(prefix.length).trim();
-                        logger.debug('Processing RESUMO command', {
+                        logger.debug('Processing RESUMOS command', {
                             input,
                             commandName,
                         });
@@ -304,49 +265,14 @@ class CommandManager {
                     // Continue to check command prefix map below
                 }
 
-                // Map command prefixes to command names
-                const commandPrefixMap = {
-                    ayubnews: 'AYUB_NEWS',
-                    resumo: 'RESUMO',
-                    sticker: 'STICKER',
-                    desenho: 'DESENHO',
-                    '?': 'COMMAND_LIST',
-                    audio: 'AUDIO',
-                    ferramentaresumo: 'RESUMO_CONFIG',
-                    twitterdebug: 'TWITTER_DEBUG',
-                    rssdebug: 'RSS_DEBUG',
-                    news: 'NEWS_TOGGLE',
-                    debugperiodic: 'DEBUG_PERIODIC',
-                    clearcache: 'CACHE_CLEAR',
-                    cachereset: 'CACHE_RESET',
-                    resetcache: 'CACHE_RESET',
-                    cachestats: 'CACHE_STATS',
-                    cacheinfo: 'CACHE_STATS',
-                };
+                // Get dynamic command prefix mapping
+                const commandPrefixMap = generateCommandPrefixMap();
 
                 // Check if the command part matches any known command prefix
                 const commandKey = commandPrefixMap[commandPart];
                 if (commandKey && config.COMMANDS[commandKey]) {
                     // Extract input by removing the command part
                     const input = cleanedCommand.substring(commandPart.length).trim();
-
-                    // Special case for AYUB_NEWS_FUT
-                    if (
-                        commandKey === 'AYUB_NEWS' &&
-                        input.trim().toLowerCase().startsWith('fut')
-                    ) {
-                        const futCommand = config.COMMANDS['AYUB_NEWS_FUT'];
-                        if (futCommand) {
-                            logger.debug(`Found AYUB_NEWS_FUT command`, {
-                                commandKey: 'AYUB_NEWS_FUT',
-                                input: input.slice(3).trim(), // Remove 'fut' from input
-                            });
-                            return {
-                                command: { ...futCommand, name: 'AYUB_NEWS_FUT' },
-                                input: input.slice(3).trim(), // Remove 'fut' from input
-                            };
-                        }
-                    }
 
                     logger.debug(`Found command match for ${commandPart}`, {
                         commandKey,
@@ -360,13 +286,13 @@ class CommandManager {
             }
 
             // If no specific command matched, fall back to ChatGPT
-            const chatGptCommand = config.COMMANDS.CHAT_GPT;
-            if (this.validateCommand('CHAT_GPT', chatGptCommand)) {
+            const chatCommand = config.COMMANDS.CHAT;
+            if (this.validateCommand('CHAT', chatCommand)) {
                 logger.debug('Treating as ChatGPT command', {
                     input: cleanedCommand,
                 });
                 return {
-                    command: { ...chatGptCommand, name: 'CHAT_GPT' },
+                    command: { ...chatCommand, name: 'CHAT' },
                     input: cleanedCommand,
                 };
             }
@@ -633,7 +559,7 @@ class CommandManager {
     async checkValidTag(potentialTags, chat) {
         try {
             // Get the tag command configuration
-            const tagCommand = config.COMMANDS.TAG;
+            const tagCommand = config.COMMANDS.TAGS;
             if (!tagCommand) {
                 return { isValidTag: false, validTag: null };
             }

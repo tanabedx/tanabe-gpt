@@ -19,8 +19,8 @@ function getOpenAIClient() {
 // Function to run ChatGPT completion
 const runCompletion = async (prompt, temperature = 1, model = null, promptType = null) => {
     try {
-        // Check if prompt is defined before logging
-        if (prompt && config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
+        // Log prompt (logger handles its own enable/disable logic)
+        if (prompt) {
             logger.prompt('ChatGPT Prompt', prompt);
         }
 
@@ -91,8 +91,8 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
 
         const result = completion.choices[0].message.content;
 
-        // Check if result is defined before logging
-        if (result && config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
+        // Log response (logger handles its own enable/disable logic)
+        if (result) {
             logger.prompt('ChatGPT Response', result);
         }
 
@@ -111,15 +111,13 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
             throw new Error('Messages must be a non-empty array');
         }
 
-        // Log the conversation if enabled
-        if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
-            // Format messages for readable display instead of JSON.stringify
-            const formattedMessages = messages.map((msg, index) => {
-                return `Message ${index + 1} (${msg.role}):\n${msg.content}\n${'='.repeat(50)}`;
-            }).join('\n');
-            
-            logger.prompt('ChatGPT Conversation Messages', formattedMessages);
-        }
+        // Log the conversation (logger handles its own enable/disable logic)
+        // Format messages for readable display instead of JSON.stringify
+        const formattedMessages = messages.map((msg, index) => {
+            return `Message ${index + 1} (${msg.role}):\n${msg.content}\n${'='.repeat(50)}`;
+        }).join('\n');
+        
+        logger.prompt('ChatGPT Conversation Messages', formattedMessages);
 
         let modelToUse = model;
 
@@ -183,7 +181,7 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
 
         const result = completion.choices[0].message.content;
 
-        if (result && config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
+        if (result) {
             logger.prompt('ChatGPT Conversation Response', result);
         }
 
@@ -243,10 +241,8 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
             }
         }
 
-        if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
-            logger.prompt('OpenAI Vision Prompt', visionPrompt);
-            logger.prompt('OpenAI Vision Image URL', imageUrl);
-        }
+        logger.prompt('OpenAI Vision Prompt', visionPrompt);
+        logger.prompt('OpenAI Vision Image URL', imageUrl);
 
         if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
             logger.debug('Sending image URL directly to OpenAI Vision', {
@@ -277,7 +273,7 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
 
         const result = completion.choices[0].message.content;
 
-        if (result && config?.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT) {
+        if (result) {
             logger.prompt('OpenAI Vision Response', result);
         }
 

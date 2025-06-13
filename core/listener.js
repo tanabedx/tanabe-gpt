@@ -4,7 +4,7 @@ const config = require('../configs');
 const logger = require('../utils/logger');
 const commandManager = require('./CommandManager');
 const { registerCommands } = require('./CommandRegistry');
-const { handleAyubLinkSummary } = require('../ayub/ayub');
+const { processLinkSummary } = require('../news/news');
 const { initialize } = require('../newsMonitor/newsMonitor.js');
 const { getUserState, handleWizard } = require('../periodicSummary/wizard/wizard');
 const nlpProcessor = require('./nlpProcessor');
@@ -69,7 +69,7 @@ async function handleStickerMessage(message) {
         if (matchedCommand.prefixes && matchedCommand.prefixes.length > 0) {
             commandMessage.body = matchedCommand.prefixes[0];
         } else {
-            // For commands without prefixes (like TAG)
+            // For commands without prefixes (like TAGS)
             commandMessage.body = `#${commandName.toLowerCase()}`;
         }
 
@@ -237,7 +237,7 @@ function setupListeners(client) {
                         logger.debug(
                             'Admin DM with link detected, skipping NLP and running auto-link summary directly'
                         );
-                        await handleAyubLinkSummary(message);
+                        await processLinkSummary(message);
                         return;
                     }
 
@@ -416,7 +416,7 @@ function setupListeners(client) {
                     }
 
                     // Check for links last
-                    await handleAyubLinkSummary(message);
+                    await processLinkSummary(message);
                 } catch (error) {
                     logger.error('Error processing message:', error);
                 }

@@ -94,23 +94,6 @@ const CACHE_RESET_CONFIG = {
     },
 };
 
-// Add cache stats config
-const CACHE_STATS_CONFIG = {
-    prefixes: ['!cachestats', '!cacheinfo'],
-    description: 'Mostra estatísticas do cache de notícias (apenas admin)',
-    errorMessages: {
-        generalError: 'Ocorreu um erro ao mostrar estatísticas do cache.',
-    },
-    autoDelete: {
-        commandMessages: false,
-        errorMessages: false,
-    },
-    permissions: {
-        allowedIn: 'all',
-        adminOnly: true,
-    },
-};
-
 // News Debug command (for the new newsMonitor.js pipeline)
 const NEWS_DEBUG_CONFIG = {
     prefixes: ['!newsdebug', '!debugnews'],
@@ -138,6 +121,5 @@ module.exports = {
     DEBUG_PERIODIC_CONFIG,
     CONFIG_CONFIG,
     CACHE_RESET_CONFIG,
-    CACHE_STATS_CONFIG,
     NEWS_DEBUG_CONFIG,
 };

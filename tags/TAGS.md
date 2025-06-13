@@ -70,22 +70,22 @@ Tag Input → Tag Validation → Classification (Special/Group) → Member Resol
 
 ```
 tags/
-├── tag.js              # Main command handler and tag processing logic
-├── tag.config.js       # Configuration management and tag definitions
+├── tags.js             # Main command handler and tag processing logic
+├── tags.config.js      # Configuration management and tag definitions
 └── tagUtils.js         # Utility functions for tag operations
 ```
 
 ### File Responsibilities
 
-- **`tag.js`**: Primary command handler, tag extraction, participant filtering, mention generation
-- **`tag.config.js`**: Tag configuration management, environment variable integration, member definitions
+- **`tags.js`**: Primary command handler, tag extraction, participant filtering, mention generation
+- **`tags.config.js`**: Tag configuration management, environment variable integration, member definitions
 - **`tagUtils.js`**: Utility functions for tag discovery and group operations
 
 ## Core Components
 
-### Main Tag Handler (`tag.js`)
+### Main Tag Handler (`tags.js`)
 ```javascript
-async function handleTag(message, command, input) {
+async function handleTags(message, command, input) {
     const chat = await message.getChat();
     if (!chat.isGroup) return;
     
@@ -148,7 +148,7 @@ async function handleTag(message, command, input) {
 }
 ```
 
-### Configuration Management (`tag.config.js`)
+### Configuration Management (`tags.config.js`)
 ```javascript
 // Environment variable integration
 function getMembersByPrefix(prefix) {
@@ -162,7 +162,7 @@ function getMembersByPrefix(prefix) {
 }
 
 // Group-specific tag configuration
-const TAG_CONFIG = {
+const TAGS_CONFIG = {
     groupTags: {
         [process.env.GROUP_LF]: {
             '@medicos': {
@@ -193,7 +193,7 @@ const TAG_CONFIG = {
 ### Tag Utility Functions (`tagUtils.js`)
 ```javascript
 function getAvailableTagsForGroup(config, groupName) {
-    const tagCommand = config.COMMANDS.TAG;
+    const tagCommand = config.COMMANDS.TAGS;
     const tags = [...Object.keys(tagCommand.specialTags)];
     
     if (tagCommand.groupTags[groupName]) {

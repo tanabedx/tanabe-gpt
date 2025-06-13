@@ -4,6 +4,7 @@
 Central orchestration system for WhatsApp bot providing command management, message processing, natural language processing, and event handling. Serves as the main coordination layer between WhatsApp events and bot functionality with intelligent message routing and permission management.
 
 ## Core Features
+- **Dynamic Command Discovery**: Fully automated command and handler discovery using convention-over-configuration
 - **Command Management**: Centralized command parsing, validation, registration, and execution with auto-delete functionality
 - **Natural Language Processing**: OpenAI-powered message interpretation with context-aware command detection
 - **Event Handling**: Comprehensive WhatsApp event processing including messages, reactions, stickers, and media
@@ -16,7 +17,7 @@ Central orchestration system for WhatsApp bot providing command management, mess
 const commandManager = require('./core/CommandManager');
 await commandManager.processCommand(message);
 
-// Command registration
+// Command registration (now fully automatic)
 const { registerCommands } = require('./core/CommandRegistry');
 registerCommands();
 
@@ -36,13 +37,13 @@ await handleCommandList(message, command);
 ## Architecture Overview
 
 ### Core Design Pattern
-Event-driven orchestration system with centralized command management, intelligent message routing, and modular component integration. Uses dependency injection for command handlers and state management for complex user interactions.
+Event-driven orchestration system with centralized command management, intelligent message routing, and modular component integration. Uses **convention-over-configuration** for automatic discovery of commands and handlers, and dependency injection for state management.
 
 ### Processing Flow
 1. **Event Reception** → `listener.js` (WhatsApp event handling and initial routing)
 2. **Message Analysis** → `nlpProcessor.js` (natural language interpretation and context analysis)
 3. **Command Resolution** → `CommandManager.js` (parsing, validation, and permission checking)
-4. **Handler Execution** → `CommandRegistry.js` (command handler lookup and execution)
+4. **Handler Execution** → `CommandRegistry.js` (dynamic handler lookup and execution)
 5. **Response Management** → Auto-delete handling and message lifecycle management
 
 ## File Structure & Roles
@@ -51,12 +52,13 @@ Event-driven orchestration system with centralized command management, intellige
 - **`listener.js`**: Main WhatsApp event handler, message routing, sticker processing, audio handling, wizard integration
 - **`CommandManager.js`**: Central command processing engine, parsing logic, permission validation, auto-delete management
 - **`nlpProcessor.js`**: Natural language processing, OpenAI integration, wizard state management, user authorization
-- **`CommandRegistry.js`**: Command handler registration, module integration, handler mapping
+- **`CommandRegistry.js`**: Orchestrates automated registration of commands and handlers using discovery modules.
 
 ### Utility & Support Files
 - **`commandList.js`**: Dynamic command list generation, permission-aware command display, tag information aggregation
 - **`commandProcessor.prompt.js`**: OpenAI prompt configuration for natural language command interpretation and user intent analysis
-- **`commandDiscovery.js`**: Automatic command configuration discovery and loading
+- **`commandDiscovery.js`**: Automatic command configuration discovery and loading from `.config.js` files based on file naming conventions.
+- **`handlerDiscovery.js`**: Automatic command handler discovery and loading from module files based on function naming conventions.
 
 ### Integration Components
 - **Command Registration**: Automatic handler mapping for all bot commands
@@ -100,7 +102,7 @@ nlpProcessing = {
     },
     openaiIntegration: {
         model: 'gpt-3.5-turbo',
-        commandMapping: 'natural language → structured commands',
+        commandMapping: 'natural language → structured commands (dynamic discovery)',
         contextAware: 'chat-specific command interpretation',
         promptTemplates: 'structured prompts from commandProcessor.prompt.js'
     },
@@ -122,6 +124,7 @@ promptConfiguration = {
         responseFormatting: 'specific command format requirements'
     },
     commandMapping: {
+        dynamicDiscovery: 'automatic prefix mapping from discovered commands',
         traditionalCommands: '# and ! prefix handling',
         tagCommands: '@tag pattern recognition',
         chatGptFallback: 'general conversation handling',
@@ -160,20 +163,14 @@ eventHandling = {
 
 ### Command Registration System (`CommandRegistry.js`)
 ```javascript
-// Handler mapping and module integration
+// Dynamic handler registration using discovery
 commandRegistration = {
-    handlerMapping: {
-        'CHAT_GPT': 'handleChat',
-        'RESUMO': 'handleResumo', 
-        'AYUB_NEWS': 'handleAyub',
-        'STICKER': 'handleSticker',
-        'DESENHO': 'handleDesenho',
-        'AUDIO': 'handleAudio',
-        'TAG': 'handleTag',
-        'ADMIN_COMMANDS': 'various admin handlers'
+    discoveryMechanism: {
+        handlerSource: '`handlerDiscovery.discoverHandlers()`',
+        commandSource: '`commandDiscovery.discoverCommands()`'
     },
-    moduleIntegration: 'imports from all system modules',
-    registrationProcess: 'commandManager.registerHandler() calls'
+    registrationProcess: '`commandManager.registerHandler()` calls for each discovered handler',
+    automation: 'Fully automatic, no manual mapping required'
 }
 ```
 
@@ -208,9 +205,28 @@ commandDiscovery = {
         errorHandling: 'handle and log loading failures gracefully',
         multiConfigSupport: 'support for files exporting multiple configs'
     },
-    nameMapping: {
-        specialCases: 'map file names to command names (e.g., CHAT -> CHAT_GPT)',
-        standardization: 'convert filenames to uppercase command names'
+    nameConvention: {
+        rule: 'command name is the uppercase version of the config filename',
+        example: '`sticker.config.js` → `STICKER` command'
+    }
+}
+```
+
+### Handler Discovery System (`handlerDiscovery.js`)
+```javascript
+// Automatic discovery of command handlers
+handlerDiscovery = {
+    scanMechanism: {
+        directorySearch: 'scans module directories for corresponding .js files',
+        example: 'looks for `sticker/sticker.js` for the `sticker` module'
+    },
+    handlerLoading: {
+        dynamicRequire: 'loads handlers using require()',
+        errorHandling: 'logs and skips files that fail to load'
+    },
+    nameConvention: {
+        rule: 'handler function name must start with "handle" followed by the PascalCase command name',
+        example: 'function `handleSticker()` maps to `STICKER` command'
     }
 }
 ```
@@ -230,9 +246,18 @@ Command Handler → Response Generation → Auto-Delete Management
 ```
 Application Startup → commandDiscovery.discoverCommands() → File System Scan →
   ↓ (found .config.js)
-Require Config → Apply Name Mapping → Add to Command List →
+Derive Command Name from Filename → Load Config → Add to Command List →
   ↓ (scan complete)
-Return All Commands → CommandRegistry Registration
+Return All Commands → Used for command validation and list generation
+```
+
+### Handler Discovery Flow
+```
+Application Startup → handlerDiscovery.discoverHandlers() → File System Scan →
+  ↓ (found handler file)
+Derive Command Name from Function Name → Load Handler → Add to Handler Map →
+  ↓ (scan complete)
+Return All Handlers → CommandRegistry Registration
 ```
 
 ### Natural Language Processing Flow
@@ -363,19 +388,20 @@ eventConfig = {
 
 ### Cross-Module Command Integration
 - **`../chat/chat`**: ChatGPT conversation handling
-- **`../resumos/resumo`**: Message summarization functionality
-- **`../ayub/ayub`**: News aggregation and link summarization
+- **`../resumos/resumos`**: Message summarization functionality
+- **`../news/news`**: News aggregation and link summarization
 - **`../sticker/sticker`**: Custom sticker generation
 - **`../desenho/desenho`**: AI image generation
 - **`../audio/audio`**: Voice message transcription
-- **`../tags/tag`**: User tagging and notification system
+- **`../tags/tags`**: User tagging and notification system
 - **`../admin/admin`**: Administrative command handling
 - **`../periodicSummary/wizard/wizard`**: Configuration wizard system
 
 ### Utility Dependencies
 - **`../utils/messageUtils`**: Auto-delete functionality and message lifecycle management
 - **`../utils/envUtils`**: Environment variable access and welcome message generation
-- **`./commandDiscovery`**: Automatic command configuration detection
+- **`./commandDiscovery`**: Automatic command configuration detection based on file naming.
+- **`./handlerDiscovery`**: Automatic command handler detection based on function naming.
 
 ### State Management Dependencies
 - **Wizard System**: Multi-user configuration state tracking across chats

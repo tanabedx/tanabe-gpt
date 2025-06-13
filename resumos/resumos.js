@@ -288,8 +288,8 @@ async function handleTimeBasedSummary(message, timeInfo) {
     return await message.reply(result.trim());
 }
 
-async function handleResumo(message, command, input) {
-    logger.debug('handleResumo activated', {
+async function handleResumos(message, command, input) {
+    logger.debug('handleResumos activated', {
         hasInput: !!input,
         input: input,
         hasQuoted: message.hasQuotedMsg,
@@ -364,12 +364,12 @@ async function handleResumo(message, command, input) {
             timeDescription: 'as mensagens das últimas 3 horas',
         });
     } catch (error) {
-        logger.error('Error in handleResumo:', error);
+        logger.error('Error in handleResumos:', error);
         const errorMessage = await message.reply(command.errorMessages.error);
         await handleAutoDelete(errorMessage, command, true);
     }
 }
 
 module.exports = {
-    handleResumo,
+    handleResumos,
 };

@@ -97,7 +97,7 @@ async function handleSearchRequest(response, config) {
         });
 
         // Get web search configuration
-        const webSearchConfig = config?.COMMANDS?.CHAT_GPT?.webSearch || {};
+        const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
         
         // Check if web search is enabled
         if (webSearchConfig.enabled === false) {
@@ -163,10 +163,10 @@ async function handleSearchRequest(response, config) {
  */
 function validateSearchRequest(currentSearchRequests, config) {
     // Use context management limits as a reference, but could have separate limits
-    const maxRequests = config?.COMMANDS?.CHAT_GPT?.webSearch?.maxSearchRequests || 
-                       config?.COMMANDS?.CHAT_GPT?.contextManagement?.maxContextRequests || 5;
+    const maxRequests = config?.COMMANDS?.CHAT?.webSearch?.maxSearchRequests || 
+                       config?.COMMANDS?.CHAT?.contextManagement?.maxContextRequests || 5;
     
-    const searchEnabled = config?.COMMANDS?.CHAT_GPT?.webSearch?.enabled !== false;
+    const searchEnabled = config?.COMMANDS?.CHAT?.webSearch?.enabled !== false;
 
     if (!searchEnabled) {
         return {

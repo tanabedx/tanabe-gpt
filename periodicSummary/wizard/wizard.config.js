@@ -1,13 +1,13 @@
 // wizard.config.js
-// Configuration for the resumo_config (wizard) command
+// Configuration for the WIZARD (wizard) command
 
 // Import the resumo config
-const RESUMO_CONFIG = require('../periodicSummary.config');
-const RESUMO_CONFIG_PROMPT = require('./periodicSummaryConfig.prompt');
+const WIZARD = require('../periodicSummary.config');
+const WIZARD_PROMPT = require('./periodicSummaryConfig.prompt');
 
 const WIZARD_CONFIG = {
     // Use the configuration from the periodic summary config
-    ...RESUMO_CONFIG,
+    ...WIZARD,
     prefixes: ['#ferramentaresumo'],
     description: 'Configura o resumo periódico do grupo (apenas admin).',
     autoDelete: {
@@ -22,7 +22,7 @@ const WIZARD_CONFIG = {
             '⏰ A sessão de configuração expirou devido a inatividade. Por favor, inicie novamente.',
     },
     useGroupPersonality: false,
-    prompt: RESUMO_CONFIG_PROMPT,
+    prompt: WIZARD_PROMPT,
     wizardTimeout: 300000, // 5 minutes default timeout
 };
 

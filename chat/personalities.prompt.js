@@ -8,6 +8,13 @@ const GROUP_AG = process.env.GROUP_AG;
 const LF_PERSONALITY = getEnvWithEscapes('GROUP_LF_PERSONALITY');
 const AG_PERSONALITY = getEnvWithEscapes('GROUP_AG_PERSONALITY');
 
+// Debug logging to help troubleshoot
+console.log('Personality Debug Info:');
+console.log('GROUP_LF:', GROUP_LF);
+console.log('GROUP_AG:', GROUP_AG);
+console.log('LF_PERSONALITY:', LF_PERSONALITY ? 'LOADED' : 'NOT SET');
+console.log('AG_PERSONALITY:', AG_PERSONALITY ? 'LOADED' : 'NOT SET');
+
 const GROUP_PERSONALITIES = {
     [GROUP_LF]: LF_PERSONALITY,
     [GROUP_AG]: AG_PERSONALITY

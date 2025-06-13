@@ -490,8 +490,8 @@ const logger = {
         log(LOG_LEVELS.WARN, message, error, shouldNotifyAdmin),
     info: message => log(LOG_LEVELS.INFO, message, null, true),
     debug: (message, obj = null) => {
-        // Only proceed if DEBUG is explicitly set to true
-        if (CONSOLE_LOG_LEVELS.DEBUG !== true) {
+        // Only proceed if DEBUG is explicitly set to true OR if forced via environment variable
+        if (CONSOLE_LOG_LEVELS.DEBUG !== true && process.env.FORCE_DEBUG_LOGS !== 'true') {
             return;
         }
 
@@ -525,8 +525,8 @@ const logger = {
     },
     summary: message => log(LOG_LEVELS.SUMMARY, message, null, true),
     prompt: (message, promptText) => {
-        // Only proceed if PROMPT is explicitly set to true
-        if (CONSOLE_LOG_LEVELS.PROMPT !== true) {
+        // Only proceed if PROMPT is explicitly set to true OR if forced via environment variable
+        if (CONSOLE_LOG_LEVELS.PROMPT !== true && process.env.FORCE_PROMPT_LOGS !== 'true') {
             return;
         }
 

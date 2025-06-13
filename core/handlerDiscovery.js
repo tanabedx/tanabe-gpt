@@ -12,6 +12,7 @@ function handlerNameToCommandName(handlerName) {
     if (!handlerName.startsWith('handle')) {
         return null;
     }
+    
     const pascal = handlerName.substring(6);
     return pascal.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
 }
@@ -66,10 +67,15 @@ function discoverHandlers() {
         // Special case for commandList handler in core directory
         const commandListHandlerPath = path.join(__dirname, 'commandList.js');
         if (fs.existsSync(commandListHandlerPath)) {
-            const { handleCommandList } = require(commandListHandlerPath);
-            if (handleCommandList) {
-                handlers['COMMAND_LIST'] = handleCommandList;
-                logger.debug('✓ Discovered handler: handleCommandList for command: COMMAND_LIST');
+            try {
+                const { handleCommandList } = require(commandListHandlerPath);
+                if (handleCommandList) {
+                    handlers['COMMAND_LIST'] = handleCommandList;
+                    handlers['COMMANDLIST'] = handleCommandList; // Also map COMMANDLIST to the same handler
+                    logger.debug('✓ Discovered handler: handleCommandList for command: COMMAND_LIST and COMMANDLIST');
+                }
+            } catch (error) {
+                logger.warn(`⚠ Failed to load commandList handler from core: ${error.message}`);
             }
         }
 

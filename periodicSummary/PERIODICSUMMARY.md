@@ -173,7 +173,7 @@ function setUserState(userId, chatId, state, data = {}) {
         state,
         ...data,
         lastActivity: Date.now(),
-        timeoutDuration: config.COMMANDS.RESUMO_CONFIG.wizardTimeout
+        timeoutDuration: config.COMMANDS.WIZARD.wizardTimeout
     });
 }
 

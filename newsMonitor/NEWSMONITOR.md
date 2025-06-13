@@ -214,17 +214,21 @@ HISTORICAL_CACHE = {
 }
 ```
 
-### API Credentials Configuration
-```javascript
-CREDENTIALS = {
-TWITTER_API_KEYS: {
-        primary: { bearer_token: string },
-        fallback1: { bearer_token: string },
-        fallback2: { bearer_token: string }
-        // ... additional fallback keys
-    }
-}
+### API Credentials Configuration (`.env`)
+Twitter API keys are now loaded dynamically from your environment variables (`.env` file). The system automatically discovers any variable that follows the `TWITTER_{KEY_NAME}_BEARER_TOKEN` pattern.
+
+The `{KEY_NAME}` part (e.g., `PRIMARY`, `FALLBACK1`) is used as the identifier and to determine priority.
+
+**Example `.env` configuration:**
+```bash
+# in your .env file
+TWITTER_PRIMARY_BEARER_TOKEN="your_primary_token_here"
+TWITTER_FALLBACK1_BEARER_TOKEN="your_first_fallback_token"
+TWITTER_FALLBACK2_BEARER_TOKEN="your_second_fallback_token"
+# Add as many keys as you need.
 ```
+
+This dynamic loading is handled within `newsMonitor.config.js`, removing the need for a static `CREDENTIALS` block for Twitter keys in the configuration file.
 
 ## External Dependencies
 

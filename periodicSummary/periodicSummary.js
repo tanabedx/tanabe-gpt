@@ -171,5 +171,13 @@ async function runPeriodicSummary(config, groupName, forceRun = false, options =
     }
 }
 
+// Import wizard handler
+const { handleWizard: wizardHandler } = require('./wizard/wizard');
+
+// Wrapper handler for the WIZARD command
+async function handleWizard(message, command, input) {
+    return await wizardHandler(message, command, input);
+}
+
 // Export the functions
-module.exports = { runPeriodicSummary };
+module.exports = { runPeriodicSummary, handleWizard };

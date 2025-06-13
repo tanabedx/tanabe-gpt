@@ -23,7 +23,7 @@ const {
 // Temporary flag to reset conversations once after prompt update
 let conversationsReset = false;
 
-const CHAT_GPT_PROMPTS = require('./chatgpt.prompt');
+const CHAT_PROMPTS = require('./chatgpt.prompt');
 
 async function handleChat(message, command, commandPrefix) {
     let name, groupName;
@@ -168,7 +168,7 @@ async function handleChat(message, command, commandPrefix) {
                     if (!validation.isValid) {
                         logger.warn('Context request validation failed (max requests per turn or disabled). Reason:', validation.reason);
                         const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const limitPrompt = CHAT_GPT_PROMPTS.CONTEXT_PROMPTS.contextRequestTurnLimitReached || "Limite de requisições de contexto por turno atingido. Respondendo com o que tenho.";
+                        const limitPrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.contextRequestTurnLimitReached || "Limite de requisições de contexto por turno atingido. Respondendo com o que tenho.";
                         const promptWithOriginalQuery = `${limitPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
                         conversationManager.addRawMessageToConversation(
                             convGroupName,
@@ -187,7 +187,7 @@ async function handleChat(message, command, commandPrefix) {
                     if (contextResult.error) {
                         logger.error('Context request processing failed in handler:', contextResult.error);
                         const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const errorPrompt = CHAT_GPT_PROMPTS.ERROR_PROMPTS.contextError || "Erro ao processar o pedido de contexto.";
+                        const errorPrompt = CHAT_PROMPTS.ERROR_PROMPTS.contextError || "Erro ao processar o pedido de contexto.";
                         const promptWithOriginalQuery = `${errorPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
                         conversationManager.addRawMessageToConversation(
                             convGroupName,
@@ -216,19 +216,19 @@ async function handleChat(message, command, commandPrefix) {
                         let basePrompt = '';
                         if (fetchStatus === 'MAX_MESSAGES_LIMIT_REACHED') {
                             logger.debug('Max total chat history messages limit reached. Informing AI.');
-                            basePrompt = CHAT_GPT_PROMPTS.CONTEXT_PROMPTS.maxMessagesLimitReached;
+                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.maxMessagesLimitReached;
                         } else if (fetchStatus === 'ALL_MESSAGES_RETRIEVED') {
                             logger.debug('All available chat history retrieved. Informing AI.');
-                            basePrompt = CHAT_GPT_PROMPTS.CONTEXT_PROMPTS.noMoreContextAllRetrieved;
+                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.noMoreContextAllRetrieved;
                         } else if (fetchStatus === 'NO_NEW_MESSAGES_IN_CACHE') {
                             logger.debug('AI requested context, but no new messages were available in the current cache slice. Informing AI to answer.');
-                            basePrompt = CHAT_GPT_PROMPTS.CONTEXT_PROMPTS.noNewContextInCachePleaseAnswer;
+                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.noNewContextInCachePleaseAnswer;
                         } else if (fetchStatus && fetchStatus.startsWith('ERROR_')) {
                             logger.warn(`Context fetching ended with error status: ${fetchStatus}. Informing AI to answer with current info.`);
-                            basePrompt = CHAT_GPT_PROMPTS.ERROR_PROMPTS.contextFetchErrorInformAI || "Houve um problema ao buscar mais contexto. Por favor, responda com as informações atuais.";
+                            basePrompt = CHAT_PROMPTS.ERROR_PROMPTS.contextFetchErrorInformAI || "Houve um problema ao buscar mais contexto. Por favor, responda com as informações atuais.";
                         } else {
                             logger.debug(`Context fetch status: ${fetchStatus}. No new context provided or unhandled status. Informing AI to answer.`);
-                            basePrompt = CHAT_GPT_PROMPTS.CONTEXT_PROMPTS.noNewContextPleaseAnswer || "Não há novo contexto. Por favor, responda com as informações atuais.";
+                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.noNewContextPleaseAnswer || "Não há novo contexto. Por favor, responda com as informações atuais.";
                         }
 
                         if (basePrompt) {
@@ -258,7 +258,7 @@ async function handleChat(message, command, commandPrefix) {
                     if (!searchValidation.isValid) {
                         logger.warn('Search request validation failed. Reason:', searchValidation.reason);
                         const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const limitPrompt = CHAT_GPT_PROMPTS.ERROR_PROMPTS.searchRequestLimitReached || "Limite de pesquisas manuais atingido. Respondendo com o que tenho.";
+                        const limitPrompt = CHAT_PROMPTS.ERROR_PROMPTS.searchRequestLimitReached || "Limite de pesquisas manuais atingido. Respondendo com o que tenho.";
                         const promptWithOriginalQuery = `${limitPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
                         conversationManager.addRawMessageToConversation(
                             convGroupName,
@@ -277,7 +277,7 @@ async function handleChat(message, command, commandPrefix) {
                     if (searchResult.error) {
                         logger.error('Search request processing failed:', searchResult.error);
                         const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const errorPrompt = CHAT_GPT_PROMPTS.ERROR_PROMPTS.searchError || "Erro ao realizar a pesquisa solicitada.";
+                        const errorPrompt = CHAT_PROMPTS.ERROR_PROMPTS.searchError || "Erro ao realizar a pesquisa solicitada.";
                         const promptWithOriginalQuery = `${errorPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
                         conversationManager.addRawMessageToConversation(
                             convGroupName,
@@ -296,7 +296,7 @@ async function handleChat(message, command, commandPrefix) {
                         const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
                         
                         // Use webSearch.model if available for manual searches
-                        const webSearchConfig = config?.COMMANDS?.CHAT_GPT?.webSearch || {};
+                        const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
                         const currentConversation = conversationManager.initializeConversation(groupName, adminNumber, config);
                         let modelToUse = currentConversation.model;
                         if (webSearchConfig.model) {
@@ -380,7 +380,7 @@ INSTRUÇÕES: Use essas informações da pesquisa manual para responder à pergu
         } else {
             // Fallback if no valid response
             const errorMessage = await message.reply(
-                CHAT_GPT_PROMPTS.ERROR_PROMPTS.generalError || 
+                CHAT_PROMPTS.ERROR_PROMPTS.generalError || 
                 command.errorMessages.error || 
                 'An error occurred while processing your request.'
             );
@@ -389,7 +389,7 @@ INSTRUÇÕES: Use essas informações da pesquisa manual para responder à pergu
 
     } catch (error) {
         logger.error(
-            `Error in CHAT_GPT handler for ${name || 'Unknown'} in ${groupName || 'DM'}:`,
+            `Error in CHAT handler for ${name || 'Unknown'} in ${groupName || 'DM'}:`,
             error
         );
         
@@ -400,7 +400,7 @@ INSTRUÇÕES: Use essas informações da pesquisa manual para responder à pergu
         }
         
         const errorMessage = await message.reply(
-            CHAT_GPT_PROMPTS.ERROR_PROMPTS.generalError || 
+            CHAT_PROMPTS.ERROR_PROMPTS.generalError || 
             command.errorMessages.error || 
             'An error occurred while processing your request.'
         );

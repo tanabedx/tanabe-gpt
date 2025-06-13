@@ -38,4 +38,4 @@ async function handleDesenho(message, command, input = []) {
     }
 }
 
-module.exports = handleDesenho;
+module.exports = { handleDesenho };

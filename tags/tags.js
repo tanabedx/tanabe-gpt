@@ -1,7 +1,7 @@
 const logger = require('../utils/logger');
 const { handleAutoDelete } = require('../utils/messageUtils');
 
-async function handleTag(message, command, input) {
+async function handleTags(message, command, input) {
     try {
         const chat = await message.getChat();
         if (!chat.isGroup) {
@@ -195,5 +195,5 @@ async function handleTag(message, command, input) {
 }
 
 module.exports = {
-    handleTag,
+    handleTags,
 };

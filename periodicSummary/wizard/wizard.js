@@ -4,8 +4,16 @@ const { runCompletion } = require('../../utils/openaiUtils');
 const { saveConfig } = require('./configUtils');
 const logger = require('../../utils/logger');
 const defaultPrompt = require('../periodicSummary.prompt').DEFAULT;
-const nlpProcessor = require('../../core/nlpProcessor');
 const groupManager = require('./groupManager');
+
+// Lazy load nlpProcessor to avoid circular dependency
+let nlpProcessor = null;
+function getNlpProcessor() {
+    if (!nlpProcessor) {
+        nlpProcessor = require('../../core/nlpProcessor');
+    }
+    return nlpProcessor;
+}
 
 // Store user states
 const userStates = new Map();
@@ -71,7 +79,7 @@ function setupTimeoutChecker() {
                     try {
                         // Try to get chat and send timeout message
                         const chat = await global.client.getChatById(chatId);
-                        await chat.sendMessage(config.COMMANDS.RESUMO_CONFIG.errorMessages.timeout);
+                        await chat.sendMessage(config.COMMANDS.WIZARD.errorMessages.timeout);
                         logger.debug('Sent timeout notification to user', { userId, chatId });
                     } catch (error) {
                         logger.error('Failed to send timeout notification', {
@@ -86,7 +94,7 @@ function setupTimeoutChecker() {
                 userStates.delete(stateKey);
 
                 // Deactivate wizard mode in NLP processor
-                nlpProcessor.setWizardState(userId, chatId, false);
+                getNlpProcessor().setWizardState(userId, chatId, false);
             } catch (error) {
                 logger.error('Error handling expired session', { userId, chatId, error });
             }
@@ -119,10 +127,10 @@ function setUserState(userId, chatId, state, data = {}) {
     });
 
     // Set timeout based on state
-    let timeoutDuration = config.COMMANDS.RESUMO_CONFIG.wizardTimeout || 300000; // 5 minutes default
+    let timeoutDuration = config.COMMANDS.WIZARD.wizardTimeout || 300000; // 5 minutes default
 
     // Activate wizard mode in NLP processor with chat context
-    nlpProcessor.setWizardState(userId, chatId, true);
+    getNlpProcessor().setWizardState(userId, chatId, true);
 
     userStates.set(stateKey, {
         state,
@@ -137,7 +145,7 @@ function clearUserState(userId, chatId, success = false, message = null) {
     const stateKey = getStateKey(userId, chatId);
 
     // Deactivate wizard mode in NLP processor with chat context
-    nlpProcessor.setWizardState(userId, chatId, false);
+    getNlpProcessor().setWizardState(userId, chatId, false);
 
     // Clear existing state
     if (userStates.has(stateKey)) {
@@ -218,8 +226,8 @@ function getConfiguredGroups() {
     }));
 }
 
-// Main handler function
-async function handleWizard(message) {
+// Main handler function for wizard steps
+async function processWizardStep(message) {
     const userId = message.author || message.from;
     const chatId = message.chat || message.from; // Use chat ID if available or fallback to user ID for DMs
     const userState = getUserState(userId, chatId);
@@ -236,10 +244,10 @@ async function handleWizard(message) {
     // Check for timeout
     const now = Date.now();
     const timeoutDuration =
-        userState.timeoutDuration || config.COMMANDS.RESUMO_CONFIG.wizardTimeout;
+        userState.timeoutDuration || config.COMMANDS.WIZARD.wizardTimeout;
     if (userState.lastActivity && now - userState.lastActivity > timeoutDuration) {
         logger.debug('Session timeout detected');
-        await message.reply(config.COMMANDS.RESUMO_CONFIG.errorMessages.timeout);
+        await message.reply(config.COMMANDS.WIZARD.errorMessages.timeout);
         clearUserState(userId, chatId);
         return;
     }
@@ -258,18 +266,18 @@ async function handleWizard(message) {
 
         // Reset timeout to the longer duration when going back
         const resetTimeout = {
-            timeoutDuration: config.COMMANDS.RESUMO_CONFIG.wizardTimeout,
+            timeoutDuration: config.COMMANDS.WIZARD.wizardTimeout,
         };
 
         switch (userState.state) {
             case 'AWAITING_GROUP_SELECTION':
                 // Already at initial state, just resend the menu
                 setUserState(userId, chatId, 'INITIAL', resetTimeout);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_EDIT_OPTION':
                 setUserState(userId, chatId, 'INITIAL', resetTimeout);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_INTERVAL':
                 if (userState.selectedGroup) {
@@ -281,7 +289,7 @@ async function handleWizard(message) {
                 } else {
                     setUserState(userId, chatId, 'INITIAL', resetTimeout);
                 }
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_QUIET_START':
                 setUserState(
@@ -290,31 +298,31 @@ async function handleWizard(message) {
                     userState.selectedGroup ? 'AWAITING_EDIT_OPTION' : 'AWAITING_INTERVAL',
                     userState
                 );
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_QUIET_END':
                 setUserState(userId, chatId, 'AWAITING_QUIET_START', userState);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_AUTO_DELETE_CHOICE':
                 setUserState(userId, chatId, 'AWAITING_QUIET_END', userState);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_AUTO_DELETE_TIME':
                 setUserState(userId, chatId, 'AWAITING_AUTO_DELETE_CHOICE', userState);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_GROUP_INFO':
                 setUserState(userId, chatId, 'AWAITING_AUTO_DELETE_TIME', userState);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_PROMPT_APPROVAL':
                 setUserState(userId, chatId, 'AWAITING_GROUP_INFO', userState);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
             case 'AWAITING_CUSTOM_PROMPT':
                 setUserState(userId, chatId, 'AWAITING_PROMPT_APPROVAL', userState);
-                await handleWizard(message);
+                await processWizardStep(message);
                 return;
         }
     }
@@ -798,7 +806,7 @@ async function handleWizard(message) {
                 });
 
                 // Generate prompt using ChatGPT
-                const promptTemplate = config.PROMPTS.RESUMO_CONFIG.GENERATE_TEMPLATE;
+                const promptTemplate = config.COMMANDS.WIZARD.prompt.GENERATE_TEMPLATE;
                 const groupInfo = message.body.trim(); // Use original case
 
                 logger.debug('Preparing to generate prompt', {
@@ -1029,7 +1037,7 @@ async function handleWizard(message) {
 }
 
 // Function to start a new wizard session
-async function startWizard(message) {
+async function handleWizard(message) {
     const userId = message.author || message.from;
     const chatId = message.chat || message.from; // Use chat ID if available or fallback to user ID for DMs
 
@@ -1045,7 +1053,7 @@ async function startWizard(message) {
     setUserState(userId, chatId, 'INITIAL');
 
     // Start the wizard
-    await handleWizard(message);
+    await processWizardStep(message);
 }
 
 // Initialize the timeout checker
@@ -1053,7 +1061,6 @@ setupTimeoutChecker();
 
 module.exports = {
     handleWizard,
-    startWizard,
     getUserState,
     isWizardActive,
 };

@@ -1,7 +1,7 @@
 // chat.config.js
 // Configuration for the chat command with conversation and context management
 
-const CHAT_GPT_PROMPTS = require('./chatgpt.prompt');
+const CHAT_PROMPTS = require('./chatgpt.prompt');
 
 const CHAT_CONFIG = {
     prefixes: ['#', '#!'],
@@ -94,11 +94,11 @@ const CHAT_CONFIG = {
     },
     
     // System prompts reference from chatgpt.prompt.js
-    systemPrompts: CHAT_GPT_PROMPTS.SYSTEM_PROMPTS,
+    systemPrompts: CHAT_PROMPTS.SYSTEM_PROMPTS,
     
     // Additional prompt references
-    contextPrompts: CHAT_GPT_PROMPTS.CONTEXT_PROMPTS,
-    errorPrompts: CHAT_GPT_PROMPTS.ERROR_PROMPTS,
+    contextPrompts: CHAT_PROMPTS.CONTEXT_PROMPTS,
+    errorPrompts: CHAT_PROMPTS.ERROR_PROMPTS,
     
     useGroupPersonality: true,
     model: '', // Will be determined dynamically

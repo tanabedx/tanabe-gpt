@@ -44,7 +44,7 @@ Intelligent message and content summarization system for WhatsApp groups that pr
 
 ### Programmatic Usage
 ```javascript
-const { handleResumo } = require('./resumo');
+const { handleResumos } = require('./resumos');
 const { downloadAndProcessDocument } = require('./documentUtils');
 
 // Process document
@@ -80,8 +80,8 @@ Input Analysis → Content Type Detection → Specialized Processing → Text Ex
 
 ```
 resumos/
-├── resumo.js                   # Main command handler and orchestration logic
-├── resumo.config.js            # Configuration settings and parameters
+├── resumos.js                  # Main command handler and orchestration logic
+├── resumos.config.js           # Configuration settings and parameters
 ├── resumo.prompt.js            # AI prompt templates for different content types
 ├── resumoPromptUtils.js        # Prompt processing and variable substitution utilities
 └── documentUtils.js            # Document processing and text extraction utilities
@@ -89,17 +89,17 @@ resumos/
 
 ### File Responsibilities
 
-- **`resumo.js`**: Primary command handler, input parsing, content type routing, message processing workflows
-- **`resumo.config.js`**: Command configuration, document settings, link processing parameters, error messages
+- **`resumos.js`**: Primary command handler, input parsing, content type routing, message processing workflows
+- **`resumos.config.js`**: Command configuration, document settings, link processing parameters, error messages
 - **`resumo.prompt.js`**: AI prompt templates for messages, documents, links, and quoted content
 - **`resumoPromptUtils.js`**: Prompt template processing, variable substitution, debugging utilities
 - **`documentUtils.js`**: Document text extraction, format detection, temporary file management
 
 ## Core Components
 
-### Main Command Handler (`resumo.js`)
+### Main Command Handler (`resumos.js`)
 ```javascript
-async function handleResumo(message, command, input) {
+async function handleResumos(message, command, input) {
     // Content type detection and routing
     if (message.hasQuotedMsg) {
         return await handleQuotedMessage(message, command);

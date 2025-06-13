@@ -1,7 +1,7 @@
 // chatgpt.prompt.js
 // All ChatGPT prompts for the conversation system
 
-const CHAT_GPT_PROMPTS = {
+const CHAT_PROMPTS = {
     // System prompts for conversation initialization
     SYSTEM_PROMPTS: {
         initial: `Você é um assistente inteligente no WhatsApp com acesso a resultados de pesquisa na internet.
@@ -226,4 +226,4 @@ Tente reformular sua pergunta ou solicite ajuda novamente.`
     }
 };
 
-module.exports = CHAT_GPT_PROMPTS;
+module.exports = CHAT_PROMPTS;

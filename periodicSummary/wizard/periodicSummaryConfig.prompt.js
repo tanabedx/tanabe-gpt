@@ -1,6 +1,6 @@
-// resumo_config.js
+// WIZARD.js
 
-const RESUMO_CONFIG = {
+const WIZARD = {
     GENERATE_TEMPLATE: `Create a concise prompt template in Portuguese for summarizing WhatsApp group messages. The group's context is: "{groupInfo}".
 The prompt should:
 1. Ask for a summary of unread messages
@@ -13,4 +13,4 @@ The prompt should:
 Format the response as a direct prompt template, without any explanations or metadata.`,
 };
 
-module.exports = RESUMO_CONFIG;
+module.exports = WIZARD;

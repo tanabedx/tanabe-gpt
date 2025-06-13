@@ -22,8 +22,8 @@ async function handleCommandList(message, command) {
         const commandEntries = Object.entries(config.COMMANDS);
         const commandChecks = await Promise.all(
             commandEntries.map(async ([name, cmd]) => {
-                // Skip commands without prefixes (like TAG)
-                if (name === 'TAG') return { name, cmd, allowed: chat.isGroup };
+                // Skip commands without prefixes (like TAGS)
+                if (name === 'TAGS') return { name, cmd, allowed: chat.isGroup };
                 if (!cmd.prefixes || !cmd.prefixes.length) return { name, cmd, allowed: false };
 
                 // Check if user has permission using the whitelist
@@ -45,7 +45,7 @@ async function handleCommandList(message, command) {
                     );
                     if (!isAllowed) return null;
 
-                    if (name === 'TAG') {
+                    if (name === 'TAGS') {
                         // Build tag list
                         let tagList = [];
 

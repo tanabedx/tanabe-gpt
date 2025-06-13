@@ -20,7 +20,7 @@ const adminNumber = config.CREDENTIALS.ADMIN_NUMBER;
 const openaiKey = config.CREDENTIALS.OPENAI_API_KEY;
 
 // Check permissions
-const hasAccess = await hasPermission('CHAT_GPT', chatId, userId);
+const hasAccess = await hasPermission('CHAT', chatId, userId);
 
 // Use system settings
 const defaultModel = config.SYSTEM.OPENAI_MODELS.DEFAULT;
@@ -73,13 +73,8 @@ credentialStructure = {
         OPENAI_API_KEY: process.env.OPENAI_API_KEY,
         GETIMG_AI_API_KEY: process.env.GETIMG_AI_API_KEY
     },
-    socialPlatforms: {
-        TWITTER_API_KEYS: {
-            primary: { bearer_token: process.env.TWITTER_PRIMARY_BEARER_TOKEN },
-            fallback: { bearer_token: process.env.TWITTER_FALLBACK_BEARER_TOKEN },
-            fallback2: { bearer_token: process.env.TWITTER_FALLBACK2_BEARER_TOKEN }
-        }
-    },
+    // Note: Twitter API keys, Group, and Phone mappings are now handled dynamically
+    // in their respective modules (`newsMonitor` and `periodicSummary/envMapper`).
     dynamicMembers: {
         // Auto-discovery of all MEMBER_* environment variables
         get MEMBERS() { return extractMemberVariables(process.env) }
@@ -91,9 +86,9 @@ credentialStructure = {
 ```javascript
 // Command-specific authorization
 permissionMatrix = {
-    CHAT_GPT: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
-    RESUMO: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
-    AYUB_NEWS: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
+    CHAT: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
+    RESUMOS: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
+    NEWS: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
     STICKER: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
     DESENHO: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
     COMMAND_LIST: 'all',
@@ -216,115 +211,10 @@ CREDENTIALS = {
         OPENAI_API_KEY: string,         // OpenAI API authentication
         GETIMG_AI_API_KEY: string       // GetImg AI API authentication
     },
-    socialPlatforms: {
-        TWITTER_API_KEYS: {
-            primary: { bearer_token: string },
-            fallback: { bearer_token: string },
-            fallback2: { bearer_token: string }
-        }
-    },
-    groupIdentifiers: {
-        GROUPS: { LF: string, AG: string },
-        PHONES: { DS1: string, DS2: string }
-    },
+    // Note: Group, Phone, and Twitter API key mappings are loaded dynamically
+    // by their respective modules and are no longer part of this static object.
     dynamicMembers: {
         MEMBERS: object               // Auto-discovered MEMBER_* variables
     }
 }
 ```
-
-### Permission Configuration
-```javascript
-COMMAND_WHITELIST = {
-    [commandName]: string[] | 'all',     // Whitelist entries or universal access
-    ADMIN_COMMANDS: [],                  // Empty array = admin-only access
-    DM_FORMAT: [`dm.${groupName}`],      // Direct message from group members
-    SPECIAL_PERMISSIONS: [phoneNumber]   // Direct user ID permissions
-}
-
-ADMIN_ONLY_COMMANDS = string[]           // Commands restricted to admin only
-```
-
-### System Configuration
-```javascript
-SYSTEM = {
-    limits: {
-        MAX_LOG_MESSAGES: number,
-        MESSAGE_DELETE_TIMEOUT: number,
-        MAX_RECONNECT_ATTEMPTS: number
-    },
-    models: {
-        OPENAI_MODELS: {
-            DEFAULT: string,
-            VOICE: string,
-            VISION_DEFAULT: string
-        }
-    },
-    maintenance: {
-        ENABLE_STARTUP_CACHE_CLEARING: boolean,
-        PRESERVED_FILES_ON_UPDATE: string[]
-    }
-}
-```
-
-## External Dependencies
-
-### Environment Management
-- **`dotenv`**: Environment variable loading from `.env` file with path specification
-- **`process.env`**: Node.js environment variable access and validation
-
-### File System Operations
-- **Command Discovery**: File system scanning for configuration files across modules
-- **Path Resolution**: Cross-platform path handling for configuration file discovery
-
-### WhatsApp Integration
-- **`global.client`**: WhatsApp client access for group membership validation
-- **Group Membership API**: Participant list access for permission validation
-
-### Module System
-- **Dynamic Imports**: Automatic configuration discovery and loading
-- **Circular Dependency Resolution**: Lazy loading with setTimeout for complex dependencies
-
-### Node.js `fs`, `path`
-- **File system access for dynamic configuration loading
-
-### `../utils/logger`
-- **Centralized logging for startup and error messages
-
-### `../admin/admin`
-- **Runtime configuration access
-
-### `../core/commandDiscovery`
-- **Automatic command configuration detection
-
-### Cross-Module Dependencies
-- **`../newsMonitor/newsMonitor.config`**: News monitoring settings
-
-## Internal Dependencies
-
-### Cross-Module Configuration Dependencies
-- **`../utils/commandDiscovery`**: Automatic command configuration detection
-- **`../newsMonitor/newsMonitor.config`**: News monitoring system configuration
-- **`../periodicSummary/periodicSummary.config`**: Periodic summary configuration (lazy-loaded)
-- **`../utils/logger`**: Logging system integration (lazy-loaded to avoid circular dependencies)
-
-### Configuration Distribution Pattern
-- **`config.js`** ← imports ← All system configurations
-- **`credentials.js`** ← imports ← Environment variable access
-- **`whitelist.js`** ← imports ← Permission management utilities
-- **Module Integration**: Each system module imports relevant configuration sections
-
-### Dependency Resolution Strategies
-- **Immediate Loading**: Direct imports for stable dependencies
-- **Lazy Loading**: setTimeout-based import for circular dependency resolution
-- **Dynamic Properties**: Getter functions for runtime-dependent values
-- **Validation Chaining**: Sequential validation with error aggregation
-
-### Data Sharing Patterns
-- **Centralized Credentials**: Single source of truth for all authentication
-- **Permission Matrix**: Unified authorization system across all commands
-- **System Settings**: Shared configuration for logging, models, and operational parameters
-- **Command Registry**: Auto-discovered command configurations available to all modules
-- **`config.js` Import** → `commandDiscovery.discoverCommands()` → File System Scan →
-  ↓ (discovered commands)
-  `COMMANDS` Object → Exported to the rest of the application 

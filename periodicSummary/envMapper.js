@@ -5,48 +5,61 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
 
-// Map of environment variable keys to their values
-const groupMap = {
-    GROUP_LF: process.env.GROUP_LF,
-    GROUP_AG: process.env.GROUP_AG,
-    PHONE_DS1: process.env.PHONE_DS1,
-    PHONE_DS2: process.env.PHONE_DS2,
-};
+/**
+ * Dynamically loads all GROUP_* and PHONE_* mappings from environment variables.
+ * @returns {{groups: Map<string, string>, phones: Map<string, string>, all: Map<string, string>}}
+ *          An object containing maps for groups, phones, and all combined mappings.
+ *          The maps store the mapping from the environment variable key to its value.
+ */
+function getMappings() {
+    const mappings = {
+        groups: new Map(),
+        phones: new Map(),
+        all: new Map(),
+    };
 
-// Reverse map for looking up keys by values
-const reverseGroupMap = {};
-Object.entries(groupMap).forEach(([key, value]) => {
-    if (value) {
-        reverseGroupMap[value] = key;
-        // Also add dm. prefixed version
-        if (key.startsWith('GROUP_')) {
-            reverseGroupMap[`dm.${value}`] = key;
+    for (const key in process.env) {
+        if (key.startsWith('GROUP_') || key.startsWith('PHONE_')) {
+            const value = process.env[key];
+            if (value) {
+                mappings.all.set(key, value);
+                if (key.startsWith('GROUP_')) {
+                    mappings.groups.set(key, value);
+                } else {
+                    mappings.phones.set(key, value);
+                }
+            }
         }
     }
-});
+    return mappings;
+}
 
 /**
- * Get the actual group name from its environment variable key
+ * Get the actual group/phone name from its environment variable key
  * @param {string} envKey - The environment variable key (e.g., 'GROUP_LF')
  * @returns {string|null} - The actual group name or null if not found
  */
 function getGroupName(envKey) {
-    return groupMap[envKey] || null;
+    const { all } = getMappings();
+    return all.get(envKey) || null;
 }
 
 /**
- * Get the environment variable key for a group name
+ * Get the environment variable key for a group/phone name
  * @param {string} groupName - The actual group name
  * @returns {string|null} - The environment variable key or null if not found
  */
 function getGroupKey(groupName) {
-    // Check if it's a direct message group
-    if (groupName.startsWith('dm.')) {
-        const baseGroupName = groupName.substring(3);
-        const baseKey = reverseGroupMap[baseGroupName];
-        return baseKey || null;
+    const { all } = getMappings();
+    // Handle dm. prefix for groups
+    const baseGroupName = groupName.startsWith('dm.') ? groupName.substring(3) : groupName;
+
+    for (const [key, value] of all.entries()) {
+        if (value === baseGroupName) {
+            return key;
+        }
     }
-    return reverseGroupMap[groupName] || null;
+    return null;
 }
 
 /**
@@ -69,15 +82,10 @@ function addNewGroup(groupName, abbreviation, type = 'GROUP') {
     }
 
     // Create new key
-    const newKey = `${type}_${abbreviation}`;
+    const newKey = `${type}_${abbreviation}`.toUpperCase();
 
-    // Update maps
-    groupMap[newKey] = baseGroupName;
-    reverseGroupMap[baseGroupName] = newKey;
-    // Also add dm. prefixed version if it's a GROUP
-    if (type === 'GROUP') {
-        reverseGroupMap[`dm.${baseGroupName}`] = newKey;
-    }
+    // No in-memory map to update, changes are reflected via getMappings()
+    // which reads process.env directly.
 
     // Update .env file
     try {
@@ -158,14 +166,9 @@ function removeGroup(groupName) {
 
             // Also remove from process.env and our maps
             delete process.env[key];
-            delete groupMap[key];
         });
 
-        // Remove from reverseGroupMap
-        delete reverseGroupMap[baseGroupName];
-        if (baseGroupName !== groupName) {
-            delete reverseGroupMap[groupName]; // Remove dm. version if it exists
-        }
+        // No in-memory maps to update
 
         // Write back to file
         fs.writeFileSync(envPath, envContent);
@@ -187,9 +190,10 @@ function removeGroup(groupName) {
  * @returns {string[]} - Array of actual group names
  */
 function getAllGroupsByType(type) {
-    return Object.entries(groupMap)
-        .filter(([key]) => key.startsWith(type))
-        .map(([_, value]) => value);
+    const { all } = getMappings();
+    return Array.from(all.entries())
+        .filter(([key]) => key.startsWith(`${type}_`))
+        .map(([, value]) => value);
 }
 
 module.exports = {

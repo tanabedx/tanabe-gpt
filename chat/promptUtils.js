@@ -91,10 +91,10 @@ ${linkContext}`;
  * @returns {string} System prompt
  */
 function createSystemPrompt(config, groupName, promptType = 'initial') {
-    let systemPrompt = config?.COMMANDS?.CHAT_GPT?.systemPrompts?.[promptType] || '';
+    let systemPrompt = config?.COMMANDS?.CHAT?.systemPrompts?.[promptType] || '';
     
     // Add group personality if enabled
-    if (config?.COMMANDS?.CHAT_GPT?.useGroupPersonality) {
+    if (config?.COMMANDS?.CHAT?.useGroupPersonality) {
         const personality = getGroupPersonality(groupName);
         if (personality) {
             systemPrompt += `\n\nPersonalidade do grupo: ${personality}`;

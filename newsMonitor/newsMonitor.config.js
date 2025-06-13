@@ -8,6 +8,51 @@ const {
     DETECT_TOPIC_REDUNDANCY,
 } = require('./newsMonitor.prompt');
 
+/**
+ * Dynamically loads Twitter API keys from environment variables.
+ * Looks for variables matching the pattern TWITTER_*_BEARER_TOKEN.
+ * For example, TWITTER_PRIMARY_BEARER_TOKEN becomes `primary`.
+ * TWITTER_FALLBACK1_BEARER_TOKEN becomes `fallback1`.
+ * @returns {Object} - An object containing the loaded Twitter API keys.
+ */
+function getDynamicTwitterKeys() {
+    const twitterKeys = {};
+    const keyPattern = /^TWITTER_(.+)_BEARER_TOKEN$/;
+
+    // Keep a predefined order for consistency
+    const keyOrder = [
+        'PRIMARY',
+        'FALLBACK1',
+        'FALLBACK2',
+        'FALLBACK3',
+        'FALLBACK4',
+        'FALLBACK5',
+        'FALLBACK6',
+        'FALLBACK7',
+        'FALLBACK8',
+        'FALLBACK9',
+    ];
+    const foundKeys = {};
+
+    for (const envVar in process.env) {
+        const match = envVar.match(keyPattern);
+        if (match && match[1]) {
+            const keyName = match[1]; // e.g., PRIMARY, FALLBACK1
+            foundKeys[keyName] = process.env[envVar];
+        }
+    }
+
+    // Sort found keys based on the predefined order
+    keyOrder.forEach(keyName => {
+        if (foundKeys[keyName]) {
+            const configKeyName = keyName.toLowerCase(); // primary, fallback1
+            twitterKeys[configKeyName] = { bearer_token: foundKeys[keyName] };
+        }
+    });
+
+    return twitterKeys;
+}
+
 // Unified News Monitor configuration
 const NEWS_MONITOR_CONFIG = {
     enabled: true, // Master toggle for news monitoring
@@ -122,17 +167,7 @@ const NEWS_MONITOR_CONFIG = {
     },
 
     CREDENTIALS: {
-        TWITTER_API_KEYS: {
-            // IMPORTANT: Ensure your .env file is loaded (e.g., using dotenv library)
-            // so that process.env contains your Twitter bearer tokens.
-            primary: { bearer_token: process.env.TWITTER_PRIMARY_BEARER_TOKEN },
-            fallback1: { bearer_token: process.env.TWITTER_FALLBACK_BEARER_TOKEN },
-            fallback2: { bearer_token: process.env.TWITTER_FALLBACK2_BEARER_TOKEN },
-            fallback3: { bearer_token: process.env.TWITTER_FALLBACK3_BEARER_TOKEN},
-            fallback4: { bearer_token: process.env.TWITTER_FALLBACK4_BEARER_TOKEN},
-            // Add more keys here if you have them, following the same pattern:
-            // your_key_name: { bearer_token: process.env.YOUR_ENV_VARIABLE_FOR_TOKEN }
-        },
+        TWITTER_API_KEYS: getDynamicTwitterKeys(),
         // You can add other credentials here if needed, e.g., OPENAI_API_KEY
         // OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     },

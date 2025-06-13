@@ -13,13 +13,13 @@ const PHONE_DS2 = process.env.PHONE_DS2;
 // Command-specific whitelists
 const COMMAND_WHITELIST = {
     // Chat command whitelist
-    CHAT_GPT: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
+    CHAT: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
 
-    // Resumo command whitelist
-    RESUMO: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
+    // Resumos command whitelist
+    RESUMOS: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
 
-    // Ayub news command whitelist
-    AYUB_NEWS: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
+    // News command whitelist
+    NEWS: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
 
     // Sticker command whitelist
     STICKER: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
@@ -33,11 +33,11 @@ const COMMAND_WHITELIST = {
     // Audio command whitelist
     AUDIO: [GROUP_LF, GROUP_AG],
 
-    // Tag command whitelist (group only)
-    TAG: [GROUP_LF, GROUP_AG],
+    // Tags command whitelist (group only)
+    TAGS: [GROUP_LF, GROUP_AG],
 
-    // Resumo config command whitelist (wizard) - only specific phone numbers
-    RESUMO_CONFIG: [PHONE_DS1, PHONE_DS2, GROUP_AG],
+    // Wizard command whitelist - only specific phone numbers
+    WIZARD: [PHONE_DS1, PHONE_DS2, GROUP_AG],
 
     // Admin commands whitelist (only admin has access)
     TWITTER_DEBUG: [GROUP_LF, GROUP_AG],
@@ -47,7 +47,7 @@ const COMMAND_WHITELIST = {
     DEBUG_PERIODIC: [],
     CACHE_CLEAR: [],
     CACHE_RESET: [],
-    CACHE_STATS: [],
+    NEWS_DEBUG: [],
 };
 
 // List of admin-only commands
@@ -59,7 +59,7 @@ const ADMIN_ONLY_COMMANDS = [
     'DEBUG_PERIODIC',
     'CACHE_CLEAR',
     'CACHE_RESET',
-    'CACHE_STATS',
+    'NEWS_DEBUG',
 ];
 
 /**
@@ -164,9 +164,9 @@ async function hasPermission(commandName, chatId, userId) {
         return false; // Empty whitelist means admin-only
     }
 
-    // Special case for RESUMO_CONFIG command - check user ID directly
-    if (commandName === 'RESUMO_CONFIG') {
-        return COMMAND_WHITELIST.RESUMO_CONFIG.includes(userId);
+    // Special case for WIZARD command - check user ID directly
+    if (commandName === 'WIZARD') {
+        return COMMAND_WHITELIST.WIZARD.includes(userId);
     }
 
     // Special case for periodic summary - groups configured for periodic summaries

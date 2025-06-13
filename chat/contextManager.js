@@ -67,8 +67,8 @@ function getContextGroupName(originalGroupName) {
 function isGroupAllowed(groupName) {
     const { COMMAND_WHITELIST } = require('../configs/whitelist');
     
-    // Get the CHAT_GPT whitelist
-    const commandWhitelist = COMMAND_WHITELIST.CHAT_GPT || [];
+    // Get the CHAT whitelist (context fetching is part of CHAT command functionality)
+    const commandWhitelist = COMMAND_WHITELIST.CHAT || [];
     
     // Check if whitelist is 'all'
     if (commandWhitelist === 'all') {
@@ -121,10 +121,10 @@ async function fetchContextMessages(groupName, messageCount = 100, reset = false
             return { context: '', status: 'ERROR_CHAT_NOT_FOUND', newMessagesCount: 0 };
         }
         
-        const MAX_CHAT_HISTORY_MESSAGES = config?.COMMANDS?.CHAT_GPT?.contextManagement?.maxTotalChatHistoryMessages || 1000;
+        const MAX_CHAT_HISTORY_MESSAGES = config?.COMMANDS?.CHAT?.contextManagement?.maxTotalChatHistoryMessages || 1000;
 
         if (reset || !contextCache.has(contextGroupName)) {
-            const initialFetchLimit = config?.COMMANDS?.CHAT_GPT?.maxMessageFetch || 1000;
+            const initialFetchLimit = config?.COMMANDS?.CHAT?.maxMessageFetch || 1000;
             logger.debug(`Initial fetch or reset for ${contextGroupName}, limit: ${initialFetchLimit}`);
             const allRawMessages = await chat.fetchMessages({ limit: initialFetchLimit });
             
