@@ -1,13 +1,13 @@
 const path = require('path');
 const fsPromises = require('fs').promises;
-const config = require('../../configs');
 
 // Avoid circular dependencies
-let logger, groupManager, envMapper;
+let logger, groupManager, envMapper, config;
 setTimeout(() => {
     logger = require('../../utils/logger');
     groupManager = require('./groupManager');
     envMapper = require('../envMapper');
+    config = require('../../configs');
 }, 0);
 
 async function savePeriodicSummaryConfig(periodicSummaryConfig) {
