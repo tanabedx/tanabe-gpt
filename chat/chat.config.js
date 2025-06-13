@@ -24,7 +24,7 @@ const CHAT_CONFIG = {
         rules: [
             { maxMessages: 100, model: 'gpt-4o-mini' },   // Lightweight for small contexts
             { maxMessages: 500, model: 'gpt-4o' },        // Advanced for medium contexts
-            { maxMessages: 1000, model: 'gpt-4o' }        // Advanced for large contexts
+            { maxMessages: 1000, model: 'o4-mini' }        // Advanced for large contexts
         ],
         default: 'gpt-4o-mini' // Default fallback
     },
@@ -64,22 +64,31 @@ const CHAT_CONFIG = {
             'find',
             'what is',
             'what are',
-            'como',
-            'onde',
-            'quando',
-            'por que',
-            'porque',
-            'how',
-            'where',
-            'when',
-            'why',
+            'como fazer',           // More specific than just 'como'
+            'como funciona',        // More specific than just 'como'
+            'onde encontrar',       // More specific than just 'onde'
+            'onde fica',           // More specific than just 'onde'
+            'quando aconteceu',     // More specific than just 'quando'
+            'quando será',         // More specific than just 'quando'
+            'por que aconteceu',   // More specific than just 'por que'
+            'porque aconteceu',    // More specific than just 'porque'
+            'how to',
+            'where is',
+            'where can',
+            'when did',
+            'when will',
+            'why did',
             'latest',
             'recent',
             'current',
-            'hoje',
-            'now',
+            'hoje aconteceu',      // More specific than just 'hoje'
+            'notícias de hoje',    // More specific for news
+            'now happening',
             'atualmente',
-            'recente'
+            'recente',
+            'informações sobre',   // Explicit search intent
+            'me fale sobre',       // Explicit search intent
+            'quero saber sobre'    // Explicit search intent
         ],
         timeout: 10000          // Timeout for web search requests (ms)
     },

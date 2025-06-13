@@ -135,8 +135,8 @@ function startBot() {
     }
 
     try {
-        // Use project root for index.js, not from test directory
-        const indexPath = path.join(__dirname, '..', 'index.js');
+        // Use project root for app.js, not from test directory
+        const indexPath = path.join(__dirname, '..', 'app.js');
         const bot = spawn('node', [indexPath], {
             // Don't detach the process so we can properly kill it later
             detached: false,
@@ -714,12 +714,12 @@ async function runTest(client, group, test, testResults) {
                 }
             }
 
-            // Now check the prompt content
-            const promptCheck = await checkPromptContent(global.lastPrompt);
-            console.log('Prompt check results:', promptCheck.details);
+            // Now check the conversation chain content
+            const promptCheck = await checkPromptContent(global.conversationChain || global.lastPrompt);
+            console.log('Conversation chain check results:', promptCheck.details);
 
             if (!promptCheck.hasPersonality || !promptCheck.hasMessageHistory) {
-                throw new Error(`Prompt check failed: ${promptCheck.details}`);
+                throw new Error(`Conversation chain check failed: ${promptCheck.details}`);
             }
 
             // Test passed for prompt check
@@ -813,7 +813,7 @@ async function checkIfBotIsRunning() {
     try {
         console.log('Checking if bot is already running...');
         return new Promise(resolve => {
-            exec('ps aux | grep "node index.js" | grep -v grep', (error, stdout, _) => {
+            exec('ps aux | grep "node app.js" | grep -v grep', (error, stdout, _) => {
                 if (error) {
                     // Command failed, bot is not running
                     console.log('Bot is not running (ps command failed)');

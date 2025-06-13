@@ -1,5 +1,5 @@
 const logger = require('../utils/logger');
-const GROUP_PERSONALITIES = require('../prompts/personalities.prompt');
+const GROUP_PERSONALITIES = require('./personalities.prompt');
 
 // Get group names from environment variables
 const GROUP_LF = process.env.GROUP_LF;

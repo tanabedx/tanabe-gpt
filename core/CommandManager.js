@@ -1,6 +1,6 @@
 const config = require('../configs');
 const logger = require('../utils/logger');
-const nlpProcessor = require('../commands/nlpProcessor');
+const nlpProcessor = require('./nlpProcessor');
 const whitelist = require('../configs/whitelist');
 
 class CommandManager {

@@ -136,7 +136,7 @@ function startBot() {
     logger.debug(`Setting bot to use auth path: ${botAuthPath} with client ID: ${botClientId}`);
 
     try {
-        const bot = spawn('node', ['index.js'], {
+        const bot = spawn('node', ['app.js'], {
             detached: false,
             stdio: 'pipe',
             env: {
@@ -522,8 +522,9 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
 // Mock the openaiUtils module to capture prompts
 function setupPromptCapture() {
     try {
-        // Create a variable to store the last prompt
+        // Create variables to store the conversation chain
         global.lastPrompt = null;
+        global.conversationChain = ''; // Store entire conversation including context
         global.promptCaptured = false;
 
         // Store the original console.log function
@@ -547,32 +548,47 @@ function setupPromptCapture() {
             // Check if this is a prompt log
             const logMessage = Array.from(arguments).join(' ');
 
-            // Detect different ways prompts might be logged
-
-            // Direct prompt messages or timestamps
-            if (logMessage.includes('[PROMPT]') || logMessage.includes('ChatGPT Prompt')) {
-                logger.log('Found prompt log entry, capturing...');
-
-                // Check if the next line has the actual prompt content
-                if (logMessage.includes('DIRETRIZES')) {
-                    logger.log('Found prompt with DIRETRIZES, capturing...');
-                    global.lastPrompt = logMessage;
-                    global.promptCaptured = true;
-                }
+            // Skip test runner messages to avoid recursion
+            if (logMessage.includes('INFO: Found') || logMessage.includes('[TEST]') || logMessage.includes('Starting tests')) {
+                isLogging = false;
+                return;
             }
+
+            // Always add to conversation chain for comprehensive capture
+            if (global.conversationChain !== undefined) {
+                global.conversationChain += '\n' + logMessage;
+            }
+
             // Look for the start of a prompt (DIRETRIZES)
-            else if (logMessage.includes('DIRETRIZES')) {
-                logger.log('Found prompt with DIRETRIZES, capturing...');
+            if (logMessage.includes('DIRETRIZES')) {
                 global.lastPrompt = logMessage;
+                global.conversationChain += '\n' + logMessage;
                 global.promptCaptured = true;
             }
 
-            // Also capture message history
+            // Also capture message history (containing >>)
+            if (logMessage.includes('>>')) {
+                global.conversationChain += '\n' + logMessage;
+                if (global.lastPrompt) {
+                    global.lastPrompt += '\n' + logMessage;
+                } else {
+                    global.lastPrompt = logMessage;
+                }
+                global.promptCaptured = true;
+            }
+
+            // Capture context-related messages
             if (
-                (logMessage.includes('>>') && logMessage.includes('FIM DAS ÚLTIMAS')) ||
+                logMessage.includes('REQUEST_CONTEXT') ||
+                logMessage.includes('CONTEXTO DO CHAT') ||
+                logMessage.includes('MENSAGENS HISTÓRICAS') ||
+                logMessage.includes('contextRequestHandler') ||
+                logMessage.includes('Context added to conversation') ||
+                logMessage.includes('fetchContextMessages') ||
+                logMessage.includes('handleContextRequest') ||
+                (logMessage.includes('FIM DAS ÚLTIMAS') && logMessage.includes('MENSAGENS')) ||
                 (logMessage.includes('COMEÇO DAS ÚLTIMAS') && logMessage.includes('MENSAGENS'))
             ) {
-                logger.log('Found message history, capturing...');
                 if (global.lastPrompt) {
                     global.lastPrompt += '\n' + logMessage;
                 } else {
@@ -597,6 +613,17 @@ function setupPromptCapture() {
             process.stdout.write = function (chunk) {
                 const result = originalStdoutWrite.apply(process.stdout, arguments);
 
+                // Prevent recursion from test output
+                if (typeof chunk === 'string' && (
+                    chunk.includes('INFO: Found') ||
+                    chunk.includes('[TEST]') ||
+                    chunk.includes('ANSI') ||
+                    chunk.includes('\x1b[') ||
+                    chunk.length < 5
+                )) {
+                    return result;
+                }
+
                 // If it's a string, add it to recent logs
                 if (typeof chunk === 'string') {
                     recentLogs.push(chunk);
@@ -604,17 +631,40 @@ function setupPromptCapture() {
                         recentLogs.shift(); // Remove oldest entry
                     }
 
+                    // Always add to conversation chain for comprehensive capture
+                    if (global.conversationChain !== undefined) {
+                        global.conversationChain += chunk;
+                    }
+
                     // Look for prompt markers in combined recent logs
                     const combinedLogs = recentLogs.join('');
-                    if (combinedLogs.includes('DIRETRIZES') && !global.promptCaptured) {
-                        logger.log('Found DIRETRIZES in recent logs');
+                    
+                    // Capture DIRETRIZES
+                    if (combinedLogs.includes('DIRETRIZES')) {
                         global.lastPrompt = combinedLogs;
+                        global.conversationChain += '\n' + combinedLogs;
                         global.promptCaptured = true;
                     }
 
-                    // Look for message history markers
-                    if (combinedLogs.includes('FIM DAS ÚLTIMAS') && combinedLogs.includes('>>')) {
-                        logger.log('Found message history in recent logs');
+                    // Capture message history with >> markers
+                    if (combinedLogs.includes('>>')) {
+                        global.conversationChain += '\n' + combinedLogs;
+                        if (global.lastPrompt) {
+                            global.lastPrompt += '\n' + combinedLogs;
+                        } else {
+                            global.lastPrompt = combinedLogs;
+                        }
+                        global.promptCaptured = true;
+                    }
+
+                    // Capture context-related patterns
+                    if (combinedLogs.includes('REQUEST_CONTEXT') || 
+                        combinedLogs.includes('CONTEXTO DO CHAT') ||
+                        combinedLogs.includes('MENSAGENS HISTÓRICAS') ||
+                        combinedLogs.includes('contextRequestHandler') ||
+                        combinedLogs.includes('Context added to conversation') ||
+                        combinedLogs.includes('fetchContextMessages')) {
+                        global.conversationChain += '\n' + combinedLogs;
                         if (global.lastPrompt) {
                             global.lastPrompt += '\n' + combinedLogs;
                         } else {
@@ -643,48 +693,61 @@ async function checkPromptContent(prompt) {
 
     // Wait for the prompt to be captured with a timeout
     const startTime = Date.now();
-    const timeout = 30000; // 30 seconds timeout
+    const timeout = 60000; // 60 seconds timeout
 
     while (!global.promptCaptured && Date.now() - startTime < timeout) {
-        logger.log('Waiting for prompt to be captured...');
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        logger.log('Waiting for conversation data to be captured...');
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
     }
 
-    // Use the global lastPrompt if no prompt is provided
+    logger.log('Capture wait completed', {
+        promptCaptured: global.promptCaptured,
+        conversationChainLength: global.conversationChain ? global.conversationChain.length : 0,
+        lastPromptLength: global.lastPrompt ? global.lastPrompt.length : 0,
+        waitTime: Date.now() - startTime
+    });
+
+    // Use the global lastPrompt if no prompt is provided, but prefer conversationChain for full analysis
+    const fullConversation = global.conversationChain || global.lastPrompt || prompt;
     prompt = prompt || global.lastPrompt;
 
-    if (!prompt) {
+    if (!fullConversation) {
         logger.warn(
-            'No prompt captured after waiting. This might be a timing issue or the prompt logs are not enabled.'
+            'No conversation data captured after waiting. This might be a timing issue or the prompt logs are not enabled.'
         );
         return {
             hasPersonality: false,
             hasMessageHistory: false,
-            details: 'No prompt captured',
+            details: 'No conversation data captured',
         };
     }
 
-    logger.log('Checking captured prompt content...');
+    logger.log('Checking captured conversation chain for personality and history...');
 
-    // Check for specific markers in the prompt
-    const hasPersonality = prompt.includes('DIRETRIZES');
-    const hasMessageHistory = prompt.includes('>>');
+    // Check for specific markers in the full conversation chain
+    const hasPersonality = fullConversation.includes('DIRETRIZES');
+    const hasMessageHistory = fullConversation.includes('>>');
 
-    logger.log('Prompt check results:', {
+    logger.log('Conversation chain check results:', {
         hasPersonality,
         hasMessageHistory,
-        promptLength: prompt.length,
+        conversationLength: fullConversation.length,
+        promptLength: prompt ? prompt.length : 0,
     });
 
     // If either check fails, log more details to help debug
     if (!hasPersonality || !hasMessageHistory) {
-        logger.log('Prompt check failed. Detailed analysis:');
+        logger.log('Conversation chain check failed. Detailed analysis:');
         logger.log('- Contains "DIRETRIZES":', hasPersonality);
         logger.log('- Contains ">>":', hasMessageHistory);
-        logger.log('First 1000 characters of prompt:');
-        logger.log(prompt.substring(0, 1000) + '...');
+        logger.log('First 1000 characters of conversation chain:');
+        logger.log(fullConversation.substring(0, 1000) + '...');
+        if (fullConversation.length > 1000) {
+            logger.log('Last 500 characters of conversation chain:');
+            logger.log('...' + fullConversation.substring(fullConversation.length - 500));
+        }
     } else {
-        logger.log('Prompt check passed! Found both "DIRETRIZES" and ">>"');
+        logger.log('Conversation chain check passed! Found both "DIRETRIZES" and ">>"');
     }
 
     return {
@@ -692,7 +755,7 @@ async function checkPromptContent(prompt) {
         hasMessageHistory,
         details: `Personality: ${hasPersonality ? 'Yes' : 'No'}, Message History: ${
             hasMessageHistory ? 'Yes' : 'No'
-        }, Prompt Length: ${prompt.length} chars`,
+        }, Conversation Length: ${fullConversation.length} chars`,
     };
 }
 
@@ -713,8 +776,10 @@ async function runTest(client, group, test) {
             return { needsShortDelay: true };
         }
 
-        // Reset the last prompt
+        // Reset the conversation chain and prompt
         global.lastPrompt = null;
+        global.conversationChain = '';
+        global.promptCaptured = false;
 
         // Send the command
         const response = await sendMessageAndWaitForResponse(client, group, test.command, {
@@ -1025,7 +1090,7 @@ async function checkIfBotIsRunning() {
         logger.log('Checking if bot is already running...');
         return new Promise(resolve => {
             // Use a more specific command to find the bot process
-            const cmd = `ps aux | grep "node.*index.js" | grep -v "grep" | grep -v "test"`;
+            const cmd = `ps aux | grep "node.*app.js" | grep -v "grep" | grep -v "test"`;
             exec(cmd, (error, stdout, _) => {
                 if (error) {
                     // Command failed, bot is not running

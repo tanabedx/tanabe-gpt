@@ -2,11 +2,11 @@
     "name": "tanabe-gpt",
     "version": "1.0.0",
     "description": "WhatsApp bot with GPT integration",
-    "main": "index.js",
+    "main": "app.js",
     "scripts": {
-        "start": "NODE_ENV=production OPTIMIZE_FOR_VPS=true node --expose-gc index.js",
-        "dev": "cross-env FORCE_DEBUG_LOGS=true FORCE_PROMPT_LOGS=true nodemon --ignore 'wwebjs/' --ignore 'prompts/' --ignore 'history/' --ignore 'newsMonitor/newsCache.json' index.js",
-        "test": "echo \"Error: no test specified\" && exit 1",
+        "start": "NODE_ENV=production OPTIMIZE_FOR_VPS=true node --expose-gc app.js",
+        "dev": "cross-env FORCE_DEBUG_LOGS=true FORCE_PROMPT_LOGS=true nodemon --ignore 'wwebjs/' --ignore 'prompts/' --ignore 'history/' --ignore 'newsMonitor/newsCache.json' app.js",
+        "test": "node tester/testMenu.js",
         "setup": "npm install --no-audit && node services/setup.js"
     },
     "keywords": [],

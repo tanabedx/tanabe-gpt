@@ -2,13 +2,16 @@
 
 // Import configurations
 const CREDENTIALS = require('./credentials');
-const COMMANDS = require('./commandConfigs');
+const { discoverCommands } = require('../utils/commandDiscovery');
 const NEWS_MONITOR = require('../newsMonitor/newsMonitor.config');
+
+// Discover commands automatically
+const COMMANDS = discoverCommands();
 
 // Avoid circular dependency with periodicSummary.config
 let PERIODIC_SUMMARY;
 setTimeout(() => {
-    PERIODIC_SUMMARY = require('./commandConfigs/periodicSummary.config');
+    PERIODIC_SUMMARY = require('../periodicSummary/periodicSummary.config');
 }, 0);
 
 // System settings

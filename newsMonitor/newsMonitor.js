@@ -4,8 +4,7 @@ const twitterApiHandler = require('./twitterApiHandler');
 const rssFetcher = require('./rssFetcher'); // To be used later
 const twitterFetcher = require('./twitterFetcher'); // To be used later
 const { runCompletion, extractTextFromImageWithOpenAI } = require('../utils/openaiUtils'); // Added for account-specific prompts
-const newsUtils = require('../utils/newsUtils'); // Added for translation
-const { readCache } = require('../utils/persistentCache'); // Specifically for reading cache for duplication check
+const { readCache } = require('./persistentCache'); // Specifically for reading cache for duplication check
 const {
     isItemWhitelisted,
     itemContainsBlacklistedKeyword,
@@ -1082,7 +1081,6 @@ async function generateNewsCycleDebugReport() {
             runCompletion,
             extractTextFromImageWithOpenAI,
         }, // The module
-        newsUtils, // The module
         persistentCache: {
             readCache,
         }, // The module, for readCache inside the debug report if needed

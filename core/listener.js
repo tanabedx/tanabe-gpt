@@ -4,10 +4,10 @@ const config = require('../configs');
 const logger = require('../utils/logger');
 const commandManager = require('./CommandManager');
 const { registerCommands } = require('./CommandRegistry');
-const { handleAyubLinkSummary } = require('../commands/ayub');
+const { handleAyubLinkSummary } = require('../ayub/ayub');
 const { initialize } = require('../newsMonitor/newsMonitor.js');
-const { getUserState, handleWizard } = require('../commands/wizard');
-const nlpProcessor = require('../commands/nlpProcessor');
+const { getUserState, handleWizard } = require('../periodicSummary/wizard/wizard');
+const nlpProcessor = require('./nlpProcessor');
 const crypto = require('crypto');
 const { getWizardWelcomeMessage } = require('../utils/envUtils');
 

@@ -1,7 +1,7 @@
 const axios = require('axios');
 const logger = require('../utils/logger'); // Assuming logger is in utils
 const NEWS_MONITOR_CONFIG = require('./newsMonitor.config');
-const persistentCache = require('../utils/persistentCache');
+const persistentCache = require('./persistentCache');
 
 let apiKeyStates = {}; // Stores the live state of each API key
 let currentKeyName = null;

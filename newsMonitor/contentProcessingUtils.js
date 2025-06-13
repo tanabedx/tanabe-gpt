@@ -1,6 +1,6 @@
 const logger = require('../utils/logger');
 const { runCompletion } = require('../utils/openaiUtils');
-const { readCache, writeCache } = require('../utils/persistentCache');
+const { readCache, writeCache } = require('./persistentCache');
 const fs = require('fs'); // Still needed for recordSentItemToCache logic temporarily for path.exists
 const path = require('path'); // Still needed for recordSentItemToCache logic temporarily for path.exists
 

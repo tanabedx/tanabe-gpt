@@ -1,6 +1,6 @@
 const logger = require('../utils/logger');
 const { runConversationCompletion } = require('../utils/openaiUtils');
-const GROUP_PERSONALITIES = require('../prompts/personalities.prompt');
+const GROUP_PERSONALITIES = require('./personalities.prompt');
 const {
     shouldPerformWebSearch,
     extractSearchQuery,

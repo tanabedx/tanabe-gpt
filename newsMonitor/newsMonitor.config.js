@@ -14,7 +14,7 @@ const NEWS_MONITOR_CONFIG = {
     TARGET_GROUP: process.env.GROUP_LF, // Group to send news updates to
     CHECK_INTERVAL: 960000, // Global check interval for all sources 960000 (16 minutes) 86400000 (24hrs)
     QUIET_HOURS: {
-        ENABLED: false,
+        ENABLED: true,
         START_HOUR: 22,
         END_HOUR: 8,
         TIMEZONE: 'America/Sao_Paulo',
@@ -71,7 +71,7 @@ const NEWS_MONITOR_CONFIG = {
 
     // Content filtering configuration
     CONTENT_FILTERING: {
-        BLACKLIST_KEYWORDS: ['VÍDEO:', 'VÍDEOS:', 'Assista', 'FOTOS:', 'IMAGENS:'],
+        BLACKLIST_KEYWORDS: ['VÍDEO', 'VÍDEOS', 'Assista', 'FOTOS', 'IMAGENS'],
         EXCLUDED_PATHS: ['podcast'],
         WHITELIST_PATHS: [
             '/mundo/noticia',
