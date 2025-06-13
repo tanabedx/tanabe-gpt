@@ -110,7 +110,7 @@ async function handleDebugPeriodic(message) {
                     continue;
                 }
 
-                const result = await runPeriodicSummary(groupName, true, { returnOnly: true });
+                const result = await runPeriodicSummary(config, groupName, true, { returnOnly: true });
 
                 if (result.success) {
                     reportResults.push({

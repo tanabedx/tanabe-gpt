@@ -137,7 +137,7 @@ async function scheduleNextSummary() {
         try {
             logger.summary(`Running scheduled summary for group ${group}`);
             const { runPeriodicSummary } = require('./periodicSummary');
-            const result = await runPeriodicSummary(group);
+            const result = await runPeriodicSummary(config, group);
             if (result) {
                 logger.summary(`Successfully completed summary for group ${group}`);
             } else {

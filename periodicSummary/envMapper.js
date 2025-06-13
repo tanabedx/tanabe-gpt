@@ -3,12 +3,7 @@
 require('dotenv').config({ path: './configs/.env' });
 const fs = require('fs');
 const path = require('path');
-
-// Avoid circular dependency with logger
-let logger;
-setTimeout(() => {
-    logger = require('../utils/logger');
-}, 0);
+const logger = require('../utils/logger');
 
 // Map of environment variable keys to their values
 const groupMap = {
@@ -103,18 +98,10 @@ function addNewGroup(groupName, abbreviation, type = 'GROUP') {
         // Update process.env
         process.env[newKey] = baseGroupName;
 
-        if (logger) {
-            logger.info(`Added new ${type} mapping: ${newKey}=${baseGroupName}`);
-        } else {
-            console.log(`Added new ${type} mapping: ${newKey}=${baseGroupName}`);
-        }
+        logger.info(`Added new ${type} mapping: ${newKey}=${baseGroupName}`);
         return newKey;
     } catch (error) {
-        if (logger) {
-            logger.error(`Failed to update .env file: ${error.message}`);
-        } else {
-            console.error(`Failed to update .env file: ${error.message}`);
-        }
+        logger.error(`Failed to update .env file: ${error.message}`);
         return null;
     }
 }
@@ -135,11 +122,7 @@ function removeGroup(groupName) {
         // Get the environment variable key for the group
         const groupKey = getGroupKey(baseGroupName);
         if (!groupKey) {
-            if (logger) {
-                logger.warn(`Group ${baseGroupName} not found in environment variables`);
-            } else {
-                console.warn(`Group ${baseGroupName} not found in environment variables`);
-            }
+            logger.warn(`Group ${baseGroupName} not found in environment variables`);
             return false;
         }
 
@@ -187,23 +170,13 @@ function removeGroup(groupName) {
         // Write back to file
         fs.writeFileSync(envPath, envContent);
 
-        if (logger) {
-            logger.info(
-                `Removed group ${baseGroupName} and ${relatedKeys.length} related environment variables`
-            );
-        } else {
-            console.log(
-                `Removed group ${baseGroupName} and ${relatedKeys.length} related environment variables`
-            );
-        }
+        logger.info(
+            `Removed group ${baseGroupName} and ${relatedKeys.length} related environment variables`
+        );
 
         return true;
     } catch (error) {
-        if (logger) {
-            logger.error(`Failed to remove group ${groupName}: ${error.message}`);
-        } else {
-            console.error(`Failed to remove group ${groupName}: ${error.message}`);
-        }
+        logger.error(`Failed to remove group ${groupName}: ${error.message}`);
         return false;
     }
 }

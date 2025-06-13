@@ -3,7 +3,7 @@ const path = require('path');
 const logger = require('../utils/logger');
 
 // Cache directories to clear
-const CACHE_DIRS = ['.wwebjs_cache'];
+const CACHE_DIRS = ['.wwebjs_cache', '/tester/.wwebjs_cache'];
 
 // Memory management settings
 const MEMORY_CHECK_INTERVAL = 16 * 60 * 1000; // 16 minutes

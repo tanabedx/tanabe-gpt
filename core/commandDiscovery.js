@@ -100,6 +100,17 @@ function log(level, message) {
 }
 
 /**
+ * @returns {string} - The command name.
+ */
+function mapFileNameToCommandName(filePath) {
+    if (!filePath) {
+        return null;
+    }
+
+    return path.basename(filePath, '.config.js').toUpperCase();
+}
+
+/**
  * Automatically discovers and loads command configurations from .config.js files
  * Scans the parent directory for subdirectories containing .config.js files
  */
@@ -108,17 +119,7 @@ function discoverCommands() {
     const rootDir = path.resolve(__dirname, '..');
     const configFailures = [];
     
-    log('DEBUG', '🔍 Scanning for command configurations...');
-    
-    // Special name mappings for commands that don't follow the standard pattern
-    const nameMapping = {
-        'CHAT': 'CHAT_GPT',
-        'AYUB': 'AYUB_NEWS', 
-        'AYUB_FUT': 'AYUB_NEWS_FUT',
-        'WIZARD': 'RESUMO_CONFIG',
-        'NEWSMONITOR': 'NEWS_MONITOR',
-        'PERIODICSUMMARY': 'PERIODIC_SUMMARY'
-    };
+    log('DEBUG', 'Scanning for command configurations...');
     
     // Directories to skip during scanning
     const skipDirs = ['node_modules', '.git', '.wwebjs_cache', 'auth_main', 'auth_test', '.DS_Store'];
@@ -142,10 +143,7 @@ function discoverCommands() {
                     const config = require(relativePath);
                     
                     // Determine command name from file name
-                    let commandName = configFile.replace('.config.js', '').toUpperCase();
-                    
-                    // Apply name mapping if exists
-                    commandName = nameMapping[commandName] || commandName;
+                    let commandName = mapFileNameToCommandName(configPath);
                     
                     // Handle different config export patterns
                     if (typeof config === 'object' && !config.prefixes && !config.description) {
@@ -167,7 +165,6 @@ function discoverCommands() {
                         for (const [key, val] of Object.entries(config)) {
                             if (typeof val === 'object' && (val.prefixes || val.description)) {
                                 let configName = key.replace(/_CONFIG$/, '');
-                                configName = nameMapping[configName] || configName;
                                 commands[configName] = val;
                                 log('DEBUG', `✓ Discovered command: ${configName} from ${relativePath}`);
                             }

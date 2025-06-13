@@ -1,9 +1,9 @@
-const config = require('../configs');
+// const config = require('../configs');
 const { runCompletion } = require('../utils/openaiUtils');
 const logger = require('../utils/logger');
 
 // Helper function to get group config with defaults
-function getGroupConfig(groupConfig) {
+function getGroupConfig(config, groupConfig) {
     const defaults = config.PERIODIC_SUMMARY.defaults;
     return {
         enabled: groupConfig?.enabled ?? true,
@@ -35,7 +35,7 @@ function isQuietTime(quietTime) {
 }
 
 // Main periodic summary function
-async function runPeriodicSummary(groupName, forceRun = false, options = {}) {
+async function runPeriodicSummary(config, groupName, forceRun = false, options = {}) {
     const { returnOnly = false } = options;
 
     // Only check global enabled status if not forced
@@ -54,7 +54,7 @@ async function runPeriodicSummary(groupName, forceRun = false, options = {}) {
         return false;
     }
 
-    const groupConfig = getGroupConfig(rawGroupConfig);
+    const groupConfig = getGroupConfig(config, rawGroupConfig);
     logger.debug('Group config:', { groupName, config: groupConfig });
 
     // Only check group enabled status if not forced

@@ -1,11 +1,7 @@
 // periodicSummary.config.js in commandConfigs directory
 require('dotenv').config({ path: '../configs/.env' });
 
-// Avoid circular dependency with envMapper
-let envMapper;
-setTimeout(() => {
-    envMapper = require('./envMapper');
-}, 0);
+const envMapper = require('./envMapper');
 
 const PERIODIC_SUMMARY = {
     defaults: {
@@ -60,7 +56,7 @@ function addGroupToPeriodicSummary(groupName, config = {}) {
     };
 
     // If this is a new group, add it to the environment variables
-    if (envMapper && !envMapper.getGroupKey(baseGroupName)) {
+    if (!envMapper.getGroupKey(baseGroupName)) {
         // Generate abbreviation from first letters of words in group name
         const abbreviation = baseGroupName
             .split(/s+/)

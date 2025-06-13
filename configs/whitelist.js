@@ -1,15 +1,8 @@
 // configs/whitelist.js
 // Centralized whitelist configuration for command permissions
 
-// Import credentials for admin ID
-const CREDENTIALS = require('./credentials');
-const PERIODIC_SUMMARY = require('../periodicSummary/periodicSummary.config');
-
-// Avoid circular dependency with logger
-let logger;
-setTimeout(() => {
-    logger = require('../utils/logger');
-}, 0);
+const config = require('./loader');
+const logger = require('../utils/logger');
 
 // Get group names from environment variables
 const GROUP_LF = process.env.GROUP_LF;
@@ -75,7 +68,7 @@ const ADMIN_ONLY_COMMANDS = [
  * @returns {boolean} - Whether the group is configured for periodic summaries
  */
 function isGroupConfiguredForSummary(groupName) {
-    return !!PERIODIC_SUMMARY.groups[groupName];
+    return !!config.PERIODIC_SUMMARY.groups[groupName];
 }
 
 /**
@@ -135,7 +128,7 @@ async function isUserInGroup(userId, groupName) {
 async function hasPermission(commandName, chatId, userId) {
     // Check if the user is an admin
     const isAdmin =
-        userId === `${CREDENTIALS.ADMIN_NUMBER}@c.us` || userId === CREDENTIALS.ADMIN_NUMBER;
+        userId === `${config.CREDENTIALS.ADMIN_NUMBER}@c.us` || userId === config.CREDENTIALS.ADMIN_NUMBER;
 
     // Admin always has access to all commands
     if (isAdmin) {
