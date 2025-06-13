@@ -157,8 +157,29 @@ async function generateNewsCycleDebugReport_core(
 
     report.push('\n*🔍 Fase de Filtragem:*');
 
-    const intervalMs = config.CHECK_INTERVAL;
-    const cutoffTimestamp = Date.now() - intervalMs;
+    // Use the same logic as the main newsMonitor for interval filtering
+    let cutoffTimestamp;
+    let filterDescription;
+    
+    try {
+        const lastRunTimestamp = utilities.persistentCache?.getLastRunTimestamp?.() || null;
+        
+        if (lastRunTimestamp) {
+            cutoffTimestamp = lastRunTimestamp;
+            const lastRunDate = new Date(lastRunTimestamp);
+            filterDescription = `Last Run (${lastRunDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })})`;
+        } else {
+            const intervalMs = config.CHECK_INTERVAL;
+            cutoffTimestamp = Date.now() - intervalMs;
+            filterDescription = `${intervalMs / 60000} min`;
+        }
+    } catch (error) {
+        // Fallback to CHECK_INTERVAL if there's any error
+        const intervalMs = config.CHECK_INTERVAL;
+        cutoffTimestamp = Date.now() - intervalMs;
+        filterDescription = `${intervalMs / 60000} min (fallback)`;
+    }
+    
     const beforeInterval = currentTotal;
     filteredItems = filteredItems.filter(item => {
         const itemDateString = item.dateTime || item.pubDate;
@@ -171,7 +192,7 @@ async function generateNewsCycleDebugReport_core(
         }
     });
     report.push(
-        `- Filtro de Intervalo (${intervalMs / 60000} min): ${
+        `- Filtro de Intervalo (${filterDescription}): ${
             beforeInterval - filteredItems.length
         } removidos (${filteredItems.length}/${beforeInterval} restantes)`
     );

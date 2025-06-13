@@ -6,6 +6,8 @@ const {
     PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT,
     DETECT_DUPLICATE,
     DETECT_TOPIC_REDUNDANCY,
+    DETECT_STORY_DEVELOPMENT,
+    EVALUATE_CONSEQUENCE_IMPORTANCE,
 } = require('./newsMonitor.prompt');
 
 /**
@@ -78,6 +80,8 @@ const NEWS_MONITOR_CONFIG = {
             skipEvaluation: false,
             promptSpecific: false,
             priority: 8,
+            processLinksForShortTweets: true, // Enable link processing for short tweets
+            shortTweetThreshold: null, // Use global threshold if null
         },
         {
             type: 'twitter',
@@ -87,6 +91,20 @@ const NEWS_MONITOR_CONFIG = {
             skipEvaluation: false,   
             promptSpecific: true,
             priority: 9,
+            processLinksForShortTweets: false, // Disabled for mediaOnly accounts (images take priority)
+            shortTweetThreshold: null, // Use global threshold if null
+        },
+        // Example: Account with custom threshold for link processing
+        {
+            type: 'twitter',
+            enabled: false, // Disabled by default - enable when needed
+            username: 'example_news_account',
+            mediaOnly: false,
+            skipEvaluation: false,
+            promptSpecific: false,
+            priority: 7,
+            processLinksForShortTweets: true, // Enable link processing
+            shortTweetThreshold: 50, // Custom threshold: process links if tweet is under 50 chars
         },
         // RSS Sources
         {
@@ -127,6 +145,31 @@ const NEWS_MONITOR_CONFIG = {
         ],
     },
 
+    // Topic filtering configuration
+    TOPIC_FILTERING: {
+        ENABLED: true,
+        COOLING_HOURS: 48, // How long to track related stories
+        USE_IMPORTANCE_SCORING: true, // Use AI importance scoring instead of simple counting
+        IMPORTANCE_THRESHOLDS: {
+            FIRST_CONSEQUENCE: 5,   // Market reactions, standard responses (need 5+ to pass)
+            SECOND_CONSEQUENCE: 7,  // Diplomatic developments (need 7+ to pass)
+            THIRD_CONSEQUENCE: 9,   // Only game-changing revelations (need 9+ to pass)
+        },
+        CATEGORY_WEIGHTS: {
+            ECONOMIC: 0.8,      // Economic news gets 80% weight (market reactions)
+            DIPLOMATIC: 1.0,    // Diplomatic news full weight
+            MILITARY: 1.2,      // Military developments 120% weight
+            LEGAL: 1.3,         // Legal implications 130% weight
+            INTELLIGENCE: 1.3,  // Intelligence revelations 130% weight
+            HUMANITARIAN: 1.1,  // Humanitarian impacts 110% weight
+            POLITICAL: 1.1,     // Political developments 110% weight
+        },
+        ESCALATION_THRESHOLD: 8.5, // If consequence scores higher, becomes new core event
+        // Legacy settings (fallback)
+        MAX_CONSEQUENCES: 3, // Max follow-up stories per topic (if importance scoring disabled)
+        REQUIRE_HIGH_IMPORTANCE_FOR_CONSEQUENCES: true,
+    },
+
     // Sent article cache configuration
     HISTORICAL_CACHE: {
         ENABLED: true,
@@ -142,6 +185,16 @@ const NEWS_MONITOR_CONFIG = {
         SUMMARY_CHAR_LIMIT: 0,
     },
 
+    // Link processing configuration for short tweets
+    LINK_PROCESSING: {
+        ENABLED: true,
+        MIN_CHAR_THRESHOLD: 25, // Process links if non-link text content is under this character count
+        MAX_LINK_CONTENT_CHARS: 3000, // Maximum characters to extract from links
+        TIMEOUT: 15000, // Timeout for link processing in milliseconds
+        RETRY_ATTEMPTS: 2, // Number of retry attempts on failure
+        RETRY_DELAY: 1000, // Delay between retries in milliseconds
+    },
+
     // AI model configurations
     AI_MODELS: {
         EVALUATE_CONTENT: 'o4-mini',
@@ -151,6 +204,8 @@ const NEWS_MONITOR_CONFIG = {
         PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: 'gpt-4o-mini',
         DETECT_DUPLICATE: 'gpt-4o',
         DETECT_TOPIC_REDUNDANCY: 'gpt-4o',
+        DETECT_STORY_DEVELOPMENT: 'gpt-4o',
+        EVALUATE_CONSEQUENCE_IMPORTANCE: 'gpt-4o',
         TRANSLATION: 'gpt-4o-mini',
         DEFAULT: 'gpt-4o-mini',
     },
@@ -164,6 +219,8 @@ const NEWS_MONITOR_CONFIG = {
         PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT,
         DETECT_DUPLICATE,
         DETECT_TOPIC_REDUNDANCY,
+        DETECT_STORY_DEVELOPMENT,
+        EVALUATE_CONSEQUENCE_IMPORTANCE,
     },
 
     CREDENTIALS: {

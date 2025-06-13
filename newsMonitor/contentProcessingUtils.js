@@ -1,6 +1,7 @@
 const logger = require('../utils/logger');
 const { runCompletion } = require('../utils/openaiUtils');
 const { readCache, writeCache } = require('./persistentCache');
+const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUtils');
 const fs = require('fs'); // Still needed for recordSentItemToCache logic temporarily for path.exists
 const path = require('path'); // Still needed for recordSentItemToCache logic temporarily for path.exists
 
@@ -210,10 +211,123 @@ async function recordSentItemToCache(sentItemData, config) {
     );
 }
 
+/**
+ * Processes links in short tweets and replaces content if successful.
+ * Takes priority after image processing but before content evaluation.
+ * @param {Object} item - The tweet item to process.
+ * @param {Object} config - The NEWS_MONITOR_CONFIG object.
+ * @returns {Promise<Object>} - The processed item with potentially updated text.
+ */
+async function processLinkContentForShortTweets(item, config) {
+    // Validate input
+    if (!item || !item.accountName || !config) {
+        logger.debug('NM: Invalid input for link processing - missing item, accountName, or config');
+        return item;
+    }
+
+    // Check if link processing is globally enabled
+    if (!config.LINK_PROCESSING?.ENABLED) {
+        logger.debug('NM: Link processing is globally disabled');
+        return item;
+    }
+
+    // Get source configuration for this Twitter account
+    const sourceConfig = config.sources.find(
+        s => s.type === 'twitter' && s.username === item.accountName
+    );
+
+    // Check if link processing is enabled for this specific account
+    if (!sourceConfig || sourceConfig.processLinksForShortTweets === false) {
+        logger.debug(`NM: Link processing disabled for @${item.accountName}`);
+        return item;
+    }
+
+    // Use account-specific threshold or global threshold
+    const charThreshold = sourceConfig.shortTweetThreshold || config.LINK_PROCESSING.MIN_CHAR_THRESHOLD;
+    const currentText = item.text || '';
+
+    // Extract links from the tweet first
+    const links = extractLinks(currentText);
+    if (!links || links.length === 0) {
+        logger.debug(`NM: No links found in tweet from @${item.accountName}`);
+        return item;
+    }
+
+    // Calculate text length excluding links
+    let textWithoutLinks = currentText;
+    links.forEach(link => {
+        textWithoutLinks = textWithoutLinks.replace(link, '').trim();
+    });
+    
+    // Clean up extra whitespace
+    textWithoutLinks = textWithoutLinks.replace(/\s+/g, ' ').trim();
+
+    // Check if non-link text is below character threshold
+    if (textWithoutLinks.length >= charThreshold) {
+        logger.debug(
+            `NM: Tweet from @${item.accountName} has sufficient non-link content (${textWithoutLinks.length} chars, threshold: ${charThreshold}). Non-link text: "${textWithoutLinks.substring(0, 50)}...". Skipping link processing.`
+        );
+        return item;
+    }
+
+    // If we have very little non-link text, process the first link
+    const link = links[0];
+    logger.debug(
+        `NM: Processing link content for short tweet from @${item.accountName}. Total: ${currentText.length} chars, Non-link text: ${textWithoutLinks.length} chars ("${textWithoutLinks}"), Link: ${link}`
+    );
+
+    try {
+        // Unshorten the link
+        logger.debug(`NM: Unshortening link: ${link}`);
+        const unshortenedLink = await unshortenLink(link);
+        
+        // Get page content with timeout and retry settings
+        logger.debug(`NM: Getting content from: ${unshortenedLink}`);
+        let pageContent = await getPageContent(unshortenedLink);
+
+        // Apply character limit for link content
+        const maxLinkChars = config.LINK_PROCESSING.MAX_LINK_CONTENT_CHARS || 3000;
+        if (pageContent.length > maxLinkChars) {
+            logger.debug(
+                `NM: Link content length ${pageContent.length} exceeds limit ${maxLinkChars}, truncating`
+            );
+            pageContent = pageContent.substring(0, maxLinkChars) + '... [link content truncated]';
+        }
+
+        // Validate that we got meaningful content
+        if (!pageContent || pageContent.trim().length < 50) {
+            logger.debug(
+                `NM: Link content too short or empty for @${item.accountName}, keeping original text`
+            );
+            return item;
+        }
+
+        // Store original text and replace with link content
+        if (!item.originalText) {
+            item.originalText = currentText;
+        }
+        item.text = pageContent;
+        item.linkProcessed = true;
+        item.processedLink = unshortenedLink;
+
+        logger.debug(
+            `NM: Successfully replaced text for @${item.accountName} (tweet ${item.id}) with link content. Original: "${currentText.substring(0, 50)}..." (${currentText.length} chars total, ${textWithoutLinks.length} chars non-link) -> Link content: "${pageContent.substring(0, 100)}..."`
+        );
+
+        return item;
+    } catch (error) {
+        logger.error(
+            `NM: Error processing link content for @${item.accountName} (tweet ${item.id}): ${error.message}. Keeping original text.`
+        );
+        return item; // Return original item if link processing fails
+    }
+}
+
 module.exports = {
     generateSummary,
     extractRawContentString,
     trimContent,
     checkIfDuplicate,
     recordSentItemToCache,
+    processLinkContentForShortTweets,
 };

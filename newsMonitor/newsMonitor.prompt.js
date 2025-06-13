@@ -147,6 +147,79 @@ Considere o contexto e o evento principal. Por exemplo, duas notícias sobre "te
 Outro exemplo: se o item 1 é "Presidente anuncia novo plano econômico" e o item 3 é "Detalhes do novo pacote fiscal revelados pelo governo", eles provavelmente cobrem o mesmo tópico.
 Não agrupe itens que são apenas vagamente relacionados; eles devem ser sobre o mesmo evento ou desenvolvimento central.
     `,
+
+    DETECT_STORY_DEVELOPMENT: `
+Analise a notícia abaixo para determinar se é um evento principal (core) ou uma consequência/desenvolvimento de outros eventos.
+
+Notícia para análise:
+{news_content}
+
+Tópicos ativos recentes (últimas 48h):
+{active_topics}
+
+Instruções:
+Classifique a notícia em uma das seguintes categorias:
+
+1. **CORE** - Evento principal, novo desenvolvimento significativo que merece destaque próprio
+   - Exemplos: ataques, anúncios oficiais, desastres naturais, eleições, descobertas científicas
+
+2. **CONSEQUENCE** - Reação, consequência ou desenvolvimento secundário de eventos já cobertos
+   - Exemplos: reações do mercado, declarações de políticos sobre eventos já noticiados, análises, impactos econômicos
+
+3. **DEVELOPMENT** - Atualização significativa de um evento já coberto que adiciona informação importante
+   - Exemplos: novas vítimas confirmadas, detalhes adicionais importantes, mudanças no status
+
+Responda APENAS em um dos seguintes formatos:
+- "CORE::Justificativa breve (5-10 palavras)"
+- "CONSEQUENCE::ID_do_tópico_relacionado::Justificativa breve (5-10 palavras)"
+- "DEVELOPMENT::ID_do_tópico_relacionado::Justificativa breve (5-10 palavras)"
+
+Se a notícia se relaciona com algum dos tópicos ativos listados, use o ID correspondente.
+    `,
+
+    EVALUATE_CONSEQUENCE_IMPORTANCE: `
+Analise a importância geopolítica desta consequência/desenvolvimento em relação ao evento original.
+
+Evento Original: {original_event}
+Nova Consequência: {consequence_content}
+
+Avalie a importância desta consequência em escala 1-10:
+
+**1-3: Reação Previsível**
+- Reações de mercado padrão (alta/baixa de ações, commodities)
+- Declarações diplomáticas de rotina
+- Medidas de segurança esperadas (bunkers, evacuações)
+- Análises de especialistas sem novas informações
+
+**4-6: Desenvolvimento Moderado**  
+- Declarações diplomáticas específicas com novas posições
+- Revelações de detalhes técnicos do evento
+- Reações de países diretamente envolvidos
+- Impactos econômicos regionais significativos
+
+**7-8: Desenvolvimento Importante**
+- Novas evidências sobre o evento original
+- Envolvimento confirmado de novos atores
+- Escalações militares ou diplomáticas
+- Revelações que mudam a narrativa do evento
+
+**9-10: Revelação que Muda o Jogo**
+- Evidências de crimes de guerra ou violações internacionais
+- Coordenação secreta entre potências revelada
+- Informações que podem levar a conflitos maiores
+- Descobertas que redefinem alianças geopolíticas
+
+Considere especificamente:
+- Esta consequência revela informações completamente novas e significativas?
+- Muda fundamentalmente nossa compreensão do evento original?
+- Envolve possíveis violações de direito internacional?
+- Sugere envolvimento secreto de novos atores importantes?
+- Pode levar a escalações militares/diplomáticas substanciais?
+
+Responda APENAS no formato: "SCORE::{1-10}::{categoria}::{justificativa_de_uma_linha}"
+
+Categorias possíveis: ECONOMIC, DIPLOMATIC, MILITARY, LEGAL, INTELLIGENCE, HUMANITARIAN, POLITICAL
+    `,
 };
 
 module.exports = NEWS_MONITOR;

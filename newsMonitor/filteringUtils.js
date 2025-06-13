@@ -1,5 +1,12 @@
 const logger = require('../utils/logger');
 const { runCompletion } = require('../utils/openaiUtils'); // For filterByTopicRedundancy
+const { 
+    getActiveTopics, 
+    addOrUpdateActiveTopic, 
+    checkTopicRedundancy,
+    checkTopicRedundancyWithImportance,
+    updateActiveTopic
+} = require('./persistentCache'); // For enhanced topic filtering
 
 /**
  * Checks if an item (RSS or other) passes the whitelist filter.
@@ -191,8 +198,174 @@ async function filterByTopicRedundancy(items, config) {
     return finalFilteredItems;
 }
 
+/**
+ * Enhanced filtering function that combines traditional redundancy filtering with active topic tracking
+ * @param {Array<Object>} items - The current list of filtered items
+ * @param {Object} config - The NEWS_MONITOR_CONFIG object
+ * @returns {Promise<Array<Object>>} - A new array with items filtered by enhanced topic redundancy
+ */
+async function filterByEnhancedTopicRedundancy(items, config) {
+    if (!config.TOPIC_FILTERING?.ENABLED || !items || items.length === 0) {
+        logger.debug('NM: Enhanced topic filtering disabled or no items to process.');
+        return items;
+    }
+
+    logger.debug(`NM: Starting enhanced topic redundancy filter for ${items.length} items.`);
+
+    const filteredItems = [];
+    const rejectedItems = [];
+
+    for (const item of items) {
+        try {
+            // Use importance-based redundancy checking
+            const redundancyCheck = await checkTopicRedundancyWithImportance(item, 'AI evaluation passed');
+            
+            if (redundancyCheck.shouldFilter) {
+                rejectedItems.push({
+                    item,
+                    reason: redundancyCheck.reason,
+                    relatedTopic: redundancyCheck.relatedTopic,
+                    importanceScore: redundancyCheck.importanceScore,
+                    category: redundancyCheck.category
+                });
+                logger.debug(`NM: Filtered item (score: ${redundancyCheck.importanceScore}, category: ${redundancyCheck.category}): "${(item.title || item.text || '').substring(0, 50)}..." - ${redundancyCheck.reason}`);
+                continue;
+            }
+
+            // Determine story type and importance
+            let storyType = 'core';
+            let itemType = 'core';
+            
+            if (redundancyCheck.isNewTopic) {
+                storyType = 'CORE';
+                itemType = 'core';
+            } else if (redundancyCheck.isEscalation) {
+                storyType = 'CORE';
+                itemType = 'core';
+                logger.debug(`NM: Item escalated to new core event (score: ${redundancyCheck.importanceScore}): "${(item.title || item.text || '').substring(0, 50)}..."`);
+            } else if (redundancyCheck.isConsequence) {
+                storyType = 'CONSEQUENCE';
+                itemType = 'consequence';
+                logger.debug(`NM: Item accepted as consequence (score: ${redundancyCheck.importanceScore}): "${(item.title || item.text || '').substring(0, 50)}..."`);
+            }
+
+            // Add or update the active topic tracking with importance info
+            const topicAction = addOrUpdateActiveTopic(
+                item, 
+                'AI evaluation passed', 
+                itemType
+            );
+
+            // If we have importance info, update the topic with that data
+            if (redundancyCheck.importanceScore && itemType === 'consequence') {
+                const activeTopics = getActiveTopics();
+                const relatedTopic = activeTopics.find(t => t.topicId === redundancyCheck.relatedTopic);
+                if (relatedTopic) {
+                    updateActiveTopic(relatedTopic, item, itemType, {
+                        importanceScore: redundancyCheck.importanceScore,
+                        category: redundancyCheck.category,
+                        justification: redundancyCheck.justification,
+                        rawScore: redundancyCheck.rawScore || redundancyCheck.importanceScore
+                    });
+                }
+            }
+
+            logger.debug(`NM: Topic action for item: ${topicAction.action} (${topicAction.topicId || 'new'}) - Importance: ${redundancyCheck.importanceScore || 'N/A'}`);
+
+            // Keep the item
+            filteredItems.push(item);
+
+        } catch (error) {
+            logger.error(`NM: Error in enhanced topic filtering for item: ${error.message}`);
+            // On error, keep the item to avoid losing potentially important news
+            filteredItems.push(item);
+        }
+    }
+
+    if (rejectedItems.length > 0) {
+        logger.debug(
+            `NM: Enhanced Topic Redundancy Filter: ${items.length} before, ${filteredItems.length} after. Filtered ${rejectedItems.length} items:\n` +
+            rejectedItems.map(r => 
+                `  - "${(r.item.title || r.item.text || '').substring(0, 50)}..." - ${r.reason}`
+            ).join('\n')
+        );
+    } else {
+        logger.debug(`NM: Enhanced Topic Redundancy Filter: No items filtered. ${items.length} items processed.`);
+    }
+
+    return filteredItems;
+}
+
+/**
+ * Determine if a news item is a core event, development, or consequence
+ * @param {Object} item - News item to analyze
+ * @param {Object} config - Configuration object
+ * @returns {Promise<Object>} - Object with type and related topic info
+ */
+async function determineStoryType(item, config) {
+    try {
+        const activeTopics = getActiveTopics();
+        const content = item.title || item.text || '';
+        
+        // If no active topics, it's likely a core event
+        if (activeTopics.length === 0) {
+            return { type: 'CORE', relatedTopicId: null };
+        }
+
+        // Prepare active topics summary for the prompt
+        const topicsSummary = activeTopics.map(topic => 
+            `- ${topic.topicId}: ${topic.entities.join(', ')} (desde ${new Date(topic.startTime).toLocaleDateString()})`
+        ).join('\n');
+
+        const promptTemplate = config.PROMPTS.DETECT_STORY_DEVELOPMENT;
+        const modelName = config.AI_MODELS.DETECT_STORY_DEVELOPMENT || config.AI_MODELS.DEFAULT;
+        
+        const formattedPrompt = promptTemplate
+            .replace('{news_content}', content)
+            .replace('{active_topics}', topicsSummary);
+
+        const result = await runCompletion(
+            formattedPrompt,
+            0.3,
+            modelName,
+            'DETECT_STORY_DEVELOPMENT'
+        );
+
+        const cleanedResult = result.trim();
+        
+        // Parse the response
+        if (cleanedResult.startsWith('CORE::')) {
+            return { type: 'CORE', justification: cleanedResult.split('::')[1] };
+        } else if (cleanedResult.startsWith('CONSEQUENCE::')) {
+            const parts = cleanedResult.split('::');
+            return { 
+                type: 'CONSEQUENCE', 
+                relatedTopicId: parts[1], 
+                justification: parts[2] 
+            };
+        } else if (cleanedResult.startsWith('DEVELOPMENT::')) {
+            const parts = cleanedResult.split('::');
+            return { 
+                type: 'DEVELOPMENT', 
+                relatedTopicId: parts[1], 
+                justification: parts[2] 
+            };
+        }
+
+        // Default to CORE if parsing fails
+        logger.warn(`NM: Could not parse story type result: ${cleanedResult}. Defaulting to CORE.`);
+        return { type: 'CORE', justification: 'Parsing failed, default to core' };
+
+    } catch (error) {
+        logger.error(`NM: Error determining story type: ${error.message}`);
+        return { type: 'CORE', justification: 'Error in classification, default to core' };
+    }
+}
+
 module.exports = {
     isItemWhitelisted,
     itemContainsBlacklistedKeyword,
     filterByTopicRedundancy,
+    filterByEnhancedTopicRedundancy,
+    determineStoryType,
 };

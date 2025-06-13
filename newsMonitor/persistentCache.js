@@ -5,11 +5,17 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
 const NEWS_MONITOR_CONFIG = require('./newsMonitor.config');
+const { runCompletion } = require('../utils/openaiUtils'); // For importance evaluation
 
 // Constants for cache configuration
 const CACHE_DIR = path.join(process.cwd(), 'newsMonitor');
 const CACHE_FILE = path.join(CACHE_DIR, 'newsCache.json');
 const MAX_CACHE_ITEMS = 50; // Maximum number of items in the cache
+
+// Constants for topic configuration
+const MAX_ACTIVE_TOPICS = 20; // Maximum number of active topics to track
+const DEFAULT_TOPIC_COOLING_HOURS = 48; // Default cooling period for topics
+const MAX_CONSEQUENCES_PER_TOPIC = 3; // Maximum follow-up stories per topic
 
 // In-memory caches for quick access
 // Cache for articles that were sent to the group
@@ -24,7 +30,9 @@ let sentTweetIds = new Set();
 // Default cache structure
 const DEFAULT_CACHE = {
     items: [], // Single array for all content (tweets and articles)
+    activeTopics: [], // Array of active topics for enhanced filtering
     twitterApiStates: {}, // For storing state of Twitter API keys { primary: {...}, fallback: {...}, ...}
+    lastRunTimestamp: null, // Timestamp of the last successful run (excluding quiet hours)
 };
 
 /**
@@ -522,6 +530,517 @@ function saveTwitterApiKeyStates(newApiStates) {
     }
 }
 
+/**
+ * Get the last run timestamp from cache
+ * @returns {number|null} - The timestamp of the last successful run, or null if not set
+ */
+function getLastRunTimestamp() {
+    try {
+        const cache = readCache();
+        return cache.lastRunTimestamp || null;
+    } catch (error) {
+        logger.error('Error reading last run timestamp:', error);
+        return null;
+    }
+}
+
+/**
+ * Update the last run timestamp in cache
+ * @param {number} timestamp - The timestamp to save as the last run time
+ */
+function updateLastRunTimestamp(timestamp) {
+    try {
+        const cache = readCache();
+        cache.lastRunTimestamp = timestamp;
+        writeCache(cache);
+        logger.debug(`Updated last run timestamp to: ${new Date(timestamp).toISOString()}`);
+    } catch (error) {
+        logger.error('Error updating last run timestamp:', error);
+    }
+}
+
+/**
+ * Generate a unique topic ID based on entities and current date
+ * @param {string[]} entities - Key entities/keywords for the topic
+ * @returns {string} - Unique topic ID
+ */
+function generateTopicId(entities) {
+    const dateStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const entitiesStr = entities.slice(0, 2).join('-').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return `${entitiesStr}-${dateStr}`;
+}
+
+/**
+ * Extract key entities and keywords from news content for topic tracking
+ * @param {Object} item - News item (RSS or tweet)
+ * @returns {Object} - Object with entities and keywords arrays
+ */
+function extractTopicSignature(item) {
+    const content = item.title || item.text || '';
+    const contentLower = content.toLowerCase();
+    
+    // Common entities to look for (countries, leaders, organizations)
+    const entityPatterns = {
+        countries: ['israel', 'irã', 'iran', 'brasil', 'eua', 'estados unidos', 'china', 'rússia', 'russia', 'ucrânia', 'ukraine'],
+        organizations: ['onu', 'otan', 'nato', 'fed', 'banco central', 'supremo', 'congresso'],
+        events: ['ataque', 'bombardeio', 'terremoto', 'eleição', 'copa', 'olimpíadas']
+    };
+    
+    const entities = [];
+    const keywords = [];
+    
+    // Extract entities
+    Object.values(entityPatterns).flat().forEach(entity => {
+        if (contentLower.includes(entity)) {
+            entities.push(entity);
+        }
+    });
+    
+    // Extract key phrases and important words
+    const importantWords = content.match(/\b[A-Z][a-záàâãéèêíìîóòôõúùûç]+\b/g) || [];
+    keywords.push(...importantWords.slice(0, 5)); // Max 5 keywords
+    
+    return {
+        entities: [...new Set(entities)], // Remove duplicates
+        keywords: [...new Set(keywords)].slice(0, 10) // Max 10 keywords, remove duplicates
+    };
+}
+
+/**
+ * Check if a news item relates to any active topics
+ * @param {Object} item - News item to check
+ * @param {Array} activeTopics - Current active topics
+ * @returns {Object|null} - Matching topic object or null
+ */
+function findRelatedActiveTopic(item, activeTopics) {
+    const itemSignature = extractTopicSignature(item);
+    
+    for (const topic of activeTopics) {
+        // Check if current time is still within the topic's active period
+        if (Date.now() > topic.cooldownUntil) {
+            continue; // Topic has cooled down
+        }
+        
+        // Check entity overlap
+        const entityOverlap = itemSignature.entities.filter(entity => 
+            topic.entities.some(topicEntity => 
+                entity.includes(topicEntity) || topicEntity.includes(entity)
+            )
+        );
+        
+        // Check keyword overlap
+        const keywordOverlap = itemSignature.keywords.filter(keyword =>
+            topic.keywords.some(topicKeyword =>
+                keyword.toLowerCase().includes(topicKeyword.toLowerCase()) ||
+                topicKeyword.toLowerCase().includes(keyword.toLowerCase())
+            )
+        );
+        
+        // Consider it related if there's significant overlap
+        if (entityOverlap.length >= 1 || keywordOverlap.length >= 2) {
+            return topic;
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Create a new active topic from a news item
+ * @param {Object} item - News item that starts the topic
+ * @param {string} justification - Why this item was considered important
+ * @returns {Object} - New active topic object
+ */
+function createActiveTopic(item, justification) {
+    const signature = extractTopicSignature(item);
+    const now = Date.now();
+    const coolingHours = NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.COOLING_HOURS || DEFAULT_TOPIC_COOLING_HOURS;
+    
+    return {
+        topicId: generateTopicId(signature.entities),
+        entities: signature.entities,
+        keywords: signature.keywords,
+        startTime: now,
+        lastUpdate: now,
+        cooldownUntil: now + (coolingHours * 60 * 60 * 1000), // Convert hours to milliseconds
+        coreEventsSent: 1,
+        consequencesSent: 0,
+        maxConsequences: NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.MAX_CONSEQUENCES || MAX_CONSEQUENCES_PER_TOPIC,
+        consequences: [], // Track individual consequences with scores
+        originalItem: {
+            title: item.title || item.text?.substring(0, 100),
+            source: item.feedName || item.accountName || 'Unknown',
+            justification: justification,
+            baseImportance: 8 // Assume core events are highly important
+        }
+    };
+}
+
+/**
+ * Update an existing active topic with a new related item
+ * @param {Object} topic - Existing active topic
+ * @param {Object} item - New related item
+ * @param {string} itemType - Type of item: 'core', 'development', 'consequence'
+ * @param {Object} importanceInfo - Optional importance scoring information
+ */
+function updateActiveTopic(topic, item, itemType = 'consequence', importanceInfo = null) {
+    topic.lastUpdate = Date.now();
+    
+    if (itemType === 'core') {
+        topic.coreEventsSent++;
+    } else {
+        topic.consequencesSent++;
+        
+        // Record consequence details if importance info available
+        if (importanceInfo) {
+            if (!topic.consequences) topic.consequences = [];
+            topic.consequences.push({
+                title: item.title || item.text?.substring(0, 100),
+                source: item.feedName || item.accountName || 'Unknown',
+                timestamp: Date.now(),
+                importanceScore: importanceInfo.importanceScore,
+                category: importanceInfo.category,
+                justification: importanceInfo.justification,
+                rawScore: importanceInfo.rawScore
+            });
+        }
+    }
+    
+    // Extend keywords and entities with new information
+    const itemSignature = extractTopicSignature(item);
+    topic.entities = [...new Set([...topic.entities, ...itemSignature.entities])].slice(0, 10);
+    topic.keywords = [...new Set([...topic.keywords, ...itemSignature.keywords])].slice(0, 15);
+}
+
+/**
+ * Get all active topics from cache
+ * @returns {Array} - Array of active topic objects
+ */
+function getActiveTopics() {
+    try {
+        const cache = readCache();
+        return Array.isArray(cache.activeTopics) ? cache.activeTopics : [];
+    } catch (error) {
+        logger.error(`Failed to get active topics: ${error.message}`);
+        return [];
+    }
+}
+
+/**
+ * Save active topics to cache
+ * @param {Array} activeTopics - Array of active topic objects
+ */
+function saveActiveTopics(activeTopics) {
+    try {
+        const cache = readCache();
+        cache.activeTopics = activeTopics;
+        writeCache(cache);
+        logger.debug(`Saved ${activeTopics.length} active topics to cache`);
+    } catch (error) {
+        logger.error(`Failed to save active topics: ${error.message}`);
+    }
+}
+
+/**
+ * Add or update an active topic
+ * @param {Object} item - News item
+ * @param {string} justification - Why this item is important
+ * @param {string} itemType - Type: 'core', 'development', 'consequence'
+ * @returns {Object} - Result object with action taken
+ */
+function addOrUpdateActiveTopic(item, justification, itemType = 'core') {
+    try {
+        let activeTopics = getActiveTopics();
+        
+        // Clean up expired topics first
+        const now = Date.now();
+        activeTopics = activeTopics.filter(topic => now < topic.cooldownUntil);
+        
+        // Check if this item relates to an existing topic
+        const relatedTopic = findRelatedActiveTopic(item, activeTopics);
+        
+        if (relatedTopic) {
+            // Update existing topic
+            updateActiveTopic(relatedTopic, item, itemType);
+            saveActiveTopics(activeTopics);
+            
+            return {
+                action: 'updated',
+                topicId: relatedTopic.topicId,
+                isConsequence: itemType !== 'core',
+                consequencesSent: relatedTopic.consequencesSent,
+                maxConsequences: relatedTopic.maxConsequences
+            };
+        } else if (itemType === 'core') {
+            // Create new topic only for core events
+            const newTopic = createActiveTopic(item, justification);
+            activeTopics.push(newTopic);
+            
+            // Limit number of active topics
+            if (activeTopics.length > MAX_ACTIVE_TOPICS) {
+                activeTopics.sort((a, b) => b.lastUpdate - a.lastUpdate);
+                activeTopics = activeTopics.slice(0, MAX_ACTIVE_TOPICS);
+            }
+            
+            saveActiveTopics(activeTopics);
+            
+            return {
+                action: 'created',
+                topicId: newTopic.topicId,
+                isConsequence: false,
+                consequencesSent: 0,
+                maxConsequences: newTopic.maxConsequences
+            };
+        }
+        
+        return {
+            action: 'none',
+            reason: 'No related topic found and item is not a core event'
+        };
+    } catch (error) {
+        logger.error(`Error managing active topic: ${error.message}`);
+        return { action: 'error', error: error.message };
+    }
+}
+
+/**
+ * Check if an item should be filtered due to topic redundancy
+ * @param {Object} item - News item to check
+ * @param {string} justification - AI justification for relevance
+ * @returns {Object} - Filtering decision object
+ */
+function checkTopicRedundancy(item, justification) {
+    try {
+        const activeTopics = getActiveTopics();
+        const relatedTopic = findRelatedActiveTopic(item, activeTopics);
+        
+        if (!relatedTopic) {
+            return {
+                shouldFilter: false,
+                reason: 'No related active topic found',
+                allowSend: true
+            };
+        }
+        
+        // Check if we've hit the limit for consequences
+        if (relatedTopic.consequencesSent >= relatedTopic.maxConsequences) {
+            return {
+                shouldFilter: true,
+                reason: `Topic "${relatedTopic.topicId}" has reached max consequences (${relatedTopic.maxConsequences})`,
+                allowSend: false,
+                relatedTopic: relatedTopic.topicId
+            };
+        }
+        
+        // Allow with tracking (will be marked as consequence)
+        return {
+            shouldFilter: false,
+            reason: `Related to topic "${relatedTopic.topicId}" but within limits`,
+            allowSend: true,
+            relatedTopic: relatedTopic.topicId,
+            isConsequence: true
+        };
+    } catch (error) {
+        logger.error(`Error checking topic redundancy: ${error.message}`);
+        return {
+            shouldFilter: false,
+            reason: 'Error in filtering logic',
+            allowSend: true
+        };
+    }
+}
+
+/**
+ * Evaluate the importance of a consequence using AI
+ * @param {Object} originalTopic - The original active topic
+ * @param {Object} consequenceItem - The new consequence item
+ * @returns {Promise<Object>} - Importance evaluation result
+ */
+async function evaluateConsequenceImportance(originalTopic, consequenceItem) {
+    try {
+        const promptTemplate = NEWS_MONITOR_CONFIG.PROMPTS.EVALUATE_CONSEQUENCE_IMPORTANCE;
+        const modelName = NEWS_MONITOR_CONFIG.AI_MODELS.EVALUATE_CONSEQUENCE_IMPORTANCE || NEWS_MONITOR_CONFIG.AI_MODELS.DEFAULT;
+        
+        const originalEventText = originalTopic.originalItem.title || originalTopic.originalItem.justification || 'Unknown event';
+        const consequenceText = consequenceItem.title || consequenceItem.text || '';
+        
+        const formattedPrompt = promptTemplate
+            .replace('{original_event}', originalEventText)
+            .replace('{consequence_content}', consequenceText);
+
+        const result = await runCompletion(
+            formattedPrompt,
+            0.3,
+            modelName,
+            'EVALUATE_CONSEQUENCE_IMPORTANCE'
+        );
+
+        const cleanedResult = result.trim();
+        
+        // Parse response: "SCORE::{1-10}::{category}::{justification}"
+        if (cleanedResult.includes('SCORE::')) {
+            const parts = cleanedResult.split('::');
+            if (parts.length >= 4) {
+                const rawScore = parseInt(parts[1], 10);
+                const category = parts[2].toUpperCase();
+                const justification = parts[3];
+                
+                // Apply category weight
+                const categoryWeights = NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.CATEGORY_WEIGHTS || {};
+                const weight = categoryWeights[category] || 1.0;
+                const weightedScore = Math.round(rawScore * weight * 10) / 10; // Round to 1 decimal
+                
+                return {
+                    rawScore,
+                    weightedScore,
+                    category,
+                    justification,
+                    success: true
+                };
+            }
+        }
+        
+        logger.warn(`NM: Could not parse importance evaluation result: ${cleanedResult}`);
+        return {
+            rawScore: 5, // Default moderate score
+            weightedScore: 5,
+            category: 'UNKNOWN',
+            justification: 'Parsing failed',
+            success: false
+        };
+        
+    } catch (error) {
+        logger.error(`NM: Error evaluating consequence importance: ${error.message}`);
+        return {
+            rawScore: 5, // Default moderate score on error
+            weightedScore: 5,
+            category: 'ERROR',
+            justification: 'Evaluation error',
+            success: false
+        };
+    }
+}
+
+/**
+ * Enhanced check for topic redundancy using importance scoring
+ * @param {Object} item - News item to check
+ * @param {string} justification - AI justification for relevance
+ * @returns {Promise<Object>} - Enhanced filtering decision object
+ */
+async function checkTopicRedundancyWithImportance(item, justification) {
+    try {
+        const activeTopics = getActiveTopics();
+        const relatedTopic = findRelatedActiveTopic(item, activeTopics);
+        
+        if (!relatedTopic) {
+            return {
+                shouldFilter: false,
+                reason: 'No related active topic found',
+                allowSend: true,
+                isNewTopic: true
+            };
+        }
+
+        // If importance scoring is disabled, fall back to simple counting
+        if (!NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.USE_IMPORTANCE_SCORING) {
+            return checkTopicRedundancy(item, justification);
+        }
+
+        // Evaluate importance of this consequence
+        const importanceEval = await evaluateConsequenceImportance(relatedTopic, item);
+        const score = importanceEval.weightedScore;
+        
+        // Determine which threshold to apply based on consequence count
+        const thresholds = NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.IMPORTANCE_THRESHOLDS || {};
+        let requiredThreshold;
+        
+        if (relatedTopic.consequencesSent === 0) {
+            requiredThreshold = thresholds.FIRST_CONSEQUENCE || 5;
+        } else if (relatedTopic.consequencesSent === 1) {
+            requiredThreshold = thresholds.SECOND_CONSEQUENCE || 7;
+        } else {
+            requiredThreshold = thresholds.THIRD_CONSEQUENCE || 9;
+        }
+
+        // Check if this is actually more important than the original (becomes new core event)
+        const escalationThreshold = NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.ESCALATION_THRESHOLD || 8.5;
+        if (score >= escalationThreshold && score > (relatedTopic.originalItem.baseImportance || 8)) {
+            return {
+                shouldFilter: false,
+                reason: `High importance (${score}) - escalates to new core event`,
+                allowSend: true,
+                isEscalation: true,
+                importanceScore: score,
+                category: importanceEval.category,
+                justification: importanceEval.justification
+            };
+        }
+        
+        // Check if it meets the threshold for consequences
+        if (score >= requiredThreshold) {
+            return {
+                shouldFilter: false,
+                reason: `Importance score ${score} meets threshold ${requiredThreshold} for consequence #${relatedTopic.consequencesSent + 1}`,
+                allowSend: true,
+                relatedTopic: relatedTopic.topicId,
+                isConsequence: true,
+                importanceScore: score,
+                category: importanceEval.category,
+                justification: importanceEval.justification
+            };
+        } else {
+            return {
+                shouldFilter: true,
+                reason: `Importance score ${score} below threshold ${requiredThreshold} for consequence #${relatedTopic.consequencesSent + 1}`,
+                allowSend: false,
+                relatedTopic: relatedTopic.topicId,
+                importanceScore: score,
+                category: importanceEval.category,
+                justification: importanceEval.justification
+            };
+        }
+        
+    } catch (error) {
+        logger.error(`Error in enhanced topic redundancy check: ${error.message}`);
+        // Fall back to basic check on error
+        return checkTopicRedundancy(item, justification);
+    }
+}
+
+/**
+ * Get statistics about active topics
+ * @returns {Object} - Statistics object
+ */
+function getActiveTopicsStats() {
+    try {
+        const activeTopics = getActiveTopics();
+        const now = Date.now();
+        
+        // Clean expired topics for accurate stats
+        const validTopics = activeTopics.filter(topic => now < topic.cooldownUntil);
+        
+        return {
+            totalActiveTopics: validTopics.length,
+            topics: validTopics.map(topic => ({
+                id: topic.topicId,
+                ageHours: Math.round((now - topic.startTime) / (1000 * 60 * 60)),
+                coreEvents: topic.coreEventsSent,
+                consequences: topic.consequencesSent,
+                entities: topic.entities,
+                source: topic.originalItem.source,
+                consequenceDetails: (topic.consequences || []).map(c => ({
+                    score: c.importanceScore,
+                    category: c.category,
+                    summary: c.title?.substring(0, 50) + '...'
+                }))
+            }))
+        };
+    } catch (error) {
+        logger.error(`Failed to get active topics stats: ${error.message}`);
+        return { totalActiveTopics: 0, topics: [], error: error.message };
+    }
+}
+
 // Initialize cache file on module load
 initializeCacheFile();
 
@@ -540,6 +1059,20 @@ module.exports = {
     // New functions for Twitter API states
     getTwitterApiStates,
     saveTwitterApiKeyStates,
+    // New functions for last run timestamp
+    getLastRunTimestamp,
+    updateLastRunTimestamp,
+    // Active topics management functions
+    getActiveTopics,
+    saveActiveTopics,
+    addOrUpdateActiveTopic,
+    updateActiveTopic,
+    checkTopicRedundancy,
+    checkTopicRedundancyWithImportance,
+    evaluateConsequenceImportance,
+    getActiveTopicsStats,
+    extractTopicSignature,
+    findRelatedActiveTopic,
     // In-memory cache functions (kept for backward compatibility)
     recordSentTweet,
     recordSentArticle,

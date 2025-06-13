@@ -4,11 +4,12 @@ const twitterApiHandler = require('./twitterApiHandler');
 const rssFetcher = require('./rssFetcher'); // To be used later
 const twitterFetcher = require('./twitterFetcher'); // To be used later
 const { runCompletion, extractTextFromImageWithOpenAI } = require('../utils/openaiUtils'); // Added for account-specific prompts
-const { readCache } = require('./persistentCache'); // Specifically for reading cache for duplication check
+const { readCache, getLastRunTimestamp, updateLastRunTimestamp } = require('./persistentCache'); // Specifically for reading cache for duplication check
 const {
     isItemWhitelisted,
     itemContainsBlacklistedKeyword,
     filterByTopicRedundancy,
+    filterByEnhancedTopicRedundancy,
 } = require('./filteringUtils');
 const {
     evaluateItemWithAccountSpecificPrompt,
@@ -18,13 +19,13 @@ const {
     generateSummary,
     checkIfDuplicate,
     recordSentItemToCache,
+    processLinkContentForShortTweets,
 } = require('./contentProcessingUtils');
 const { generateNewsCycleDebugReport_core } = require('./debugReportUtils');
 
 const path = require('path');
 const axios = require('axios');
 const { MessageMedia } = require('whatsapp-web.js');
-const { getLastFetchedTweetsCache } = require('./twitterFetcher'); // CORRECTED PATH
 
 let newsMonitorIntervalId = null;
 let targetGroup = null; // To store the WhatsApp target group
@@ -108,9 +109,21 @@ async function processNewsCycle(skipPeriodicCheck = false) {
     const itemsBeforeIntervalFilter = [...filteredItems];
     const intervalFilteredOutItems = [];
 
-    // 1. Filter by interval
-    const intervalMs = NEWS_MONITOR_CONFIG.CHECK_INTERVAL;
-    const cutoffTimestamp = Date.now() - intervalMs;
+    // 1. Filter by interval - Use last run timestamp instead of CHECK_INTERVAL
+    const lastRunTimestamp = getLastRunTimestamp();
+    let cutoffTimestamp;
+    
+    if (lastRunTimestamp) {
+        // Use the last run timestamp as cutoff to include news from quiet hours
+        cutoffTimestamp = lastRunTimestamp;
+        logger.debug(`NM: Using last run timestamp for filtering: ${new Date(lastRunTimestamp).toISOString()}`);
+    } else {
+        // Fallback to CHECK_INTERVAL if no last run timestamp is available
+        const intervalMs = NEWS_MONITOR_CONFIG.CHECK_INTERVAL;
+        cutoffTimestamp = Date.now() - intervalMs;
+        logger.debug(`NM: No last run timestamp found, falling back to CHECK_INTERVAL (${intervalMs / 60000} minutes)`);
+    }
+    
     filteredItems = filteredItems.filter(item => {
         const itemDateString = item.dateTime || item.pubDate;
         if (!itemDateString) return true;
@@ -444,7 +457,39 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
-    // 4. Apply account-specific filters (for Twitter).
+    // 3.6: Link Content Processing for Short Tweets
+    // Process links in short tweets (but not mediaOnly tweets where images take priority)
+    // This happens AFTER image extraction but BEFORE content evaluation
+    if (filteredItems.length > 0) {
+        logger.debug(
+            `NM: Starting link content processing for short tweets. Items: ${filteredItems.length}`
+        );
+        const itemsPostLinkProcessing = [];
+        for (const item of filteredItems) {
+            if (item.accountName) {
+                // It's a tweet - process it for link content if applicable
+                const processedItem = await processLinkContentForShortTweets(item, NEWS_MONITOR_CONFIG);
+                itemsPostLinkProcessing.push(processedItem);
+            } else {
+                // Not a tweet - pass through unchanged
+                itemsPostLinkProcessing.push(item);
+            }
+        }
+        filteredItems = itemsPostLinkProcessing;
+        
+        const linkProcessedCount = filteredItems.filter(item => item.linkProcessed).length;
+        if (linkProcessedCount > 0) {
+            logger.debug(
+                `NM: Link Content Processing: Processed links for ${linkProcessedCount} short tweets out of ${filteredItems.length} total items.`
+            );
+        } else {
+            logger.debug(
+                `NM: Link Content Processing: No short tweets with links found for processing.`
+            );
+        }
+    }
+
+    // 5. Apply account-specific filters (for Twitter).
     const itemsBeforeAccountSpecificFilter = [...filteredItems];
     const accountSpecificFilteredOutItems = [];
     if (filteredItems.length > 0) {
@@ -506,7 +551,7 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
-    // 5. Perform batch title evaluation for RSS items.
+    // 6. Perform batch title evaluation for RSS items.
     const itemsBeforeBatchTitleEval = [...filteredItems];
     const batchTitleEvalFilteredOutItems = [];
     if (filteredItems.length > 0) {
@@ -584,7 +629,7 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
-    // 6. Perform full content evaluation.
+    // 7. Perform full content evaluation.
     const itemsBeforeFullContentEval = [...filteredItems];
     const fullContentEvalFilteredOutItems = [];
     if (filteredItems.length > 0) {
@@ -638,7 +683,7 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
-    // 7. Check for duplicates against historical cache
+    // 8. Check for duplicates against historical cache
     const itemsBeforeDuplicateCheck = [...filteredItems];
     const duplicateCheckFilteredOutItems = [];
     if (
@@ -700,13 +745,16 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
-    // Apply the new topic redundancy filter as the final step before sending
-    if (filteredItems.length > 0 && NEWS_MONITOR_CONFIG.PROMPTS?.DETECT_TOPIC_REDUNDANCY) {
-        logger.debug(`NM: Applying topic redundancy filter to ${filteredItems.length} items.`);
+    // Apply enhanced topic redundancy filter as the final step before sending
+    if (filteredItems.length > 0 && NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.ENABLED) {
+        logger.debug(`NM: Applying enhanced topic redundancy filter to ${filteredItems.length} items.`);
+        filteredItems = await filterByEnhancedTopicRedundancy(filteredItems, NEWS_MONITOR_CONFIG);
+    } else if (filteredItems.length > 0 && NEWS_MONITOR_CONFIG.PROMPTS?.DETECT_TOPIC_REDUNDANCY) {
+        logger.debug(`NM: Falling back to basic topic redundancy filter for ${filteredItems.length} items.`);
         filteredItems = await filterByTopicRedundancy(filteredItems, NEWS_MONITOR_CONFIG);
     } else if (filteredItems.length > 0) {
         logger.debug(
-            'NM: Topic redundancy prompt not configured or no items, skipping this filter.'
+            'NM: Topic filtering not configured or no items, skipping this filter.'
         );
     }
 
@@ -951,6 +999,15 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         logger.debug('NM: No items to send.');
     }
 
+    // Update last run timestamp for successful runs (excluding quiet hours)
+    // This ensures that news published during quiet hours will be considered in the next run
+    if (!isQuietHours()) {
+        updateLastRunTimestamp(Date.now());
+        logger.debug('NM: Updated last run timestamp for successful processing cycle.');
+    } else {
+        logger.debug('NM: Skipping last run timestamp update due to quiet hours.');
+    }
+
     logger.debug('NM: Processing cycle finished.');
 }
 
@@ -1076,6 +1133,7 @@ async function generateNewsCycleDebugReport() {
             generateSummary,
             checkIfDuplicate,
             recordSentItemToCache,
+            processLinkContentForShortTweets,
         }, // The module
         openaiUtils: {
             runCompletion,
@@ -1083,6 +1141,8 @@ async function generateNewsCycleDebugReport() {
         }, // The module
         persistentCache: {
             readCache,
+            getLastRunTimestamp,
+            updateLastRunTimestamp,
         }, // The module, for readCache inside the debug report if needed
     };
     return generateNewsCycleDebugReport_core(
