@@ -186,7 +186,6 @@ async function recordSentItemToCache(sentItemData, config) {
     const sourceName = sentItemData.username || sentItemData.feedId; // Get the source name
 
     const newItemToCache = {
-        id: sentItemData.id,
         type: sentItemData.type,
         content: sentItemData.content, // This is the AI-generated summary
         timestamp: sentItemData.timestamp,
@@ -207,7 +206,7 @@ async function recordSentItemToCache(sentItemData, config) {
     writeCache(cache); // Uses writeCache from persistentCache.js
     // This handles writing to file and another round of age-based pruning.
     logger.debug(
-        `NM: Successfully recorded item ${sentItemData.id} to newsCache.json via persistentCache utils.`
+        `NM: Successfully recorded ${sentItemData.type} item to newsCache.json via persistentCache utils.`
     );
 }
 

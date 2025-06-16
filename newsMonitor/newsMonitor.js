@@ -745,17 +745,16 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
-    // Apply enhanced topic redundancy filter as the final step before sending
-    if (filteredItems.length > 0 && NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.ENABLED) {
-        logger.debug(`NM: Applying enhanced topic redundancy filter to ${filteredItems.length} items.`);
-        filteredItems = await filterByEnhancedTopicRedundancy(filteredItems, NEWS_MONITOR_CONFIG);
-    } else if (filteredItems.length > 0 && NEWS_MONITOR_CONFIG.PROMPTS?.DETECT_TOPIC_REDUNDANCY) {
-        logger.debug(`NM: Falling back to basic topic redundancy filter for ${filteredItems.length} items.`);
+    // 9. Apply traditional topic redundancy filter for within-batch deduplication with source priority
+    if (filteredItems.length > 0 && NEWS_MONITOR_CONFIG.PROMPTS?.DETECT_TOPIC_REDUNDANCY) {
+        logger.debug(`NM: Applying traditional topic redundancy filter for within-batch deduplication to ${filteredItems.length} items.`);
         filteredItems = await filterByTopicRedundancy(filteredItems, NEWS_MONITOR_CONFIG);
-    } else if (filteredItems.length > 0) {
-        logger.debug(
-            'NM: Topic filtering not configured or no items, skipping this filter.'
-        );
+    }
+
+    // 10. Apply enhanced topic redundancy filter for topic-based filtering against historical content
+    if (filteredItems.length > 0 && NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.ENABLED) {
+        logger.debug(`NM: Applying enhanced topic redundancy filter for topic-based filtering to ${filteredItems.length} items.`);
+        filteredItems = await filterByEnhancedTopicRedundancy(filteredItems, NEWS_MONITOR_CONFIG);
     }
 
     logger.debug(`NM: Remaining items after all filters: ${filteredItems.length}`);

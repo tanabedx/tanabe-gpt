@@ -106,11 +106,10 @@ async function isArticleSentRecently(article) {
 
     // Use persistent cache instead of in-memory cache
     const cache = readCache();
-    const matchingItem = cache.items.find(
-        item => item.type === 'article' && item.id === article.link
-    );
-
-    return !!matchingItem;
+    // Since we removed ID field, we can't do simple ID matching anymore
+    // This function is deprecated anyway since duplicate checking is now handled 
+    // by the enhanced AI-based duplicate detection
+    return false;
 }
 
 /**
@@ -222,7 +221,6 @@ function readCache() {
                 cacheData.tweets.forEach(tweet => {
                     combinedItems.push({
                         type: 'tweet',
-                        id: tweet.id,
                         content: tweet.text || '',
                         timestamp: tweet.timestamp || Date.now(),
                         username: tweet.username || 'unknown',
@@ -234,7 +232,6 @@ function readCache() {
                 cacheData.articles.forEach(article => {
                     combinedItems.push({
                         type: 'article',
-                        id: article.url,
                         content: article.title || 'Unknown title',
                         timestamp: article.timestamp || Date.now(),
                         feedId: article.feedId || 'unknown',
@@ -312,7 +309,6 @@ function cacheTweet(tweet, username, justification = null) {
         // Create cache entry
         const cacheEntry = {
             type: 'tweet',
-            id: tweet.id,
             content: tweet.text || '',
             timestamp: Date.now(),
             username: username || 'unknown',
@@ -356,7 +352,6 @@ function cacheArticle(article) {
         // Create cache entry
         const cacheEntry = {
             type: 'article',
-            id: article.link,
             content: article.title || 'Unknown title',
             timestamp: Date.now(),
             feedId: article.feedId || 'unknown',

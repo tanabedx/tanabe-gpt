@@ -33,7 +33,8 @@ Multi-stage filtering pipeline with parallel source processing, centralized AI e
 2. **Filtering Pipeline** → `filteringUtils.js` (10-stage evaluation process)
 3. **AI Evaluation** → `evaluationUtils.js` (content relevance and summarization)
 4. **Duplicate Detection** → `contentProcessingUtils.js` (semantic similarity analysis)
-5. **Message Distribution** → WhatsApp integration with media support
+5. **Two-Stage Topic Filtering** → Traditional (within-batch priority) + Enhanced (historical context)
+6. **Message Distribution** → WhatsApp integration with media support
 
 ## File Structure & Roles
 
@@ -93,7 +94,8 @@ filteringStages = [
     'batchTitleEvaluation', // RSS title relevance - batch (step 6)
     'fullContentEvaluation', // Complete AI content analysis (step 7)
     'duplicateDetection',    // Semantic similarity check (step 8)
-    'enhancedTopicRedundancy' // Importance-based topic filtering with consequence evaluation (step 9)
+    'traditionalTopicRedundancy', // Within-batch deduplication with source priority (step 9)
+    'enhancedTopicRedundancy' // Topic-based filtering against historical content (step 10)
 ]
 ```
 
@@ -295,11 +297,15 @@ Continue to Content Evaluation (using link content instead of "🚨 ")
 
 ### Standard Processing Cycle
 ```
-newsMonitor.js (timer) → Source Fetchers (parallel) → filteringUtils.js (9 stages) → 
+newsMonitor.js (timer) → Source Fetchers (parallel) → filteringUtils.js (10 stages) → 
+  ↓ (stage 9: traditional topic filter)
+Source Priority + AI Grouping → Within-Batch Deduplication →
+  ↓ (stage 10: enhanced topic filter)
+Historical Topic Matching + Importance Scoring → Final Content →
   ↓ (approved content)
 contentProcessingUtils.js (summarization) → WhatsApp Distribution → 
   ↓ (if not quiet hours)
-Cache Update + Last Run Timestamp Update
+Cache Update (no ID field) + Last Run Timestamp Update
 ```
 
 ### Quiet Hours Processing Flow
@@ -330,7 +336,9 @@ Image Text Extraction (step 3.5) →
   ↓ (Twitter short tweets with links)  
 Link Content Processing (step 3.6) → Prompt-Specific Filter (step 5) →
   ↓ (RSS content)
-Batch Title Evaluation (step 6) → Full Content Evaluation (step 7) → Duplicate Detection (step 8) → Enhanced Topic Redundancy (step 9) → Approved Content
+Batch Title Evaluation (step 6) → Full Content Evaluation (step 7) → Duplicate Detection (step 8) → 
+  ↓ (two-stage topic filtering)
+Traditional Topic Redundancy (step 9) → Enhanced Topic Redundancy (step 10) → Approved Content
 ```
 
 ### Enhanced Topic Redundancy Processing
@@ -354,7 +362,12 @@ Extract Key Features → Compare with Historical Cache →
   ↓ (if similar found)
 Semantic Similarity Analysis (AI) → 
   ↓ (if above threshold)
-Reject as Duplicate OR Select Best Version → Update Cache
+Reject as Duplicate → Update Cache
+
+Two-Stage Topic Filtering:
+Current Batch → Traditional Filter (source priority + AI grouping) → 
+  ↓ (deduplicated batch)
+Enhanced Filter (historical topics + importance scoring) → Final Content
 ```
 
 ## Configuration Schema
@@ -450,7 +463,7 @@ HISTORICAL_CACHE = {
 ### Cache Structure (`newsCache.json`)
 ```javascript
 cache = {
-    items: [],                       // Historical content for duplicate detection
+    items: [],                       // Historical content for duplicate detection (no IDs - time filtering prevents duplicates)
     activeTopics: [],                // Active topics for importance-based filtering
     twitterApiStates: {              // Multi-key Twitter API management
         primary: { usage, limit, status, lastSuccessfulCheck },
@@ -458,6 +471,15 @@ cache = {
         // ... additional keys
     },
     lastRunTimestamp: number|null    // Timestamp of last successful run (excluding quiet hours)
+}
+
+// Cache item structure (simplified - no redundant ID field)
+cacheItem = {
+    type: 'tweet|article',           // Content type
+    content: string,                 // AI-generated summary
+    timestamp: number,               // When item was cached
+    justification: string,           // Why item was relevant
+    sourceName: string               // Unified source identifier
 }
 ```
 
@@ -476,6 +498,62 @@ TWITTER_FALLBACK2_BEARER_TOKEN="your_second_fallback_token"
 ```
 
 This dynamic loading is handled within `newsMonitor.config.js`, removing the need for a static `CREDENTIALS` block for Twitter keys in the configuration file.
+
+## Two-Stage Topic Filtering System
+
+### Overview
+The News Monitor implements a sophisticated two-stage filtering approach that handles both within-batch deduplication and historical topic redundancy. This ensures optimal content selection while preventing both immediate duplicates and topic flooding.
+
+### Stage 1: Traditional Topic Redundancy Filter (Step 9)
+**Purpose**: Within-batch deduplication with source priority
+
+**Function**: `filterByTopicRedundancy()` in `filteringUtils.js`
+
+**Process**:
+1. **AI Topic Grouping**: Uses `DETECT_TOPIC_REDUNDANCY` prompt to identify similar topics in current batch
+2. **Source Priority Resolution**: When multiple sources cover same topic, selects highest priority source
+3. **Same-Source Selection**: When same source has multiple articles, AI picks most important one
+4. **Priority Order**: SITREP_artorias (9) > BreakingNews (8) > G1 (6) > others
+
+**Example**:
+```
+Current Batch:
+1. [SITREP_artorias] Israel bombs Iran
+2. [BreakingNews] Israeli attack on Iran  
+3. [G1] Ataque israelense ao Irã
+
+AI Groups: "1,2,3" (same topic)
+Result: Keep #1 (highest priority), remove #2 and #3
+```
+
+### Stage 2: Enhanced Topic Redundancy Filter (Step 10) 
+**Purpose**: Topic-based filtering against historical content
+
+**Function**: `filterByEnhancedTopicRedundancy()` in `filteringUtils.js`
+
+**Process**:
+1. **Source Priority Pre-filtering**: Applies Stage 1 logic to ensure no same-source duplicates
+2. **Historical Topic Matching**: Checks against active topics from past 48 hours
+3. **AI Importance Scoring**: Evaluates follow-up stories on 1-10 geopolitical importance scale
+4. **Dynamic Thresholds**: Progressive scoring requirements (5→7→9) for consequences
+5. **Escalation Detection**: High-scoring items (≥8.5) become new core events
+
+### Benefits of Two-Stage Approach
+- **✅ No Redundant IDs**: Time filtering prevents duplicate fetches, eliminating need for ID-based tracking
+- **✅ Source Priority Enforcement**: Higher priority sources automatically preferred (SITREP_artorias > BreakingNews > G1)
+- **✅ Within-Batch Deduplication**: Similar news in same cycle filtered by source priority and AI selection
+- **✅ Historical Context Awareness**: Follow-up stories evaluated against 48-hour topic history
+- **✅ Intelligent Consequence Filtering**: Only genuinely important developments pass progressive thresholds
+- **✅ Escalation Detection**: Major developments become new topics instead of buried consequences
+
+### Key Functions (`filteringUtils.js`)
+```javascript
+// Stage 1: Traditional filtering
+filterByTopicRedundancy(items, config)           // AI grouping + source priority resolution
+
+// Stage 2: Enhanced filtering  
+filterByEnhancedTopicRedundancy(items, config)   // Historical context + importance scoring
+```
 
 ## Importance-Based Topic Filtering System
 
