@@ -1,4 +1,4 @@
-const config = require('../configs');
+const config = require('../configs/config');
 const { performCacheClearing } = require('./cacheManagement');
 const logger = require('../utils/logger');
 const { getNextSummaryInfo, scheduleNextSummary } = require('../periodicSummary/periodicSummaryUtils');
@@ -138,7 +138,7 @@ async function handleDebugPeriodic(message) {
         }
 
         // Build the final message
-        let finalMessage = `*📊 RELATÓRIO DE DEBUG DO RESUMO PERIÓDICO*
+        let finalMessage = `*RELATÓRIO DE DEBUG DO RESUMO PERIÓDICO*
 
 `;
 

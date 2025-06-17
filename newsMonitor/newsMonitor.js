@@ -1,8 +1,9 @@
 const NEWS_MONITOR_CONFIG = require('./newsMonitor.config');
 const logger = require('../utils/logger');
 const twitterApiHandler = require('./twitterApiHandler');
-const rssFetcher = require('./rssFetcher'); // To be used later
-const twitterFetcher = require('./twitterFetcher'); // To be used later
+const rssFetcher = require('./rssFetcher');
+const twitterFetcher = require('./twitterFetcher');
+const webscraperFetcher = require('./webscraperFetcher');
 const { runCompletion, extractTextFromImageWithOpenAI } = require('../utils/openaiUtils'); // Added for account-specific prompts
 const { readCache, getLastRunTimestamp, updateLastRunTimestamp } = require('./persistentCache'); // Specifically for reading cache for duplication check
 const {
@@ -88,6 +89,16 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         );
         if (rssItems?.length) {
             allFetchedItems = allFetchedItems.concat(rssItems);
+        }
+
+        logger.debug('NM: Attempting to fetch webscraper items...');
+        const webscraperInstance = new webscraperFetcher(NEWS_MONITOR_CONFIG);
+        const webscrapedItems = await webscraperInstance.fetchAllSources();
+        logger.debug(
+            `NM: webscraperFetcher returned ${webscrapedItems?.length || 0} items.`
+        );
+        if (webscrapedItems?.length) {
+            allFetchedItems = allFetchedItems.concat(webscrapedItems);
         }
 
         logger.debug(
@@ -583,19 +594,52 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                     modelName, // Pass the derived modelName here
                     'BATCH_EVALUATE_TITLES'
                 );
-                const cleanedResult = result.trim();
-                const relevantIndices = cleanedResult
-                    .split(',')
-                    .map(numStr => parseInt(numStr.trim(), 10) - 1) // 0-indexed
-                    .filter(num => !isNaN(num) && num >= 0 && num < rssItemsForBatchEval.length);
 
-                rssItemsForBatchEval.forEach((item, index) => {
-                    if (relevantIndices.includes(index)) {
-                        processedRssItems.push(item);
+                // Enhanced batch evaluation response validation
+                if (!result || typeof result !== 'string') {
+                    logger.warn(`NM: Invalid AI response for batch title evaluation: ${result}. Keeping all RSS items.`);
+                    processedRssItems = [...rssItemsForBatchEval];
+                } else {
+                    const cleanedResult = result.trim();
+
+                    // Handle completely unexpected responses (single characters, nonsense)
+                    if (cleanedResult.length <= 2 && cleanedResult !== '0') {
+                        logger.warn(`NM: Batch title evaluation received unexpected short response: "${result}". Keeping all RSS items.`);
+                        processedRssItems = [...rssItemsForBatchEval];
+                    } else if (cleanedResult === '0') {
+                        // Handle "0" response (no relevant items)
+                        logger.debug(`NM: Batch title evaluation marked all items as irrelevant.`);
+                        batchTitleEvalFilteredOutItems.push(...rssItemsForBatchEval);
+                        processedRssItems = []; // No items pass
                     } else {
-                        batchTitleEvalFilteredOutItems.push(item);
+                        // Parse the response more robustly
+                        let relevantIndices = [];
+                        try {
+                            relevantIndices = cleanedResult
+                                .split(',')
+                                .map(numStr => parseInt(numStr.trim(), 10) - 1) // 0-indexed
+                                .filter(num => !isNaN(num) && num >= 0 && num < rssItemsForBatchEval.length);
+                        } catch (parseError) {
+                            logger.warn(`NM: Error parsing batch evaluation response "${cleanedResult}": ${parseError.message}. Keeping all RSS items.`);
+                            processedRssItems = [...rssItemsForBatchEval];
+                        }
+
+                        // If no valid indices were parsed, keep all items to be safe
+                        if (relevantIndices.length === 0 && cleanedResult !== '0') {
+                            logger.warn(`NM: Batch evaluation response "${cleanedResult}" produced no valid indices. Keeping all RSS items.`);
+                            processedRssItems = [...rssItemsForBatchEval];
+                        } else {
+                            // Process the items based on relevantIndices
+                            rssItemsForBatchEval.forEach((item, index) => {
+                                if (relevantIndices.includes(index)) {
+                                    processedRssItems.push(item);
+                                } else {
+                                    batchTitleEvalFilteredOutItems.push(item);
+                                }
+                            });
+                        }
                     }
-                });
+                }
                 logger.debug(
                     `NM: Batch title evaluation kept ${processedRssItems.length} of ${rssItemsForBatchEval.length} RSS items.`
                 );
@@ -629,11 +673,24 @@ async function processNewsCycle(skipPeriodicCheck = false) {
         }
     }
 
-    // 7. Perform full content evaluation.
+    // 7. Full content evaluation
     const itemsBeforeFullContentEval = [...filteredItems];
     const fullContentEvalFilteredOutItems = [];
     if (filteredItems.length > 0) {
         const itemsPassingFullContentEval = [];
+        
+        // Get recent news cache for historical context
+        let recentNewsCache = [];
+        try {
+            const cacheData = readCache();
+            if (cacheData && Array.isArray(cacheData.items)) {
+                recentNewsCache = cacheData.items.slice(-10); // Get last 10 items for context
+            }
+        } catch (error) {
+            logger.warn(`NM: Could not read cache for full content evaluation: ${error.message}`);
+            recentNewsCache = [];
+        }
+        
         for (const item of filteredItems) {
             let passedFullContentEval = true; // Default to pass
 
@@ -648,12 +705,13 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                     // evaluateItemFullContent uses item.text which is now extracted image text for mediaOnly tweets
                     passedFullContentEval = await evaluateItemFullContent(
                         item, // item.text is extracted image text for mediaOnly, original text for others
-                        NEWS_MONITOR_CONFIG
+                        NEWS_MONITOR_CONFIG,
+                        recentNewsCache // Pass recent news cache for context
                     );
                 }
             } else {
                 // For RSS items or any other non-Twitter items
-                passedFullContentEval = await evaluateItemFullContent(item, NEWS_MONITOR_CONFIG);
+                passedFullContentEval = await evaluateItemFullContent(item, NEWS_MONITOR_CONFIG, recentNewsCache);
             }
 
             if (passedFullContentEval) {
@@ -968,7 +1026,7 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                     const logJustification = sentItemCacheData.justification || 'N/A';
 
                     logger.info(
-                        `NM: Sending to group "${targetGroup.name}": ${logTitleOrAccount}${logCacheContentPreview} - Justification: ${logJustification}`
+                        `Sending to group "${targetGroup.name}": ${logTitleOrAccount}${logCacheContentPreview} - Justification: ${logJustification}`
                     );
 
                     if (mediaToSend) {
@@ -1119,6 +1177,7 @@ async function generateNewsCycleDebugReport() {
         currentNewsTargetGroup: targetGroup,
         getLastFetchedTweetsCache: twitterFetcher.getLastFetchedTweetsCache, // Corrected access
         rssFetcher, // The module
+        webscraperFetcher, // The webscraper module
         filteringUtils: {
             isItemWhitelisted,
             itemContainsBlacklistedKeyword,

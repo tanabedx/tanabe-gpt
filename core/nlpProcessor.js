@@ -1,5 +1,5 @@
 const OpenAI = require('openai');
-const config = require('../configs');
+const config = require('../configs/config');
 const COMMAND_PROCESSOR = require('./commandProcessor.prompt');
 const logger = require('../utils/logger');
 const whitelist = require('../configs/whitelist');

@@ -116,19 +116,23 @@ const NEWS_MONITOR_CONFIG = {
             language: 'pt',
             priority: 6,
         },
-        // Webscraper Source Placeholder
+        // Webscraper Sources
         {
             type: 'webscraper',
             enabled: true,
-            name: 'Generic Webscraper',
-            url: 'https://example.com/news', // Placeholder URL
-            selectorConfig: {
-                articleSelector: '.news-item',
-                titleSelector: '.title',
-                linkSelector: 'a',
-                dateSelector: '.date', // Optional
+            name: 'GE Globo',
+            url: 'https://ge.globo.com/',
+            paginationPattern: 'https://ge.globo.com/index/feed/pagina-{page}.ghtml',
+            scrapeMethod: 'pagination',
+            priority: 4, // Lower priority than main news sources
+            selectors: {
+                container: '.feed-post',
+                title: '.feed-post-body h2 a',
+                link: '.feed-post-body h2 a',
+                time: '.feed-post-metadata',
+                content: '.feed-post-body p'
             },
-            priority: 3,
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36'
         },
     ],
 
@@ -137,6 +141,9 @@ const NEWS_MONITOR_CONFIG = {
         BLACKLIST_KEYWORDS: ['VÍDEO', 'VÍDEOS', 'Assista', 'FOTOS', 'IMAGENS'],
         EXCLUDED_PATHS: ['podcast'],
         WHITELIST_PATHS: [
+            // Domain-based whitelist (most permissive - allows all content from domain)
+            'ge.globo.com',
+            // Path-based whitelist (more restrictive - specific URL paths only)
             '/mundo/noticia',
             '/economia/noticia',
             '/politica/noticia',
@@ -151,30 +158,30 @@ const NEWS_MONITOR_CONFIG = {
         COOLING_HOURS: 48, // How long to track related stories
         USE_IMPORTANCE_SCORING: true, // Use AI importance scoring instead of simple counting
         IMPORTANCE_THRESHOLDS: {
-            FIRST_CONSEQUENCE: 5,   // Market reactions, standard responses (need 5+ to pass)
-            SECOND_CONSEQUENCE: 7,  // Diplomatic developments (need 7+ to pass)
-            THIRD_CONSEQUENCE: 9,   // Only game-changing revelations (need 9+ to pass)
+            FIRST_CONSEQUENCE: 7,   // Increased from 5 - Only significant developments
+            SECOND_CONSEQUENCE: 8,  // Increased from 7 - Important revelations only  
+            THIRD_CONSEQUENCE: 10,  // Increased from 9 - Only absolute game-changers
         },
         CATEGORY_WEIGHTS: {
-            ECONOMIC: 0.8,      // Economic news gets 80% weight (market reactions)
-            DIPLOMATIC: 1.0,    // Diplomatic news full weight
-            MILITARY: 1.2,      // Military developments 120% weight
-            LEGAL: 1.3,         // Legal implications 130% weight
-            INTELLIGENCE: 1.3,  // Intelligence revelations 130% weight
-            HUMANITARIAN: 1.1,  // Humanitarian impacts 110% weight
-            POLITICAL: 1.1,     // Political developments 110% weight
+            ECONOMIC: 0.7,      // Reduced from 0.8 - Economic news even more penalized
+            DIPLOMATIC: 0.9,    // Reduced from 1.0 - Standard diplomatic news penalized
+            MILITARY: 1.1,      // Reduced from 1.2 - Military developments less weighted
+            LEGAL: 0.9,         // Reduced from 1.3 - Legal implications less weighted
+            INTELLIGENCE: 1.1,  // Reduced from 1.3 - Intelligence revelations less weighted
+            HUMANITARIAN: 0.9,  // Reduced from 1.1 - Humanitarian impacts standard weight
+            POLITICAL: 1.0,     // Reduced from 1.1 - Political developments standard weight
+            SPORTS: 1.2,        // Soccer news boosted due to personal interest
         },
-        ESCALATION_THRESHOLD: 8.5, // If consequence scores higher, becomes new core event
+        ESCALATION_THRESHOLD: 9.5, // Increased from 8.5 - Much higher bar for new core events
         // Legacy settings (fallback)
-        MAX_CONSEQUENCES: 3, // Max follow-up stories per topic (if importance scoring disabled)
+        MAX_CONSEQUENCES: 2, // Max follow-up stories per topic (if importance scoring disabled)
         REQUIRE_HIGH_IMPORTANCE_FOR_CONSEQUENCES: true,
     },
 
     // Sent article cache configuration
     HISTORICAL_CACHE: {
         ENABLED: true,
-        RETENTION_HOURS: 24,
-        RETENTION_DAYS: 2,
+        RETENTION_DAYS: 5,
         SIMILARITY_THRESHOLD: 0.7,
         BATCH_SIMILARITY_THRESHOLD: 0.65,
     },
@@ -183,6 +190,13 @@ const NEWS_MONITOR_CONFIG = {
     CONTENT_LIMITS: {
         EVALUATION_CHAR_LIMIT: 2000,
         SUMMARY_CHAR_LIMIT: 0,
+    },
+
+    // Webscraper configuration
+    WEBSCRAPER: {
+        MAX_ITEMS_PER_SOURCE: 50,
+        DEFAULT_TIMEOUT: 15000,
+        DEFAULT_RETRY_ATTEMPTS: 2,
     },
 
     // Link processing configuration for short tweets

@@ -7,7 +7,7 @@ Comprehensive utility library providing environment management, Git integration,
 - **Environment Management**: Environment variable parsing with escape sequence handling and configuration templating
 - **Git Integration**: Startup git pull functionality with commit tracking and update notifications
 - **Link Processing**: URL extraction, unshortening, content fetching with retry logic and rate limiting
-- **Advanced Logging**: Multi-level logging system with console/file output, admin notifications, and spinner UI
+- **Advanced Logging**: Dual-file logging system with console/file output, comprehensive debug capture, admin notifications, and spinner UI
 - **Message Management**: Auto-delete functionality, contact name resolution, and message formatting utilities
 - **OpenAI Integration**: ChatGPT completions, conversation handling, vision API, and model selection logic
 
@@ -30,6 +30,8 @@ const content = await getPageContent(links[0]);
 const logger = require('./utils/logger');
 logger.info('Bot started successfully');
 logger.debug('Processing message', { user, command });
+// Debug logs always written to tanabe-gpt-debug.log (if enabled)
+// Main logs respect CONSOLE_LOG_LEVELS settings
 
 // OpenAI Integration
 const { runCompletion } = require('./utils/openaiUtils');
@@ -66,7 +68,7 @@ Modular utility architecture with shared logging infrastructure and external API
 
 ### Advanced Logging System (`logger.js`)
 ```javascript
-// Self-contained, multi-level logging with environment control and admin notifications
+// Self-contained, multi-level logging with dual-file system and environment control
 const CONSOLE_LOG_LEVELS = {
     ERROR: true, WARN: true, INFO: true, DEBUG: false, PROMPT: false, /* ... */
 };
@@ -75,6 +77,9 @@ const NOTIFICATION_LEVELS = {
     ERROR: true, WARN: false, INFO: false, /* ... */
 };
 
+// Debug file configuration
+const DEBUG_FILE_ENABLED = true; // Set to false to disable debug file writing
+
 const logger = {
     error: (message, error = null) => log('ERROR', message, error, true),
     warn: (message, error = null, shouldNotifyAdmin = true) => log('WARN', message, error, shouldNotifyAdmin),
@@ -82,6 +87,23 @@ const logger = {
     debug: (message, obj = null) => log('DEBUG', message, obj, false),
     prompt: (message, promptText) => log('PROMPT', message + '\n' + promptText, null, false)
 };
+
+// Dual-file logging system
+// - Main log (tanabe-gpt.log): Respects CONSOLE_LOG_LEVELS flags
+// - Debug log (tanabe-gpt-debug.log): Captures ALL levels when DEBUG_FILE_ENABLED=true
+async function log(level, message, error = null, shouldNotifyAdmin = false) {
+    // Always write to debug file regardless of console settings (if enabled)
+    if (DEBUG_FILE_ENABLED) {
+        await logToDebugFile(level, message, error);
+    }
+    
+    // Check console flags for main log and console output
+    if (CONSOLE_LOG_LEVELS[level] !== true) return;
+    
+    // Write to main log file and console only if level is enabled
+    await writeToLogFile(formattedMessage);
+    console.log(formattedMessage);
+}
 
 // Spinner UI with console override protection
 function startSpinner() {
@@ -93,13 +115,17 @@ function startSpinner() {
     }
 }
 
-// Log file rotation with size management
-async function checkAndRotateLog() {
-    const stats = await fs.stat(LOG_FILE).catch(() => ({ size: 0 }));
-    if (stats.size >= MAX_LOG_SIZE) {
-        await fs.rename(LOG_FILE, BACKUP_LOG_FILE).catch(() => {});
-        await fs.writeFile(LOG_FILE, '');
+// 24-hour log cleanup (no rotation, only startup cleanup)
+async function cleanOldLogs() {
+    // Clean main log file
+    await cleanLogFile('tanabe-gpt.log');
+    
+    // Clean debug log file only if enabled
+    if (DEBUG_FILE_ENABLED) {
+        await cleanLogFile('tanabe-gpt-debug.log');
     }
+    
+    // Keeps only logs from last 24 hours, runs on startup only
 }
 ```
 

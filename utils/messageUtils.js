@@ -1,4 +1,4 @@
-const config = require('../configs');
+const config = require('../configs/config');
 const logger = require('./logger');
 
 async function handleAutoDelete(message, command, isError = false) {

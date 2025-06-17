@@ -1,6 +1,6 @@
 const axios = require('axios');
 const logger = require('./logger');
-const config = require('../configs');
+const config = require('../configs/config');
 
 function extractLinks(text) {
     const urlRegex = /(https?:\/\/[^\s]+)/g;

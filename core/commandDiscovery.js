@@ -241,7 +241,7 @@ function discoverCommands() {
     }
     
     const commandCount = Object.keys(commands).length;
-    log('DEBUG', `✅ Discovered ${commandCount} commands total`);
+    log('DEBUG', `Discovered ${commandCount} commands total`);
     
     if (configFailures.length > 0) {
         log('WARN', `⚠️  ${configFailures.length} configuration(s) failed to load`);

@@ -1,5 +1,5 @@
 // periodicSummaryUtils.js
-const config = require('../configs');
+const config = require('../configs/config');
 const logger = require('../utils/logger'); // Corrected path and synchronous loading
 
 // Helper function to get all groups with periodic summaries enabled

@@ -1,7 +1,7 @@
 // configs/whitelist.js
 // Centralized whitelist configuration for command permissions
 
-const config = require('./loader');
+const config = require('./config');
 const logger = require('../utils/logger');
 
 // Get group names from environment variables

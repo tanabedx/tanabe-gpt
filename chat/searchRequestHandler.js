@@ -204,7 +204,7 @@ function formatSearchResponse(searchResult) {
 
     if (!searchResult.searchResults || !searchResult.searchResults.results || 
         searchResult.searchResults.results.length === 0) {
-        return `🔍 Nenhum resultado encontrado para: "${searchResult.query}"`;
+        return ` Nenhum resultado encontrado para: "${searchResult.query}"`;
     }
 
     const resultsCount = searchResult.searchResults.results.length;

@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 
 async function performStartupGitPull() {
     try {
-        logger.info('Attempting to update bot via git pull...');
+        logger.debug('Attempting to update bot via git pull...');
 
         // Get current commit info before pull
         let recentCommitInfo = 'Unknown';

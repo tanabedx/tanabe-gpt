@@ -93,7 +93,7 @@ function formatTestResults(results) {
     const skippedTests = details.filter(d => d.result === 'SKIPPED');
 
     if (passedTests.length > 0) {
-        output += `${colors.bright}${colors.green}✅ PASSED TESTS:${colors.reset}\n`;
+        output += `${colors.bright}${colors.green}PASSED TESTS:${colors.reset}\n`;
         output += `${colors.green}${separator('-', 40)}${colors.reset}\n`;
         passedTests.forEach((test, index) => {
             output += `  ${colors.green}${index + 1}.${colors.reset} ${test.name}`;

@@ -81,7 +81,7 @@ function stopSpinner(success, testName, details = '') {
 const criticalPatterns = [
     /^\[TEST\]/, // Test headers
     /^❌ FAILED/, // Test failures
-    /^✅ PASSED/, // Test successes
+    /^PASSED/, // Test successes
     /^Error:/, // Errors
     /^Test results/, // Test result summary
     /^QR Code received/, // QR code for authentication

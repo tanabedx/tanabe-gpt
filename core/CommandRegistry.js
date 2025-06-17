@@ -27,7 +27,7 @@ function validateHandlers(commands, handlers) {
     }
 
     if (allValid) {
-        logger.debug('✅ All commands and handlers are correctly aligned.');
+        logger.debug('All commands and handlers are correctly aligned.');
     } else {
         logger.warn('⚠️ Some commands and handlers are misaligned. Bot will continue but some commands may not work properly.');
     }

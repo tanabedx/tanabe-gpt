@@ -3,7 +3,7 @@ const logger = require('./logger');
 
 let config;
 setTimeout(() => {
-    config = require('../configs');
+    config = require('../configs/config');
 }, 0);
 
 // Initialize OpenAI with a getter function

@@ -597,7 +597,7 @@ async function runTest(client, group, test, testResults) {
                 throw new Error('Bot message was not deleted after reaction');
             }
             // Test passed for bot message deletion
-            console.log(`✅ PASSED: ${test.name} (Message was deleted after reaction)`);
+            console.log(`PASSED: ${test.name} (Message was deleted after reaction)`);
             testResults.passed++;
             testResults.details.push({
                 name: test.name,
@@ -666,7 +666,7 @@ async function runTest(client, group, test, testResults) {
             }
 
             // Test passed for prompt check
-            console.log(`✅ PASSED: ${test.name} (Prompt check)`);
+            console.log(`PASSED: ${test.name} (Prompt check)`);
             testResults.passed++;
             testResults.details.push({
                 name: test.name,
@@ -729,7 +729,7 @@ async function runTest(client, group, test, testResults) {
         }
 
         // Test passed
-        console.log(`✅ PASSED: ${test.name}`);
+        console.log(`PASSED: ${test.name}`);
         testResults.passed++;
         testResults.details.push({
             name: test.name,

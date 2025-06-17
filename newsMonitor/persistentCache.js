@@ -859,9 +859,33 @@ async function evaluateConsequenceImportance(originalTopic, consequenceItem) {
         const originalEventText = originalTopic.originalItem.title || originalTopic.originalItem.justification || 'Unknown event';
         const consequenceText = consequenceItem.title || consequenceItem.text || '';
         
+        // Get related news cache for context - show what president already knows
+        const recentNewsCache = getRecentItems(10); // Get last 10 news items
+        const relatedNewsItems = recentNewsCache.filter(item => {
+            // Filter to items related to this topic
+            const itemText = (item.content || item.title || '').toLowerCase();
+            const topicEntities = originalTopic.entities || [];
+            return topicEntities.some(entity => itemText.includes(entity.toLowerCase()));
+        });
+        
+        let relatedNewsCacheText = 'Nenhuma notícia relacionada anterior.';
+        if (relatedNewsItems && relatedNewsItems.length > 0) {
+            relatedNewsCacheText = relatedNewsItems.map((news, index) => {
+                const timestamp = new Date(news.timestamp).toLocaleString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                return `${index + 1}. [${timestamp}] ${news.content || news.title || 'Sem conteúdo'} (${news.sourceName || 'Fonte desconhecida'})`;
+            }).join('\n');
+        }
+        
         const formattedPrompt = promptTemplate
             .replace('{original_event}', originalEventText)
-            .replace('{consequence_content}', consequenceText);
+            .replace('{consequence_content}', consequenceText)
+            .replace('{related_news_cache}', relatedNewsCacheText);
 
         const result = await runCompletion(
             formattedPrompt,
@@ -870,13 +894,50 @@ async function evaluateConsequenceImportance(originalTopic, consequenceItem) {
             'EVALUATE_CONSEQUENCE_IMPORTANCE'
         );
 
+        // Enhanced response validation
+        if (!result || typeof result !== 'string') {
+            logger.warn(`NM: Invalid AI response for consequence importance evaluation: ${result}`);
+            return {
+                rawScore: 5, // Default moderate score
+                weightedScore: 5,
+                category: 'UNKNOWN',
+                justification: 'Invalid AI response',
+                success: false
+            };
+        }
+
         const cleanedResult = result.trim();
+        
+        // Handle completely unexpected responses (single characters, nonsense)
+        if (cleanedResult.length <= 2) {
+            logger.warn(`NM: Consequence importance evaluation received unexpected short response: "${result}"`);
+            return {
+                rawScore: 5, // Default moderate score
+                weightedScore: 5,
+                category: 'UNKNOWN',
+                justification: 'Unexpected short response',
+                success: false
+            };
+        }
         
         // Parse response: "SCORE::{1-10}::{category}::{justification}"
         if (cleanedResult.includes('SCORE::')) {
             const parts = cleanedResult.split('::');
             if (parts.length >= 4) {
                 const rawScore = parseInt(parts[1], 10);
+                
+                // Validate score is a valid number between 1-10
+                if (isNaN(rawScore) || rawScore < 1 || rawScore > 10) {
+                    logger.warn(`NM: Invalid score in consequence importance evaluation: ${parts[1]}`);
+                    return {
+                        rawScore: 5,
+                        weightedScore: 5,
+                        category: 'UNKNOWN',
+                        justification: `Invalid score: ${parts[1]}`,
+                        success: false
+                    };
+                }
+
                 const category = parts[2].toUpperCase();
                 const justification = parts[3];
                 
@@ -891,6 +952,22 @@ async function evaluateConsequenceImportance(originalTopic, consequenceItem) {
                     category,
                     justification,
                     success: true
+                };
+            }
+        }
+        
+        // Try to extract a numeric score even if format is wrong
+        const numberMatch = cleanedResult.match(/(\d+)/);
+        if (numberMatch) {
+            const extractedScore = parseInt(numberMatch[1], 10);
+            if (extractedScore >= 1 && extractedScore <= 10) {
+                logger.warn(`NM: Consequence importance evaluation had malformed response "${cleanedResult}", but extracted valid score: ${extractedScore}`);
+                return {
+                    rawScore: extractedScore,
+                    weightedScore: extractedScore,
+                    category: 'EXTRACTED',
+                    justification: `Extracted from malformed response: ${cleanedResult}`,
+                    success: false
                 };
             }
         }

@@ -45,27 +45,49 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
         );
         const result = await runCompletion(formattedPrompt, 0.3, modelName, promptName);
         
-        // More permissive response parsing - handle punctuation, quotes, and whitespace
+        // Enhanced response parsing - handle unexpected responses more gracefully
+        if (!result || typeof result !== 'string') {
+            logger.warn(`NM: Item from @${item.accountName} received invalid response from AI: ${result}. Item passes.`);
+            return true;
+        }
+
         let cleanedResult = result.trim().toLowerCase();
         
         // Remove common punctuation and quotes
         cleanedResult = cleanedResult.replace(/[.!?",';:()[\]{}]/g, '').trim();
         
-        // Check for positive responses (sim/yes)
-        if (cleanedResult === 'sim' || cleanedResult === 'yes' || cleanedResult === 'sí') {
+        // Handle completely unexpected responses (single characters, nonsense)
+        if (cleanedResult.length <= 2 && !['si', 'no'].includes(cleanedResult)) {
+            logger.warn(`NM: Item from @${item.accountName} received unexpected short response: "${result}" (cleaned: "${cleanedResult}"). Item passes due to ambiguity.`);
             return true;
         }
         
-        // Check for negative responses (não/no)
+        // Check for positive responses (sim/yes/si)
+        if (cleanedResult === 'sim' || cleanedResult === 'yes' || cleanedResult === 'sí' || cleanedResult === 'si') {
+            return true;
+        }
+        
+        // Check for negative responses (não/no/nao)
         if (cleanedResult === 'não' || cleanedResult === 'nao' || cleanedResult === 'no') {
             return false;
         }
 
-        // If response doesn't match expected format, log warning and fail
-        logger.debug(
-            `NM: Item from @${item.accountName} FAILED "${promptName}". Unexpected response format: "${result}" (cleaned: "${cleanedResult}")`
+        // Handle partial matches for common typos or variations
+        if (cleanedResult.includes('sim') || cleanedResult.includes('yes')) {
+            logger.debug(`NM: Item from @${item.accountName} received partial positive match: "${result}". Interpreting as positive.`);
+            return true;
+        }
+        
+        if (cleanedResult.includes('não') || cleanedResult.includes('nao') || cleanedResult.includes('no')) {
+            logger.debug(`NM: Item from @${item.accountName} received partial negative match: "${result}". Interpreting as negative.`);
+            return false;
+        }
+
+        // If response doesn't match expected format, log warning and pass (safer than failing)
+        logger.warn(
+            `NM: Item from @${item.accountName} FAILED "${promptName}". Unexpected response format: "${result}" (cleaned: "${cleanedResult}"). Item passes due to parsing ambiguity.`
         );
-        return false;
+        return true; // Changed from false to true - err on the side of caution
     } catch (error) {
         logger.error(
             `NM: Error during account-specific eval for @${item.accountName}: ${error.message}. Item passes.`
@@ -78,9 +100,10 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
  * Evaluates the full content of a news item for relevance.
  * @param {Object} item - The news item to evaluate.
  * @param {Object} config - The NEWS_MONITOR_CONFIG object.
+ * @param {Array} recentNewsCache - Recent news items sent to the president (optional).
  * @returns {Promise<boolean>} - True if the item is relevant, false otherwise.
  */
-async function evaluateItemFullContent(item, config) {
+async function evaluateItemFullContent(item, config, recentNewsCache = []) {
     let contentType = '';
     let sourceInfo = '';
     let contentToEvaluate = '';
@@ -117,10 +140,26 @@ async function evaluateItemFullContent(item, config) {
             ? contentToEvaluate.substring(0, charLimit) + '... [content truncated]'
             : contentToEvaluate;
 
+    // Prepare recent news cache for the prompt
+    let recentNewsCacheText = 'Nenhuma notícia recente registrada.';
+    if (recentNewsCache && recentNewsCache.length > 0) {
+        recentNewsCacheText = recentNewsCache.map((news, index) => {
+            const timestamp = new Date(news.timestamp).toLocaleString('pt-BR', {
+                timeZone: 'America/Sao_Paulo',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            return `${index + 1}. [${timestamp}] ${news.content || news.title || 'Sem conteúdo'} (${news.sourceName || 'Fonte desconhecida'})`;
+        }).join('\n');
+    }
+
     const promptTemplate = config.PROMPTS.EVALUATE_CONTENT;
     const modelName = config.AI_MODELS.EVALUATE_CONTENT || config.AI_MODELS.DEFAULT;
     const formattedPrompt = promptTemplate
         .replace('{content}', limitedContent)
+        .replace('{recent_news_cache}', recentNewsCacheText)
         .replace('{content_type}', contentType)
         .replace('{source_info}', sourceInfo);
 
@@ -129,7 +168,7 @@ async function evaluateItemFullContent(item, config) {
             `NM: Performing full content evaluation for "${(item.title || item.text)?.substring(
                 0,
                 50
-            )}..." using model ${modelName}.`
+            )}..." using model ${modelName} with ${recentNewsCache.length} cached items.`
         );
         const rawAiResponse = await runCompletion(
             formattedPrompt,
@@ -137,10 +176,24 @@ async function evaluateItemFullContent(item, config) {
             modelName,
             'EVALUATE_CONTENT'
         );
+
+        // Enhanced response validation
+        if (!rawAiResponse || typeof rawAiResponse !== 'string') {
+            logger.warn(`NM: Invalid AI response for content evaluation: ${rawAiResponse}. Marking as not relevant.`);
+            return false;
+        }
+
         let processedAiResponse = rawAiResponse.trim();
 
         if (processedAiResponse.startsWith('"') && processedAiResponse.endsWith('"')) {
             processedAiResponse = processedAiResponse.substring(1, processedAiResponse.length - 1);
+        }
+
+        // Handle completely unexpected responses (single characters, nonsense)
+        if (processedAiResponse.length <= 2) {
+            logger.warn(`NM: Item "${(item.title || item.text)?.substring(0, 50)}..." received unexpected short AI response: "${rawAiResponse}". Marking as not relevant.`);
+            item.relevanceJustification = `Invalid AI response: "${rawAiResponse}"`;
+            return false;
         }
 
         let relevance = 'null';
@@ -151,10 +204,11 @@ async function evaluateItemFullContent(item, config) {
             relevance = parts[0].trim().toLowerCase();
             justification = parts.length > 1 ? parts.slice(1).join('::').trim() : '';
         } else {
-            relevance = processedAiResponse.toLowerCase();
+            relevance = processedAiResponse.toLowerCase().trim();
         }
 
-        if (relevance === 'relevant') {
+        // Enhanced relevance parsing with partial matching
+        if (relevance === 'relevant' || relevance.includes('relevant')) {
             item.relevanceJustification =
                 justification || 'Relevant (no specific justification provided by AI)';
             logger.debug(
@@ -165,15 +219,30 @@ async function evaluateItemFullContent(item, config) {
             );
             return true;
         }
-        // Store justification even if not relevant, for logging/debugging purposes
-        item.relevanceJustification = justification || `Not relevant (AI: ${relevance})`;
-        logger.debug(
+
+        // Check for obvious negative responses
+        if (relevance === 'null' || relevance === 'not relevant' || relevance === 'irrelevant' || 
+            relevance.includes('null') || relevance.includes('not relevant')) {
+            item.relevanceJustification = justification || `Not relevant (AI: ${relevance})`;
+            logger.debug(
+                `NM: Item "${(item.title || item.text)?.substring(
+                    0,
+                    50
+                )}..." FAILED full content evaluation. Parsed: [${relevance}] Justification: [${justification}]. Original AI: "${rawAiResponse}"`
+            );
+            return false;
+        }
+
+        // For ambiguous responses, log warning and mark as not relevant
+        logger.warn(
             `NM: Item "${(item.title || item.text)?.substring(
                 0,
                 50
-            )}..." FAILED full content evaluation. Parsed: [${relevance}] Justification: [${justification}]. Original AI: "${rawAiResponse}"`
+            )}..." received ambiguous AI response: "${rawAiResponse}". Parsed: [${relevance}]. Marking as not relevant due to parsing ambiguity.`
         );
+        item.relevanceJustification = `Ambiguous AI response: "${rawAiResponse}"`;
         return false;
+
     } catch (error) {
         logger.error(
             `NM: Error during full content evaluation for "${(item.title || item.text)?.substring(

@@ -34,7 +34,7 @@ function initializeConversationManager() {
  */
 function cleanupExpiredConversations() {
     const now = new Date();
-    const config = require('../configs');
+    const config = require('../configs/config');
     const timeoutMs = (config?.COMMANDS?.CHAT?.conversation?.timeoutMinutes || 30) * 60 * 1000;
 
     for (const [groupName, conversation] of conversations.entries()) {

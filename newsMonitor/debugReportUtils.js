@@ -144,6 +144,30 @@ async function generateNewsCycleDebugReport_core(
         utilities.logger.error(`NM_DEBUG: Error fetching RSS for report: ${e.message}`);
     }
     report.push(rssFetchedStats);
+
+    // Webscraper fetching
+    let webscraperFetchedStats = 'Webscraper: ';
+    try {
+        const webscrapedItems = await utilities.webscraperFetcher.fetchAndFormatWebscrapedItems();
+        if (webscrapedItems?.length) {
+            allFetchedItems = allFetchedItems.concat(webscrapedItems);
+            const countsBySite = webscrapedItems.reduce((acc, item) => {
+                acc[item.sourceName] = (acc[item.sourceName] || 0) + 1;
+                return acc;
+            }, {});
+            webscraperFetchedStats += `${webscrapedItems.length} itens. (${
+                Object.entries(countsBySite)
+                    .map(([site, num]) => `${site}: ${num}`)
+                    .join(', ') || 'Nenhum site retornou itens'
+            })`;
+        } else {
+            webscraperFetchedStats += '0 itens.';
+        }
+    } catch (e) {
+        webscraperFetchedStats += `Erro na coleta: ${e.message}`;
+        utilities.logger.error(`NM_DEBUG: Error fetching webscraper for report: ${e.message}`);
+    }
+    report.push(webscraperFetchedStats);
     report.push(`- Total de Itens Coletados: ${allFetchedItems.length}`);
 
     if (allFetchedItems.length === 0) {
@@ -155,7 +179,7 @@ async function generateNewsCycleDebugReport_core(
     let currentTotal = filteredItems.length;
     let prevCount = currentTotal; // For logging before/after counts consistently
 
-    report.push('\n*🔍 Fase de Filtragem:*');
+    report.push('\n* Fase de Filtragem:*');
 
     // Use the same logic as the main newsMonitor for interval filtering
     let cutoffTimestamp;

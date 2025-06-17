@@ -4,7 +4,7 @@ const { promisify } = require('util');
 const { exec } = require('child_process');
 const execAsync = promisify(exec);
 const logger = require('../utils/logger');
-const config = require('../configs');
+const config = require('../configs/config');
 const pdf = require('pdf-parse');
 
 // Ensure we have the required configuration

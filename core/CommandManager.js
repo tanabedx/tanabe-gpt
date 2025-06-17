@@ -1,4 +1,4 @@
-const config = require('../configs');
+const config = require('../configs/config');
 const logger = require('../utils/logger');
 const nlpProcessor = require('./nlpProcessor');
 const whitelist = require('../configs/whitelist');

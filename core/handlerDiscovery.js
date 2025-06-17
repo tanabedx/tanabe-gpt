@@ -26,7 +26,7 @@ function discoverHandlers() {
     const rootDir = path.resolve(__dirname, '..');
     const handlerFailures = [];
 
-    logger.debug('🔍 Scanning for command handlers...');
+    logger.debug(' Scanning for command handlers...');
 
     // Directories to skip during scanning
     const skipDirs = ['node_modules', '.git', 'wwebjs', 'auth_main', 'auth_test', '.DS_Store', 'configs'];
@@ -84,7 +84,7 @@ function discoverHandlers() {
     }
 
     const handlerCount = Object.keys(handlers).length;
-    logger.debug(`✅ Discovered ${handlerCount} handlers total`);
+    logger.debug(`Discovered ${handlerCount} handlers total`);
 
     if (handlerFailures.length > 0) {
         logger.warn(`⚠️  ${handlerFailures.length} handler file(s) failed to load`);

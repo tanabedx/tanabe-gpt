@@ -1,19 +1,19 @@
 # Configuration System Documentation
 
 ## Overview
-Centralized configuration management system for WhatsApp bot providing credential loading, command discovery, permission management, and system settings coordination. Handles environment variable validation, whitelist authorization, and cross-module configuration integration.
+Centralized configuration management system for WhatsApp bot providing credential loading, command discovery, permission management, and system settings coordination. Handles environment variable validation, whitelist authorization, and cross-module configuration integration with a simplified, direct architecture.
 
 ## Core Features
 - **Credential Management**: Environment variable loading with validation and structured access
 - **Command Discovery**: Automatic command detection and configuration aggregation
 - **Permission System**: Centralized whitelist-based authorization for all bot commands
 - **System Configuration**: Logging levels, model selection, and operational parameters
-- **Cross-Module Integration**: Configuration distribution and dependency management
+- **Direct Integration**: Simplified configuration access without unnecessary abstraction layers
 
 ## Usage Examples
 ```javascript
-// Import main configuration
-const config = require('./configs');
+// Import main configuration directly
+const config = require('./configs/config');
 
 // Access credentials
 const adminNumber = config.CREDENTIALS.ADMIN_NUMBER;
@@ -35,22 +35,21 @@ const members = config.CREDENTIALS.MEMBERS;  // All MEMBER_* env vars
 ## Architecture Overview
 
 ### Core Design Pattern
-Hierarchical configuration system with environment variable validation, automatic command discovery, and centralized permission management. Uses lazy loading for circular dependency resolution and dynamic property access for extensible configuration.
+Simplified hierarchical configuration system with environment variable validation, automatic command discovery, and centralized permission management. Uses direct imports for clean dependency resolution and eliminates unnecessary abstraction layers following the KISS principle.
 
 ### Processing Flow
 1. **Environment Loading** → `credentials.js` (dotenv configuration and validation)
 2. **Command Discovery** → `config.js` (automatic command configuration detection)
-3. **Configuration Assembly** → Cross-module configuration aggregation
+3. **Configuration Assembly** → Direct configuration aggregation in config.js
 4. **Permission Resolution** → `whitelist.js` (authorization validation)
-5. **System Integration** → Configuration distribution to all bot modules
+5. **System Integration** → Direct configuration access across all bot modules
 
 ## File Structure & Roles
 
 ### Core Configuration Files
-- **`config.js`**: Main configuration orchestrator, command discovery, module integration
+- **`config.js`**: Main configuration orchestrator, command discovery, module integration, and central export
 - **`credentials.js`**: Environment variable management, validation, structured credential access
 - **`whitelist.js`**: Permission system, command authorization, group membership validation
-- **`index.js`**: Backward compatibility export wrapper
 
 ### Configuration Categories
 - **`commandList.config.js`**: Help system configuration, marketing messages, command listing
@@ -62,6 +61,30 @@ Hierarchical configuration system with environment variable validation, automati
 - **Permission Management**: Centralized authorization with group membership integration
 
 ## Core Components
+
+### Main Configuration Hub (`config.js`)
+```javascript
+// Single source of truth for all configurations
+const config = {
+  CREDENTIALS: require('./credentials'),
+  COMMANDS: discoverCommands(),
+  NEWS_MONITOR: require('../newsMonitor/newsMonitor.config'),
+  PERIODIC_SUMMARY: require('../periodicSummary/periodicSummary.config'),
+  SYSTEM: {
+    MAX_LOG_MESSAGES: 1000,
+    MESSAGE_DELETE_TIMEOUT: 60000,
+    ENABLE_STARTUP_CACHE_CLEARING: true,
+    MAX_RECONNECT_ATTEMPTS: 5,
+    OPENAI_MODELS: {
+        DEFAULT: 'gpt-4o-mini',
+        VOICE: 'whisper-1',
+        VISION_DEFAULT: 'gpt-4o-mini',
+    },
+    ADMIN_NOTIFICATION_CHAT: CREDENTIALS.ADMIN_WHATSAPP_ID,
+    PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js'],
+  },
+};
+```
 
 ### Environment Variable System (`credentials.js`)
 ```javascript
@@ -110,32 +133,10 @@ authorizationFlow = {
 commandDiscovery = {
     scanPattern: '**/*.config.js',
     aggregation: 'automatic_import_merge',
-    circularDependencyHandling: 'lazy_loading',
+    directIntegration: 'immediate_loading',
     moduleIntegration: {
-        periodicSummary: 'setTimeout_delayed_import',
+        periodicSummary: 'direct_import',
         newsMonitor: 'direct_import'
-    }
-}
-```
-
-### System Configuration Schema (`config.js`)
-```javascript
-SYSTEM = {
-    limits: {
-        MAX_LOG_MESSAGES: 1000,
-        MESSAGE_DELETE_TIMEOUT: 60000,
-        MAX_RECONNECT_ATTEMPTS: 5
-    },
-    models: {
-        OPENAI_MODELS: {
-            DEFAULT: 'gpt-4o-mini',
-            VOICE: 'whisper-1',
-            VISION_DEFAULT: 'gpt-4o-mini'
-        }
-    },
-    maintenance: {
-        ENABLE_STARTUP_CACHE_CLEARING: true,
-        PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js']
     }
 }
 ```
@@ -145,8 +146,8 @@ SYSTEM = {
 ### Configuration Loading Flow
 ```
 Application Start → credentials.js (env validation) → config.js (discovery + assembly) →
-  ↓ (configuration distribution)
-Module Imports → Specific Configurations → Runtime Usage
+  ↓ (direct configuration access)
+Module Imports → config.js → Runtime Usage
 ```
 
 ### Permission Validation Flow
@@ -160,21 +161,21 @@ Direct Match → DM Group Membership → Authorization Result
 ```
 config.js Import → commandDiscovery.discoverCommands() → File System Scan →
   ↓ (**.config.js pattern matching)
-Configuration Aggregation → Module Integration → COMMANDS Export
+Configuration Aggregation → Direct Export → COMMANDS Property
 ```
 
 ### Environment Variable Flow
 ```
 .env File → dotenv.config() → credentials.js → Validation → Structured Access →
   ↓ (credential distribution)
-Cross-Module Usage → Dynamic Member Discovery → Runtime Configuration
+config.js Integration → Cross-Module Usage → Runtime Configuration
 ```
 
-### Cross-Module Integration Flow
+### Simplified Integration Flow
 ```
-config.js → Import Dependencies → Circular Dependency Resolution (setTimeout) →
-  ↓ (configuration assembly)
-Export Aggregation → Module Distribution → Runtime Access
+config.js → Import Dependencies → Direct Assembly →
+  ↓ (single configuration export)
+Module Imports → Direct Access → Runtime Usage
 ```
 
 ### System Configuration
@@ -218,3 +219,27 @@ CREDENTIALS = {
     }
 }
 ```
+
+## Key Improvements
+
+### Simplified Architecture
+- **Removed Abstraction Layers**: Eliminated unnecessary `loader.js` and `index.js` files
+- **Direct Imports**: All modules import directly from `configs/config.js`
+- **KISS Principle**: Follows "Keep It Simple, Stupid" for better maintainability
+- **Reduced Complexity**: No more indirection or proxy patterns
+
+### Import Pattern
+```javascript
+// Old pattern (removed)
+const config = require('./configs');          // Used index.js
+const config = require('./configs/loader');   // Indirect loading
+
+// New simplified pattern
+const config = require('./configs/config');   // Direct access
+```
+
+### Benefits
+- **Faster Loading**: No additional file processing overhead
+- **Clearer Dependencies**: Easy to trace configuration sources
+- **Easier Debugging**: Direct access to configuration logic
+- **Better Performance**: Reduced file I/O and processing time

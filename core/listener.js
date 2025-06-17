@@ -1,6 +1,6 @@
 // listener.js
 
-const config = require('../configs');
+const config = require('../configs/config');
 const logger = require('../utils/logger');
 const commandManager = require('./CommandManager');
 const { registerCommands } = require('./CommandRegistry');

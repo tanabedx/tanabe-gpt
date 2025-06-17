@@ -39,12 +39,14 @@ const NOTIFICATION_LEVELS = {
     COMMAND: false,
 };
 
+// Debug file configuration
+const DEBUG_FILE_ENABLED = true; // Set to false to disable debug file writing
+
 // --- END OF LOCAL LOGGER CONFIGURATION ---
 
 // Log file configuration
 const LOG_FILE = 'tanabe-gpt.log';
-const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
-const BACKUP_LOG_FILE = 'tanabe-gpt.old.log';
+const DEBUG_LOG_FILE = 'tanabe-gpt-debug.log';
 
 // ANSI color codes
 const COLORS = {
@@ -288,22 +290,6 @@ function formatAdminMessage(message, error = null) {
     return logMessage.replace(/:+/g, ':');
 }
 
-// Function to check log file size and rotate if needed
-async function checkAndRotateLog() {
-    try {
-        const stats = await fs.stat(LOG_FILE).catch(() => ({ size: 0 }));
-
-        if (stats.size >= MAX_LOG_SIZE) {
-            // Backup existing log file
-            await fs.rename(LOG_FILE, BACKUP_LOG_FILE).catch(() => {});
-            // Create new empty log file
-            await fs.writeFile(LOG_FILE, '');
-        }
-    } catch (error) {
-        console.error('Error rotating log file:', error);
-    }
-}
-
 // Function to parse log timestamp and return Date object
 function parseLogTimestamp(logLine) {
     try {
@@ -351,12 +337,9 @@ async function cleanOldLogs() {
         // Clean main log file
         await cleanLogFile(LOG_FILE);
         
-        // Clean backup log file if it exists
-        try {
-            await fs.access(BACKUP_LOG_FILE);
-            await cleanLogFile(BACKUP_LOG_FILE);
-        } catch (error) {
-            // Backup file doesn't exist, which is fine
+        // Clean debug log file only if enabled
+        if (DEBUG_FILE_ENABLED) {
+            await cleanLogFile(DEBUG_LOG_FILE);
         }
         
         logger.debug(`[${new Date().toLocaleString('en-US', {
@@ -405,11 +388,33 @@ async function cleanLogFile(filePath) {
 // Function to write to log file
 async function writeToLogFile(message) {
     try {
-        await checkAndRotateLog();
         await fs.appendFile(LOG_FILE, message + '\n');
     } catch (error) {
         console.error('Error writing to log file:', error);
     }
+}
+
+// Function to write to debug log file
+async function writeToDebugFile(message) {
+    try {
+        await fs.appendFile(DEBUG_LOG_FILE, message + '\n');
+    } catch (error) {
+        console.error('Error writing to debug log file:', error);
+    }
+}
+
+// Core debug logging function that always logs to debug file regardless of console flags
+async function logToDebugFile(level, message, error = null) {
+    // Only write to debug file if enabled
+    if (!DEBUG_FILE_ENABLED) {
+        return;
+    }
+    
+    // Format the message for debug file (always log everything)
+    const formattedMessage = formatLogWithTimestamp(level, message, error);
+    
+    // Always write to debug file regardless of console settings
+    await writeToDebugFile(formattedMessage);
 }
 
 // Functionto notify admin
@@ -443,7 +448,10 @@ async function notifyAdmin(message) {
 
 // Core logging function
 async function log(level, message, error = null, shouldNotifyAdmin = false) {
-    // Check if this log level is enabled in console settings
+    // Always write to debug file regardless of console settings
+    await logToDebugFile(level, message, error);
+    
+    // Check if this log level is enabled in console settings for main log and console output
     if (CONSOLE_LOG_LEVELS[level] !== true) {
         return;
     }
@@ -451,7 +459,7 @@ async function log(level, message, error = null, shouldNotifyAdmin = false) {
     // Format the message for console/file
     const formattedMessage = formatLogWithTimestamp(level, message, error);
 
-    // Write to log file
+    // Write to main log file (only if console level is enabled)
     await writeToLogFile(formattedMessage);
 
     // Use appropriate console method based on level
@@ -490,7 +498,20 @@ const logger = {
         log(LOG_LEVELS.WARN, message, error, shouldNotifyAdmin),
     info: message => log(LOG_LEVELS.INFO, message, null, true),
     debug: (message, obj = null) => {
-        // Only proceed if DEBUG is explicitly set to true OR if forced via environment variable
+        // Always write to debug file regardless of console settings
+        if (obj) {
+            // If an object is provided, log both the message and the object to debug file
+            logToDebugFile(LOG_LEVELS.DEBUG, message);
+            logToDebugFile(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`);
+        } else if (typeof message === 'object') {
+            // If message is an object, stringify it for debug file
+            logToDebugFile(LOG_LEVELS.DEBUG, JSON.stringify(message, null, 2));
+        } else {
+            // Otherwise just log the message to debug file
+            logToDebugFile(LOG_LEVELS.DEBUG, message);
+        }
+
+        // Only proceed with console/main log output if DEBUG is explicitly set to true OR if forced via environment variable
         if (CONSOLE_LOG_LEVELS.DEBUG !== true && process.env.FORCE_DEBUG_LOGS !== 'true') {
             return;
         }
@@ -517,7 +538,7 @@ const logger = {
             console.log(formattedMessage);
         }
 
-        // Write to log file in the background (don't wait for it to complete)
+        // Write to main log file in the background (don't wait for it to complete)
         // This ensures chronological order in console while still writing to file
         writeToLogFile(formattedMessage).catch(err =>
             console.error('Error writing log to file:', err)
@@ -525,11 +546,6 @@ const logger = {
     },
     summary: message => log(LOG_LEVELS.SUMMARY, message, null, true),
     prompt: (message, promptText) => {
-        // Only proceed if PROMPT is explicitly set to true OR if forced via environment variable
-        if (CONSOLE_LOG_LEVELS.PROMPT !== true && process.env.FORCE_PROMPT_LOGS !== 'true') {
-            return;
-        }
-
         // Handle undefined promptText
         if (promptText === undefined) {
             console.warn(formatLogWithTimestamp('WARN', 'Undefined prompt text received'));
@@ -544,6 +560,14 @@ const logger = {
             .filter(line => line !== '')
             .join('\n');
 
+        // Always write to debug file regardless of console settings
+        logToDebugFile(LOG_LEVELS.PROMPT, `${message}\n${promptText}`);
+
+        // Only proceed with console/main log output if PROMPT is explicitly set to true OR if forced via environment variable
+        if (CONSOLE_LOG_LEVELS.PROMPT !== true && process.env.FORCE_PROMPT_LOGS !== 'true') {
+            return;
+        }
+
         // Format the prompt header and text together
         const formattedPrompt = formatLogWithTimestamp(
             LOG_LEVELS.PROMPT,
@@ -555,7 +579,7 @@ const logger = {
         console.log(formattedPrompt);
         showSpinner();
 
-        // Also write to log file
+        // Also write to main log file
         writeToLogFile(formattedPrompt).catch(err =>
             console.error('Error writing prompt to log file:', err)
         );

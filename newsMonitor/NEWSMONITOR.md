@@ -1,10 +1,11 @@
 # News Monitor System Documentation
 
 ## Overview
-Automated news monitoring and distribution system for WhatsApp bot with multi-source content fetching, intelligent filtering pipeline, AI-powered content evaluation, and duplicate detection across Twitter and RSS feeds.
+Automated news monitoring and distribution system for WhatsApp bot with multi-source content fetching, intelligent filtering pipeline, AI-powered content evaluation, and duplicate detection across Twitter, RSS feeds, and website scraping sources.
 
 ## Core Features
-- **Multi-Source Fetching**: Twitter and RSS content with intelligent rate limiting and API key management
+- **Multi-Source Fetching**: Twitter, RSS feeds, and website scraping with intelligent rate limiting and API key management
+- **Website Scraping**: Direct pagination-based scraping for sites without RSS feeds (no Puppeteer required)
 - **Smart Content Processing**: Link extraction for short tweets with priority-based processing (images → links → original text)
 - **Advanced Filtering Pipeline**: 10-stage content evaluation from interval filtering to enhanced topic redundancy detection
 - **AI Content Evaluation**: Relevance assessment, summarization, and semantic duplicate detection
@@ -29,7 +30,7 @@ await restartMonitors(true, true);       // Restart Twitter and RSS
 Multi-stage filtering pipeline with parallel source processing, centralized AI evaluation, and persistent cache management. Uses configuration-driven source management with dynamic API key rotation for high availability.
 
 ### Processing Flow
-1. **Source Fetching** → `twitterFetcher.js` + `rssFetcher.js` (parallel execution)
+1. **Source Fetching** → `twitterFetcher.js` + `rssFetcher.js` + `webscraperFetcher.js` (parallel execution)
 2. **Filtering Pipeline** → `filteringUtils.js` (10-stage evaluation process)
 3. **AI Evaluation** → `evaluationUtils.js` (content relevance and summarization)
 4. **Duplicate Detection** → `contentProcessingUtils.js` (semantic similarity analysis)
@@ -45,6 +46,7 @@ Multi-stage filtering pipeline with parallel source processing, centralized AI e
 ### Content Fetching Layer
 - **`twitterFetcher.js`**: Twitter content retrieval, media handling, account-specific filtering
 - **`rssFetcher.js`**: RSS feed processing, article extraction, full content scraping
+- **`webscraperFetcher.js`**: Website scraping with pagination support, real-time content extraction
 - **`twitterApiHandler.js`**: Multi-key management, usage monitoring, rate limit handling
 
 ### Processing & Evaluation Layer
@@ -78,6 +80,23 @@ sources: [
         url: string,
         language: string,
         priority: number
+    },
+    {
+        type: 'webscraper',
+        enabled: boolean,
+        name: string,
+        url: string,
+        paginationPattern: string,     // URL pattern for pagination (e.g., 'page-{page}.ghtml')
+        scrapeMethod: string,          // 'pagination' for direct URL pagination
+        priority: number,
+        selectors: {
+            container: string,         // Article container selector
+            title: string,            // Title selector
+            link: string,             // Link selector
+            time: string,             // Time/date selector
+            content: string           // Content/summary selector
+        },
+        userAgent: string             // User agent for requests
     }
 ]
 ```
@@ -86,7 +105,7 @@ sources: [
 ```javascript
 filteringStages = [
     'intervalFilter',        // Last run timestamp or content age validation
-    'whitelistFilter',       // RSS path-based filtering
+    'whitelistFilter',       // Domain/path-based filtering for RSS and webscraper content
     'blacklistFilter',       // Keyword exclusion
     'imageTextExtraction',   // OCR for media-only content (step 3.5)
     'linkContentProcessing', // Link extraction for short tweets (step 3.6)
@@ -141,20 +160,21 @@ TOPIC_FILTERING = {
     USE_IMPORTANCE_SCORING: true,        // Enable AI importance evaluation
     COOLING_HOURS: 48,                   // How long to track related stories
     IMPORTANCE_THRESHOLDS: {
-        FIRST_CONSEQUENCE: 5,            // 1st follow-up needs score ≥5
-        SECOND_CONSEQUENCE: 7,           // 2nd follow-up needs score ≥7
-        THIRD_CONSEQUENCE: 9,            // 3rd follow-up needs score ≥9
+        FIRST_CONSEQUENCE: 7,            // 1st follow-up needs score ≥7 (stricter)
+        SECOND_CONSEQUENCE: 8,           // 2nd follow-up needs score ≥8 (stricter)
+        THIRD_CONSEQUENCE: 10,           // 3rd follow-up needs score ≥10 (stricter)
     },
     CATEGORY_WEIGHTS: {
-        ECONOMIC: 0.8,                   // Market reactions get reduced weight
-        DIPLOMATIC: 1.0,                 // Diplomatic news normal weight
-        MILITARY: 1.2,                   // Military developments boosted
-        LEGAL: 1.3,                      // Legal implications boosted
-        INTELLIGENCE: 1.3,               // Intelligence revelations boosted
-        HUMANITARIAN: 1.1,               // Humanitarian impacts slightly boosted
-        POLITICAL: 1.1,                  // Political developments slightly boosted
+        ECONOMIC: 0.7,                   // Market reactions get reduced weight (stricter)
+        DIPLOMATIC: 0.9,                 // Diplomatic news penalized (stricter)
+        MILITARY: 1.1,                   // Military developments boosted (reduced)
+        LEGAL: 1.2,                      // Legal implications boosted (reduced)
+        INTELLIGENCE: 1.2,               // Intelligence revelations boosted (reduced)
+        HUMANITARIAN: 1.0,               // Humanitarian impacts standard weight (reduced)
+        POLITICAL: 1.0,                  // Political developments standard weight (reduced)
+        SPORTS: 1.2,                     // Soccer news boosted due to personal interest
     },
-    ESCALATION_THRESHOLD: 8.5,           // Score ≥8.5 becomes new core event
+    ESCALATION_THRESHOLD: 9.5,           // Score ≥9.5 becomes new core event (stricter)
     // Legacy fallback settings
     MAX_CONSEQUENCES: 3,
     REQUIRE_HIGH_IMPORTANCE_FOR_CONSEQUENCES: true,
@@ -293,11 +313,197 @@ Continue to Content Evaluation (using link content instead of "🚨 ")
 - **Robust Error Handling**: Graceful degradation if link processing fails
 - **Performance Optimized**: Only processes when needed (short tweets with links)
 
+## Website Scraping System
+
+### Overview
+The News Monitor implements intelligent website scraping for sources that don't provide RSS feeds. The system uses direct URL pagination without requiring resource-heavy tools like Puppeteer, making it fast and efficient while extracting real publication timestamps.
+
+### How It Works
+
+#### Direct URL Pagination
+Instead of JavaScript automation, the webscraper discovers and exploits direct pagination URL patterns:
+```javascript
+// Example: GE Globo pagination pattern
+baseUrl: 'https://ge.globo.com/futebol/'
+paginationPattern: 'https://ge.globo.com/futebol/index/feed/pagina-{page}.ghtml'
+// Results in: page-2.ghtml, page-3.ghtml, page-4.ghtml, etc.
+```
+
+#### Real Timestamp Extraction
+- **Brazilian Portuguese Parsing**: Converts relative time expressions ("Há 5 minutos", "Há 2 horas") to actual timestamps
+- **Publication Time Recovery**: Extracts real publication times instead of scraping timestamps
+- **Timezone Awareness**: Handles Brazilian timezone properly for accurate filtering
+
+#### Processing Steps
+1. **Page Fetching**: Start with base URL, then paginate through numbered pages
+2. **Content Extraction**: Use CSS selectors to extract article data (title, link, time, content)
+3. **Time Normalization**: Parse relative timestamps into absolute ISO dates
+4. **Duplicate Detection**: Prevent duplicate articles across pagination pages
+5. **Limit Enforcement**: Stop when reaching configured article limit (default: 50)
+
+### Configuration
+
+#### Webscraper Source in Main Sources Array
+```javascript
+sources: [
+    {
+        type: 'webscraper',
+        enabled: true,
+        name: 'GE Globo',
+        url: 'https://ge.globo.com/futebol/',
+        paginationPattern: 'https://ge.globo.com/futebol/index/feed/pagina-{page}.ghtml',
+        scrapeMethod: 'pagination',
+        priority: 4,                        // Lower than Twitter/RSS sources
+        selectors: {
+            container: '.feed-post',         // Article container
+            title: '.feed-post-body h2 a',   // Article title
+            link: '.feed-post-body h2 a',    // Article link
+            time: '.feed-post-metadata',     // Relative time element
+            content: '.feed-post-body p'     // Article summary
+        },
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+    }
+]
+```
+
+#### Global Webscraper Settings
+```javascript
+WEBSCRAPER: {
+    MAX_ITEMS_PER_SOURCE: 50,        // Maximum articles per source
+    DEFAULT_TIMEOUT: 15000,          // Request timeout in milliseconds
+    DEFAULT_RETRY_ATTEMPTS: 2,       // Number of retry attempts
+}
+```
+
+### Key Functions (`webscraperFetcher.js`)
+```javascript
+// Main scraping orchestrator
+fetchAllSources()                    // Process all enabled webscraper sources
+
+// Core scraping logic
+scrapeSource(source)                 // Scrape single source with pagination
+scrapeWithPagination(source)         // Handle pagination URL patterns
+normalizeScrapedItem(item, source)   // Convert to standard format
+
+// Time processing utilities
+parseRelativeTime(timeText)          // Convert "Há 5 minutos" to timestamp
+```
+
+### Performance Benefits
+- **No Puppeteer Required**: Direct HTTP requests instead of browser automation
+- **10x Faster**: Typical scraping completes in <3 seconds vs 30+ seconds with Puppeteer
+- **Lower Resource Usage**: No browser overhead or memory consumption
+- **High Reliability**: Simple HTTP requests less prone to timeout or crashes
+- **Scalable**: Can easily handle multiple webscraper sources simultaneously
+
+### Output Format
+The webscraper produces RSS-compatible output that seamlessly integrates with existing filtering pipeline:
+```javascript
+scrapedArticle = {
+    type: 'article',
+    sourceName: 'GE Globo',
+    feedName: 'GE Globo',           // RSS compatibility
+    title: 'Article headline',
+    content: 'Article summary',
+    link: 'https://absolute-url',   // Converted to absolute URLs
+    pubDate: '2024-06-17T15:30:00.000Z', // Real publication time
+    dateTime: '2024-06-17T15:30:00.000Z', // Duplicate for compatibility
+    timeText: 'Há 5 minutos',       // Original relative time for reference
+    scrapedAt: 1718639400000,       // When article was scraped
+    scrapeMethod: 'pagination'      // Method used for scraping
+}
+```
+
+### Integration with Filtering Pipeline
+Webscraper output is fully compatible with all 10 filtering stages:
+- **Interval Filtering**: Uses real `pubDate` timestamps for time-based filtering
+- **Whitelist Filtering**: Subject to domain/path-based whitelist filtering like RSS content
+- **Content Evaluation**: AI processes `title` and `content` fields normally
+- **Duplicate Detection**: `link` URLs enable proper deduplication
+- **Topic Filtering**: Integrates with importance scoring and topic tracking
+- **Priority System**: Respects configured priority level vs Twitter/RSS sources
+
+## Enhanced Whitelist Filtering System
+
+### Overview
+The News Monitor implements flexible whitelist filtering that applies to both RSS feeds and webscraper content. The system supports both domain-based (most permissive) and path-based (more restrictive) filtering in the same configuration.
+
+### How It Works
+
+#### Dual Filtering Modes
+The whitelist system automatically detects entry types based on content:
+- **Domain Entries**: No forward slashes (`/`) → Treats as domain whitelist
+- **Path Entries**: Contains forward slashes (`/`) → Treats as URL path whitelist
+
+#### Domain-Based Filtering (Most Permissive)
+```javascript
+WHITELIST_PATHS: [
+    'ge.globo.com',           // Allows ALL content from ge.globo.com
+    'globo.com',              // Allows ALL content from globo.com or *.globo.com
+]
+
+// Examples that pass:
+'https://ge.globo.com/futebol/times/flamengo/noticia/...'    Allowed
+'https://ge.globo.com/futebol/copa-do-mundo/...'             Allowed  
+'https://ge.globo.com/any/path/...'                          Allowed
+'https://esporte.globo.com/futebol/...'                      Allowed (subdomain)
+```
+
+#### Path-Based Filtering (More Restrictive)
+```javascript
+WHITELIST_PATHS: [
+    '/mundo/noticia',         // Only allows URLs starting with /mundo/noticia
+    '/economia/noticia',      // Only allows URLs starting with /economia/noticia
+]
+
+// Examples from g1.globo.com:
+'https://g1.globo.com/mundo/noticia/2024/...'                Allowed
+'https://g1.globo.com/economia/noticia/2024/...'             Allowed
+'https://g1.globo.com/entretenimento/cinema/...'             ❌ Blocked
+```
+
+#### Mixed Configuration Example
+```javascript
+CONTENT_FILTERING: {
+    WHITELIST_PATHS: [
+        // Domain-based (most permissive)
+        'ge.globo.com',           // Allow all GE Globo webscraper content
+        // Path-based (more restrictive)  
+        '/mundo/noticia',         // Allow only specific G1 RSS paths
+        '/economia/noticia',
+        '/politica/noticia',
+    ]
+}
+```
+
+### Content Type Support
+- **RSS Feeds**: All RSS content subject to whitelist filtering
+- **Webscraper Content**: All webscraper content subject to whitelist filtering
+- **Twitter Content**: Bypasses whitelist filtering (not applicable to tweets)
+
+### Key Functions (`filteringUtils.js`)
+```javascript
+// Enhanced whitelist filtering
+isItemWhitelisted(item, whitelistPaths)  // Apply domain/path-based filtering
+
+// Logic flow:
+// 1. Check domain-based entries first (most permissive)
+// 2. Check path-based entries if no domain match
+// 3. Block item if no matches found
+```
+
+### Benefits
+- **Flexible Control**: Mix domain and path-based filtering in same configuration
+- **Most Permissive Option**: Domain whitelisting allows all content from trusted sources
+- **Granular Control**: Path whitelisting for specific content sections
+- **Universal Application**: Works for both RSS feeds and webscraper content
+- **Simple Configuration**: Automatic detection based on entry format (presence of `/`)
+
 ## Data Flows
 
 ### Standard Processing Cycle
 ```
-newsMonitor.js (timer) → Source Fetchers (parallel) → filteringUtils.js (10 stages) → 
+newsMonitor.js (timer) → Source Fetchers: Twitter + RSS + Webscraper (parallel) → filteringUtils.js (10 stages) → 
   ↓ (stage 9: traditional topic filter)
 Source Priority + AI Grouping → Within-Batch Deduplication →
   ↓ (stage 10: enhanced topic filter)
@@ -391,11 +597,18 @@ source = {
     name: string,
     
     // Webscraper-specific
-    selectorConfig: {
-        articleSelector: string,
-        titleSelector: string,
-        linkSelector: string
-    }
+    name: string,                 // Display name for the source
+    url: string,                  // Base URL to scrape
+    paginationPattern: string,    // URL pattern for pagination (e.g., 'page-{page}.ghtml')
+    scrapeMethod: string,         // 'pagination' for direct URL pagination
+    selectors: {
+        container: string,        // Article container selector
+        title: string,           // Title selector  
+        link: string,            // Link selector
+        time: string,            // Time/date selector
+        content: string          // Content/summary selector
+    },
+    userAgent: string            // User agent for requests
 }
 ```
 
@@ -404,7 +617,7 @@ source = {
 CONTENT_FILTERING = {
     BLACKLIST_KEYWORDS: string[],    // Content exclusion terms
     EXCLUDED_PATHS: string[],        // RSS path exclusions
-    WHITELIST_PATHS: string[],       // RSS path inclusions
+    WHITELIST_PATHS: string[],       // Domain/path inclusions for RSS and webscraper content
     EVALUATION_CHAR_LIMIT: number,   // Content truncation for AI
     SUMMARY_CHAR_LIMIT: number       // Summary length limit
 }
@@ -429,20 +642,21 @@ TOPIC_FILTERING = {
     USE_IMPORTANCE_SCORING: boolean, // Use AI scoring vs simple counting
     COOLING_HOURS: number,           // Active topic lifespan (default: 48)
     IMPORTANCE_THRESHOLDS: {
-        FIRST_CONSEQUENCE: number,   // Score threshold for 1st follow-up (default: 5)
-        SECOND_CONSEQUENCE: number,  // Score threshold for 2nd follow-up (default: 7)
-        THIRD_CONSEQUENCE: number,   // Score threshold for 3rd follow-up (default: 9)
+        FIRST_CONSEQUENCE: number,   // Score threshold for 1st follow-up (default: 7 - stricter)
+        SECOND_CONSEQUENCE: number,  // Score threshold for 2nd follow-up (default: 8 - stricter)
+        THIRD_CONSEQUENCE: number,   // Score threshold for 3rd follow-up (default: 10 - stricter)
     },
     CATEGORY_WEIGHTS: {
-        ECONOMIC: number,            // Weight multiplier for economic news (default: 0.8)
-        DIPLOMATIC: number,          // Weight multiplier for diplomatic news (default: 1.0)
-        MILITARY: number,            // Weight multiplier for military news (default: 1.2)
-        LEGAL: number,               // Weight multiplier for legal news (default: 1.3)
-        INTELLIGENCE: number,        // Weight multiplier for intelligence news (default: 1.3)
-        HUMANITARIAN: number,        // Weight multiplier for humanitarian news (default: 1.1)
-        POLITICAL: number,           // Weight multiplier for political news (default: 1.1)
+        ECONOMIC: number,            // Weight multiplier for economic news (default: 0.7 - stricter)
+        DIPLOMATIC: number,          // Weight multiplier for diplomatic news (default: 0.9 - stricter)
+        MILITARY: number,            // Weight multiplier for military news (default: 1.1 - reduced)
+        LEGAL: number,               // Weight multiplier for legal news (default: 1.2 - reduced)
+        INTELLIGENCE: number,        // Weight multiplier for intelligence news (default: 1.2 - reduced)
+        HUMANITARIAN: number,        // Weight multiplier for humanitarian news (default: 1.0 - reduced)
+        POLITICAL: number,           // Weight multiplier for political news (default: 1.0 - reduced)
+        SPORTS: number,              // Weight multiplier for sports/soccer news (default: 1.2)
     },
-    ESCALATION_THRESHOLD: number,    // Score for promoting to new core event (default: 8.5)
+    ESCALATION_THRESHOLD: number,    // Score for promoting to new core event (default: 9.5 - stricter)
     // Legacy fallback settings
     MAX_CONSEQUENCES: number,        // Simple counting limit if AI scoring disabled
     REQUIRE_HIGH_IMPORTANCE_FOR_CONSEQUENCES: boolean
@@ -458,6 +672,16 @@ HISTORICAL_CACHE = {
     SIMILARITY_THRESHOLD: number,    // Duplicate detection sensitivity (0-1)
     BATCH_SIMILARITY_THRESHOLD: number // Batch comparison threshold
 }
+```
+
+### Webscraper Configuration
+```javascript
+WEBSCRAPER = {
+    MAX_ITEMS_PER_SOURCE: number,    // Maximum articles per webscraper source (default: 50)
+    DEFAULT_TIMEOUT: number,         // HTTP request timeout in milliseconds (default: 15000)
+    DEFAULT_RETRY_ATTEMPTS: number,  // Number of retry attempts on failure (default: 2)
+}
+```
 ```
 
 ### Cache Structure (`newsCache.json`)
@@ -539,12 +763,12 @@ Result: Keep #1 (highest priority), remove #2 and #3
 5. **Escalation Detection**: High-scoring items (≥8.5) become new core events
 
 ### Benefits of Two-Stage Approach
-- **✅ No Redundant IDs**: Time filtering prevents duplicate fetches, eliminating need for ID-based tracking
-- **✅ Source Priority Enforcement**: Higher priority sources automatically preferred (SITREP_artorias > BreakingNews > G1)
-- **✅ Within-Batch Deduplication**: Similar news in same cycle filtered by source priority and AI selection
-- **✅ Historical Context Awareness**: Follow-up stories evaluated against 48-hour topic history
-- **✅ Intelligent Consequence Filtering**: Only genuinely important developments pass progressive thresholds
-- **✅ Escalation Detection**: Major developments become new topics instead of buried consequences
+- **No Redundant IDs**: Time filtering prevents duplicate fetches, eliminating need for ID-based tracking
+- **Source Priority Enforcement**: Higher priority sources automatically preferred (SITREP_artorias > BreakingNews > G1)
+- **Within-Batch Deduplication**: Similar news in same cycle filtered by source priority and AI selection
+- **Historical Context Awareness**: Follow-up stories evaluated against 48-hour topic history
+- **Intelligent Consequence Filtering**: Only genuinely important developments pass progressive thresholds
+- **Escalation Detection**: Major developments become new topics instead of buried consequences
 
 ### Key Functions (`filteringUtils.js`)
 ```javascript
@@ -583,33 +807,34 @@ The News Monitor implements an advanced AI-powered consequence evaluation system
 #### Dynamic Threshold System
 ```javascript
 consequenceThresholds = {
-    FIRST_CONSEQUENCE: 5,    // Market reactions blocked (score 3-4 typical)
-    SECOND_CONSEQUENCE: 7,   // Standard responses blocked (score 4-6 typical)  
-    THIRD_CONSEQUENCE: 9,    // Only major revelations (score 9-10)
+    FIRST_CONSEQUENCE: 7,    // Only significant developments (stricter)
+    SECOND_CONSEQUENCE: 8,   // Important revelations only (stricter)
+    THIRD_CONSEQUENCE: 10,   // Only absolute game-changers (stricter)
 }
 ```
 
 #### Category Weights
 ```javascript
 categoryMultipliers = {
-    ECONOMIC: 0.8,       // Market news penalized (-20%)
-    INTELLIGENCE: 1.3,   // Intelligence revelations boosted (+30%)
-    LEGAL: 1.3,          // War crimes/legal issues boosted (+30%)
-    MILITARY: 1.2,       // Military developments boosted (+20%)
-    DIPLOMATIC: 1.0,     // Standard weight
-    HUMANITARIAN: 1.1,   // Humanitarian issues slightly boosted (+10%)
-    POLITICAL: 1.1       // Political developments slightly boosted (+10%)
+    ECONOMIC: 0.7,       // Market news heavily penalized (-30%) (stricter)
+    DIPLOMATIC: 0.9,     // Diplomatic news penalized (-10%) (stricter)
+    MILITARY: 1.1,       // Military developments boosted (+10%) (reduced)
+    LEGAL: 0.9,          // War crimes/legal issues boosted (-10%) (reduced)
+    INTELLIGENCE: 1.1,   // Intelligence revelations boosted (+10%) (reduced)
+    HUMANITARIAN: 0.9,   // Humanitarian issues standard weight (-10%) (reduced)
+    POLITICAL: 1.0,      // Political developments standard weight (reduced)
+    SPORTS: 1.2          // Soccer news boosted (+20%) due to personal interest
 }
 ```
 
 ### Example: Israel-Iran Attack Coverage
 | Time | News | AI Score | Category | Weighted Score | Threshold | Action |
 |------|------|----------|----------|----------------|-----------|--------|
-| 08:04 | Israel bombs Iran | 8.0 | MILITARY | 9.6 (8.0×1.2) | - | ✅ **Create Topic** |
-| 09:09 | Dollar rises | 3.0 | ECONOMIC | 2.4 (3.0×0.8) | 5.0 | ❌ **Block** (below threshold) |
-| 09:09 | Politicians in bunkers | 4.0 | DIPLOMATIC | 4.0 (4.0×1.0) | 5.0 | ❌ **Block** (below threshold) |
-| 10:44 | US coordination revealed | 9.0 | INTELLIGENCE | 11.7 (9.0×1.3) | 5.0 | ✅ **Allow** (above threshold) |
-| 11:30 | Iran announces retaliation | 9.5 | MILITARY | 11.4 (9.5×1.2) | 8.5 | ✅ **New Core Event** (escalation) |
+| 08:04 | Israel bombs Iran | 8.0 | MILITARY | 8.8 (8.0×1.1) | - | **Create Topic** |
+| 09:09 | Dollar rises | 3.0 | ECONOMIC | 2.1 (3.0×0.7) | 7.0 | ❌ **Block** (below threshold) |
+| 09:09 | Politicians in bunkers | 6.0 | DIPLOMATIC | 5.4 (6.0×0.9) | 7.0 | ❌ **Block** (below threshold) |
+| 10:44 | US coordination revealed | 9.0 | INTELLIGENCE | 10.8 (9.0×1.2) | 7.0 | **Allow** (above threshold) |
+| 11:30 | Iran announces retaliation | 9.5 | MILITARY | 10.45 (9.5×1.1) | 9.5 | **New Core Event** (escalation) |
 
 ### Key Functions (`persistentCache.js`)
 ```javascript
@@ -674,6 +899,13 @@ updateLastRunTimestamp(timestamp) // Updates timestamp (only during non-quiet ho
 - **Feed Parser**: RSS/Atom feed parsing with full article content extraction
 - **Web Scraping**: Cheerio-based HTML parsing for article content
 - **Content Extraction**: Title, link, description, publication date processing
+
+### Website Scraping
+- **Direct HTTP Requests**: Axios-based content fetching without browser automation
+- **CSS Selector Parsing**: Cheerio-based HTML element extraction
+- **Pagination Support**: URL pattern-based page traversal
+- **Timestamp Processing**: Brazilian Portuguese relative time parsing
+- **Content Normalization**: RSS-compatible output format
 
 ### OpenAI API Integration
 - **Model Usage**: Multiple models optimized for different evaluation tasks

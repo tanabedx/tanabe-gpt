@@ -1,4 +1,4 @@
-const config = require('../../configs');
+const config = require('../../configs/config');
 // NOTE: Configurations are saved to /configs/commandConfigs/periodicSummary.config.js
 const { runCompletion } = require('../../utils/openaiUtils');
 const { saveConfig } = require('./configUtils');
@@ -153,7 +153,7 @@ function clearUserState(userId, chatId, success = false, message = null) {
         logger.debug('Wizard state cleared for user', { userId, chatId, success });
 
         if (message && success) {
-            message.reply('✅ Configuração concluída com sucesso!');
+            message.reply('Configuração concluída com sucesso!');
         } else if (message) {
             message.reply('❌ Configuração cancelada.');
         }
@@ -413,7 +413,7 @@ async function processWizardStep(message) {
 
                         // Display config
                         await message.reply(
-                            `✅ Grupo "${userState.groupName}" configurado com sucesso usando as configurações padrão!\n\n` +
+                            `Grupo "${userState.groupName}" configurado com sucesso usando as configurações padrão!\n\n` +
                                 `${formatGroupConfig(userState.groupName, groupConfig)}`
                         );
                         // Automatically quit the wizard after successful configuration
@@ -472,7 +472,7 @@ async function processWizardStep(message) {
                         config.PERIODIC_SUMMARY.groups[userState.selectedGroup] = updatedConfig;
                         await saveConfig();
                         await message.reply(
-                            `✅ Grupo "${userState.selectedGroup}" ${
+                            `Grupo "${userState.selectedGroup}" ${
                                 !currentConfig.enabled ? 'ativado' : 'desativado'
                             } com sucesso!\n\n` +
                                 `${formatGroupConfig(userState.selectedGroup, updatedConfig)}`
@@ -535,7 +535,7 @@ async function processWizardStep(message) {
                         if (result.success) {
                             await saveConfig();
                             await message.reply(
-                                `✅ Grupo "${userState.selectedGroup}" removido com sucesso!`
+                                `Grupo "${userState.selectedGroup}" removido com sucesso!`
                             );
                         } else {
                             await message.reply(`❌ Erro ao remover o grupo: ${result.message}`);
@@ -568,7 +568,7 @@ async function processWizardStep(message) {
                     };
                     await saveConfig();
                     await message.reply(
-                        `✅ Intervalo atualizado com sucesso!\n\n` +
+                        `Intervalo atualizado com sucesso!\n\n` +
                             `${formatGroupConfig(
                                 userState.selectedGroup,
                                 config.PERIODIC_SUMMARY.groups[userState.selectedGroup]
@@ -656,7 +656,7 @@ async function processWizardStep(message) {
                     config.PERIODIC_SUMMARY.groups[userState.selectedGroup] = updatedConfig;
                     await saveConfig();
                     await message.reply(
-                        `✅ Horário silencioso atualizado com sucesso!\n\n` +
+                        `Horário silencioso atualizado com sucesso!\n\n` +
                             `${formatGroupConfig(userState.selectedGroup, updatedConfig)}`
                     );
 
@@ -697,7 +697,7 @@ async function processWizardStep(message) {
                         config.PERIODIC_SUMMARY.groups[userState.selectedGroup] = updatedConfig;
                         await saveConfig();
                         await message.reply(
-                            `✅ Exclusão automática desativada!\n\n` +
+                            `Exclusão automática desativada!\n\n` +
                                 `${formatGroupConfig(userState.selectedGroup, updatedConfig)}`
                         );
 
@@ -775,7 +775,7 @@ async function processWizardStep(message) {
                     config.PERIODIC_SUMMARY.groups[userState.selectedGroup] = updatedConfig;
                     await saveConfig();
                     await message.reply(
-                        `✅ Tempo de exclusão automática atualizado!\n\n${formatGroupConfig(
+                        `Tempo de exclusão automática atualizado!\n\n${formatGroupConfig(
                             userState.selectedGroup,
                             updatedConfig
                         )}`
@@ -905,7 +905,7 @@ async function processWizardStep(message) {
                     };
                     await saveConfig();
                     await message.reply(
-                        `✅ Configuração salva com sucesso!\n\n` +
+                        `Configuração salva com sucesso!\n\n` +
                             `${formatGroupConfig(
                                 groupName3,
                                 config.PERIODIC_SUMMARY.groups[groupName3]
@@ -937,7 +937,7 @@ async function processWizardStep(message) {
                     };
                     await saveConfig();
                     await message.reply(
-                        `✅ Configuração salva com sucesso!\n\n` +
+                        `Configuração salva com sucesso!\n\n` +
                             `${formatGroupConfig(groupName3, {
                                 ...config.PERIODIC_SUMMARY.defaults,
                                 ...currentConfig,
@@ -967,7 +967,7 @@ async function processWizardStep(message) {
 
                 await saveConfig();
                 await message.reply(
-                    `✅ Configuração salva com sucesso!\n\n` +
+                    `Configuração salva com sucesso!\n\n` +
                         `${formatGroupConfig(
                             groupName2,
                             config.PERIODIC_SUMMARY.groups[groupName2]
@@ -991,7 +991,7 @@ async function processWizardStep(message) {
 
                     if (result.success) {
                         await message.reply(
-                            `✅ Configuração salva com sucesso para o grupo "${groupName}"!`
+                            `Configuração salva com sucesso para o grupo "${groupName}"!`
                         );
 
                         // Clear user state with success message

@@ -7,7 +7,7 @@ setTimeout(() => {
     logger = require('../../utils/logger');
     groupManager = require('./groupManager');
     envMapper = require('../envMapper');
-    config = require('../../configs');
+    config = require('../../configs/config');
 }, 0);
 
 async function savePeriodicSummaryConfig(periodicSummaryConfig) {

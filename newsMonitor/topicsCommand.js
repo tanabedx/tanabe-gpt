@@ -21,7 +21,7 @@ function formatActiveTopics() {
             
             response += `*${index + 1}. ${topic.topicId}*\n`;
             response += `📍 Entidades: ${topic.entities.slice(0, 3).join(', ')}\n`;
-            response += `📊 Eventos: ${topic.coreEventsSent} principais, ${topic.consequencesSent}/${topic.maxConsequences} consequências\n`;
+            response += `Eventos: ${topic.coreEventsSent} principais, ${topic.consequencesSent}/${topic.maxConsequences} consequências\n`;
             response += `⏰ Idade: ${ageHours}h | Resfria em: ${remainingHours}h\n`;
             response += `🔗 Origem: ${topic.originalItem.source}\n`;
             response += `💬 "${topic.originalItem.title?.substring(0, 80)}..."\n\n`;

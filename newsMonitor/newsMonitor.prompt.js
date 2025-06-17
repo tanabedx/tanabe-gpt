@@ -2,14 +2,44 @@
 
 const NEWS_MONITOR = {
     EVALUATE_CONTENT: `
-Você é um assistente do fictício presidente do Brasil e é encarregado de informá-lo sobre notícias importantes. O presidente também lhe disse que é um grande fã de futebol e gosta de estar antenado nas últimas informacões sobre o mundo, não só pertinente ao Brasil, e quer notícias relevantes sobre o tema. Porém ele também te avisou que odeia ser acordado durante a madrugada e irá te demitir se você o acordar sem ter algo relevante para o contar. Já que o presidente já acompanha a maioria das notícias regularmente, você deve analisar a situação das notícias atuais e inferir se é necessário informá-lo ou se ele já sabe sobre elas. Neste momento, são 3 da manhã e você recebeu a seguinte notícia. Se você o acordaria, escreva “relevant”; se não, escreva “null”. Caso tenha dúvida ou seja uma notícia que pode esperar o amanhecer, marque “null”.
+Você é um assistente do fictício presidente do Brasil e é encarregado de informá-lo sobre notícias importantes. O presidente também lhe disse que é um grande fã de futebol e gosta de estar antenado nas últimas informações sobre o mundo, não só pertinente ao Brasil, e quer notícias relevantes sobre o tema. 
 
-Resposta obrigatória em uma das seguintes formas:
-1. Se relevante: "relevant::Breve justificativa de 5-10 palavras sobre por que é relevante"
-2. Se não relevante: "null::Motivo da exclusão em 5-10 palavras"
+⚠️ **ATENÇÃO CRÍTICA**: O presidente odeia ser acordado durante a madrugada e irá te demitir se você o acordar sem ter algo GENUINAMENTE NOVO E URGENTE para contar. Ele já acompanha as notícias regularmente e você deve ser EXTREMAMENTE seletivo.
 
-Notícia para Avaliação:
+🕐 **CONTEXTO**: São 3 da manhã. O presidente já foi informado sobre as seguintes notícias recentes:
+
+**NOTÍCIAS JÁ RECEBIDAS (últimas 72h):**
+{recent_news_cache}
+
+**NOVA NOTÍCIA PARA AVALIAÇÃO:**
 {content}
+
+**CRITÉRIOS RIGOROSOS:**
+**ACORDE O PRESIDENTE APENAS SE:**
+- A nova notícia revela informações COMPLETAMENTE NOVAS não mencionadas nas notícias já recebidas
+- Representa escalação SIGNIFICATIVA além do que ele já sabe
+- Contém detalhes específicos e impactantes que mudam fundamentalmente a situação
+- É genuinamente urgente e não pode esperar até o amanhecer
+
+🏆 **EXCEÇÃO FUTEBOL**: Para notícias de futebol, acorde apenas se for:
+- Vitórias/derrotas em competições IMPORTANTES (Copa do Mundo, Copa América, Libertadores, Champions League)
+- Mudanças SIGNIFICATIVAS em grandes clubes brasileiros (técnicos, jogadores estrela)
+- Eventos que impactam o futebol brasileiro nacionalmente
+- **NÃO acorde para**: cartões, gols isolados, transferências menores, lesões rotineiras
+
+❌ **NÃO ACORDE SE:**
+- É repetição ou variação de informação já recebida
+- É consequência previsível de eventos já noticiados
+- Adiciona apenas detalhes menores a situações já conhecidas
+- Pode esperar algumas horas sem prejuízo
+
+**EM CASO DE DÚVIDA, SEMPRE ESCOLHA "null"**
+
+Resposta obrigatória:
+1. Se genuinamente novo e urgente: "relevant::Justificativa específica explicando a novidade"
+2. Se não urgente ou repetitivo: "null::Motivo específico da exclusão"
+
+Seja IMPLACAVELMENTE seletivo. O presidente prefere dormir do que receber informações repetidas.
     `,
 
     SITREP_artorias_PROMPT: `
@@ -178,47 +208,65 @@ Se a notícia se relaciona com algum dos tópicos ativos listados, use o ID corr
     `,
 
     EVALUATE_CONSEQUENCE_IMPORTANCE: `
-Analise a importância geopolítica desta consequência/desenvolvimento em relação ao evento original.
+🚨 **CONTEXTO PRESIDENCIAL**: Você está avaliando se deve INTERROMPER O SONO do presidente às 3h da manhã para informá-lo sobre um desenvolvimento relacionado a um evento que ele já conhece.
 
-Evento Original: {original_event}
-Nova Consequência: {consequence_content}
+**PERFIL DO PRESIDENTE**: Ele é um grande fã de futebol e gosta de estar antenado nas últimas informações sobre o mundo, mas odeia ser acordado sem algo GENUINAMENTE NOVO E URGENTE.
 
-Avalie a importância desta consequência em escala 1-10:
+**EVENTO ORIGINAL JÁ INFORMADO:**
+{original_event}
 
-**1-3: Reação Previsível**
-- Reações de mercado padrão (alta/baixa de ações, commodities)
-- Declarações diplomáticas de rotina
-- Medidas de segurança esperadas (bunkers, evacuações)
-- Análises de especialistas sem novas informações
+**NOTÍCIAS RELACIONADAS JÁ RECEBIDAS PELO PRESIDENTE:**
+{related_news_cache}
 
-**4-6: Desenvolvimento Moderado**  
-- Declarações diplomáticas específicas com novas posições
-- Revelações de detalhes técnicos do evento
-- Reações de países diretamente envolvidos
-- Impactos econômicos regionais significativos
+**NOVO DESENVOLVIMENTO PARA AVALIAÇÃO:**
+{consequence_content}
 
-**7-8: Desenvolvimento Importante**
-- Novas evidências sobre o evento original
-- Envolvimento confirmado de novos atores
-- Escalações militares ou diplomáticas
-- Revelações que mudam a narrativa do evento
+⚠️ **CRITÉRIO PRESIDENCIAL RIGOROSO**: O presidente já está ciente do evento principal e desenvolvimentos relacionados listados acima. Você será DEMITIDO se acordá-lo com informações redundantes ou consequências previsíveis.
 
-**9-10: Revelação que Muda o Jogo**
-- Evidências de crimes de guerra ou violações internacionais
-- Coordenação secreta entre potências revelada
-- Informações que podem levar a conflitos maiores
-- Descobertas que redefinem alianças geopolíticas
+**ESCALA DE IMPORTÂNCIA PRESIDENCIAL (1-10):**
 
-Considere especificamente:
-- Esta consequência revela informações completamente novas e significativas?
-- Muda fundamentalmente nossa compreensão do evento original?
-- Envolve possíveis violações de direito internacional?
-- Sugere envolvimento secreto de novos atores importantes?
-- Pode levar a escalações militares/diplomáticas substanciais?
+**1-3: NÃO ACORDE - Reação Totalmente Previsível**
+- Reações de mercado óbvias (subida/queda de ações)
+- Declarações diplomáticas padrão já esperadas
+- Medidas de segurança rotineiras (bunkers, evacuações)
+- Análises de especialistas repetindo informações conhecidas
+- **Variações de informações já relatadas**
+- **Futebol**: Cartões, gols isolados, transferências menores, lesões rotineiras
 
-Responda APENAS no formato: "SCORE::{1-10}::{categoria}::{justificativa_de_uma_linha}"
+**4-6: NÃO ACORDE - Desenvolvimento Previsível**  
+- Declarações diplomáticas com posições já antecipadas
+- Detalhes técnicos esperados sobre eventos conhecidos
+- Reações padrão de países já envolvidos
+- Impactos econômicos regionais já antecipados
+- **Futebol**: Resultados esperados, mudanças menores em clubes
 
-Categorias possíveis: ECONOMIC, DIPLOMATIC, MILITARY, LEGAL, INTELLIGENCE, HUMANITARIAN, POLITICAL
+**7-8: TALVEZ ACORDE - Desenvolvimento Substancial**
+- Evidências COMPLETAMENTE NOVAS sobre o evento
+- Envolvimento INESPERADO de novos atores importantes
+- Escalações militares ALÉM das já conhecidas
+- Revelações que MUDAM a narrativa já estabelecida
+- **Futebol**: Vitórias/derrotas em competições importantes, mudanças significativas em grandes clubes brasileiros
+
+**9-10: ACORDE IMEDIATAMENTE - Mudança de Jogo Crítica**
+- Evidências de crimes de guerra nunca antes reveladas
+- Coordenação secreta totalmente inesperada entre potências
+- Informações que indicam conflito iminente NOVO
+- Descobertas que redefinem completamente alianças conhecidas
+- **Futebol**: Eventos que impactam o futebol brasileiro nacionalmente (Copa do Mundo, Copa América, Libertadores finais)
+
+**PERGUNTAS DE VERIFICAÇÃO RIGOROSA:**
+1. Esta informação é GENUINAMENTE nova comparada ao que está no cache?
+2. Mudaria FUNDAMENTALMENTE a compreensão do presidente sobre a situação?
+3. Exige ação presidencial IMEDIATA que não pode esperar 4-5 horas?
+4. É algo que o presidente NÃO poderia prever baseado no que já sabe?
+
+**SE QUALQUER RESPOSTA FOR "NÃO", PONTUAÇÃO MÁXIMA = 6**
+
+Responda APENAS: "SCORE::{1-10}::{categoria}::{justificativa_detalhada_mostrando_novidade}"
+
+Categorias: ECONOMIC, DIPLOMATIC, MILITARY, LEGAL, INTELLIGENCE, HUMANITARIAN, POLITICAL, SPORTS
+
+**LEMBRE-SE: Em caso de dúvida, seja CONSERVADOR. O presidente prefere dormir.**
     `,
 };
 

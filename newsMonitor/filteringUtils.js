@@ -9,30 +9,53 @@ const {
 } = require('./persistentCache'); // For enhanced topic filtering
 
 /**
- * Checks if an item (RSS or other) passes the whitelist filter.
+ * Checks if an item (RSS or webscraper) passes the whitelist filter.
  * @param {Object} item - The news item to check.
- * @param {string[]} whitelistPaths - Array of whitelisted URL paths.
+ * @param {string[]} whitelistPaths - Array of whitelisted URL paths or domains.
  * @returns {boolean} - True if the item should be kept, false otherwise.
  */
 function isItemWhitelisted(item, whitelistPaths) {
-    if (item.accountName) return true; // Tweets are not subject to this path-based whitelist
-    if (item.feedName && item.link) {
+    if (item.accountName) return true; // Tweets are not subject to this whitelist
+    
+    // Apply whitelist to both RSS and webscraper content
+    if ((item.feedName || item.type === 'webscraper') && item.link) {
         try {
             const urlObj = new URL(item.link);
-            // This filter is specifically for 'g1.globo.com' as per original logic
-            if (!urlObj.hostname.includes('g1.globo.com')) return true;
+            const hostname = urlObj.hostname;
             const fullPath = urlObj.pathname;
-            return whitelistPaths.some(whitelistedPath => fullPath.startsWith(whitelistedPath));
+            
+            // Check domain-based whitelist first (most permissive)
+            for (const whitelistEntry of whitelistPaths) {
+                // If entry contains no slashes, treat as domain whitelist
+                if (!whitelistEntry.includes('/')) {
+                    if (hostname === whitelistEntry || hostname.endsWith('.' + whitelistEntry)) {
+                        return true; // Domain match - allow all content
+                    }
+                }
+            }
+            
+            // Check path-based whitelist (more restrictive)
+            for (const whitelistEntry of whitelistPaths) {
+                // If entry contains slashes, treat as path whitelist
+                if (whitelistEntry.includes('/')) {
+                    if (fullPath.startsWith(whitelistEntry)) {
+                        return true; // Path match
+                    }
+                }
+            }
+            
+            // If no whitelist entries match, block the item
+            return false;
         } catch (e) {
             logger.warn(
-                `NM: Invalid URL for RSS item "${item.title?.substring(0, 50)}": ${
+                `NM: Invalid URL for item "${item.title?.substring(0, 50)}": ${
                     item.link
                 }. Keeping.`
             );
             return true; // Keep if URL is invalid
         }
     }
-    return true; // Keep if not an RSS item with a link or other unspecified cases
+    return true; // Keep if not an RSS/webscraper item with a link
 }
 
 /**

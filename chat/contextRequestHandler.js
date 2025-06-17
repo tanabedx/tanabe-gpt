@@ -207,7 +207,7 @@ function formatContextResponse(contextResult) {
         case 'NO_NEW_MESSAGES_IN_CACHE':
             return '📝 Não há novas mensagens de contexto no cache no momento. O bot usará o que já possui.';
         case 'ALL_MESSAGES_RETRIEVED':
-            return '✅ Todo o histórico de mensagens disponível foi carregado.';
+            return 'Todo o histórico de mensagens disponível foi carregado.';
         case 'MAX_MESSAGES_LIMIT_REACHED':
             return '🛑 Limite máximo de mensagens de contexto (1000) atingido.';
         case 'ERROR_CLIENT_NOT_AVAILABLE':

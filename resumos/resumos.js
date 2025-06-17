@@ -1,4 +1,4 @@
-const config = require('../configs');
+const config = require('../configs/config');
 const { runCompletion } = require('../utils/openaiUtils');
 const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUtils');
 const { getResumoPrompt } = require('./resumoPromptUtils');

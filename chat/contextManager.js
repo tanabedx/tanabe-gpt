@@ -1,5 +1,5 @@
 const logger = require('../utils/logger');
-const config = require('../configs');
+const config = require('../configs/config');
 
 // Context state management
 let contextCache = new Map(); // groupName -> { allRawMessages: [], formattedMessages: [], lastSentIndex: number, allMessagesLoadedFromSource: boolean, totalRawMessagesProvidedAsContext: number }

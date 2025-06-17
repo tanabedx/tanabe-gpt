@@ -10,7 +10,7 @@ process.on('warning', warning => {
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const config = require('./configs');
+const config = require('./configs/config');
 const { setupListeners } = require('./core/listener');
 const { initializeContextManager } = require('./chat/contextManager');
 const { initializeConversationManager } = require('./chat/conversationManager');
