@@ -23,7 +23,7 @@ function initializeConversationManager() {
             cleanupExpiredConversations();
         }, 5 * 60 * 1000); // Every 5 minutes
 
-        logger.info('Conversation manager initialized successfully');
+        logger.debug('Conversation manager initialized successfully');
     } catch (error) {
         logger.error('Error initializing conversation manager:', error);
     }

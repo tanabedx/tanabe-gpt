@@ -127,14 +127,12 @@ async function reconnectClient() {
 // Initialize bot components
 async function initializeBot() {
     try {
-        logger.info('Starting bot initialization...');
-
         // Clear cache if enabled
         if (config.SYSTEM?.ENABLE_STARTUP_CACHE_CLEARING) {
             logger.debug('Cache clearing is enabled, performing cleanup...');
             const { clearedFiles } = await performCacheClearing(0);
             if (clearedFiles > 0) {
-                logger.info(`Cache cleared successfully: ${clearedFiles} files removed`);
+                logger.debug(`Cache cleared successfully: ${clearedFiles} files removed`);
             }
         }
 
@@ -300,9 +298,6 @@ async function initializeBot() {
         client.on('authenticated', () => {
             logger.debug('Client authenticated successfully');
             qrAttempts = 0;
-            logger.info(
-                'WhatsApp authentication successful! Session will be saved for future use.'
-            );
         });
 
         client.on('auth_failure', msg => {

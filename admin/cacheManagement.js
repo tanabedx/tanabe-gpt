@@ -182,7 +182,7 @@ function startMemoryMonitoring() {
         }
     }, MEMORY_CHECK_INTERVAL);
 
-    logger.info(
+    logger.debug(
         `Memory monitoring started (interval: ${MEMORY_CHECK_INTERVAL / 1000 / 60} minutes)`
     );
     return memoryMonitorInterval;
