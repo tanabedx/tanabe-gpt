@@ -6,7 +6,7 @@ const commandManager = require('./CommandManager');
 const { registerCommands } = require('./CommandRegistry');
 const { processLinkSummary } = require('../news/news');
 const { initialize } = require('../newsMonitor/newsMonitor.js');
-const { getUserState, handleWizard } = require('../periodicSummary/wizard/wizard');
+const { getUserState, handleWizard, processWizardStep } = require('../periodicSummary/wizard/wizard');
 const nlpProcessor = require('./nlpProcessor');
 const crypto = require('crypto');
 const { getWizardWelcomeMessage } = require('../utils/envUtils');
@@ -206,10 +206,18 @@ function setupListeners(client) {
                             return;
                         }
 
-                        // Check if the message is a valid wizard command with prefix
+                        // If the message already contains the explicit wizard prefix,
+                        // we deliberately avoid handling it here. This prevents the
+                        // wizard from being triggered twice (once by this early branch
+                        // and again later by the normal command-processing flow), which
+                        // previously caused the "sessão já ativa" message followed by the
+                        // configuration menu. Instead, we fall through so that the
+                        // standard traditional-command path processes it exactly once.
                         if (message.body.toLowerCase().includes('#ferramentaresumo')) {
-                            logger.debug('Valid wizard command detected, proceeding to wizard');
-                            await handleWizard(message);
+                            logger.debug(
+                                'Wizard command with prefix detected in whitelisted DM – routing through command manager to avoid duplicate activation'
+                            );
+                            await commandManager.processCommand(message);
                             return;
                         }
 
@@ -251,7 +259,7 @@ function setupListeners(client) {
                             chatId,
                             state: userState.state,
                         });
-                        await handleWizard(message);
+                        await processWizardStep(message);
                         return;
                     }
 

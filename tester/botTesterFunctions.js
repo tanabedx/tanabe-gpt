@@ -641,7 +641,7 @@ async function runTest(client, group, test, testResults) {
 
                     if (normalizedResponse.includes(normalizedExpected)) {
                         foundAnyKeyword = true;
-                        console.log(`✓ Found keyword: "${expected}"`);
+                        console.log(`Found keyword: "${expected}"`);
                     } else {
                         missingKeywords.push(expected);
                     }
@@ -705,7 +705,7 @@ async function runTest(client, group, test, testResults) {
 
                 if (normalizedResponse.includes(normalizedExpected)) {
                     foundAnyKeyword = true;
-                    console.log(`✓ Found keyword: "${expected}"`);
+                    console.log(`Found keyword: "${expected}"`);
                 } else {
                     missingKeywords.push(expected);
                 }

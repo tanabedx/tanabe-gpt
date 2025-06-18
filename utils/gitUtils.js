@@ -24,31 +24,44 @@ async function performStartupGitPull() {
             output.includes('Already up to date') ||
             output.includes('Already up-to-date')
         ) {
-            // Combine the two log messages when no changes are detected
-            logger.info(
-                `Git pull completed: No changes detected. Current version: ${recentCommitInfo}`
-            );
+            // Return structured data for startup report instead of logging directly
+            return {
+                hasChanges: false,
+                gitStatus: 'No changes detected',
+                commitInfo: recentCommitInfo
+            };
         } else {
-            // Log the result of the pull
-            logger.info('Git pull result:', output);
+            // Log the result of the pull for debug purposes
+            logger.debug('Git pull result:', output);
 
             // Get the new commit info after pull
             try {
                 const newCommitInfo = execSync('git log -1 --pretty=format:"%h - %s (%cr)"')
                     .toString()
                     .trim();
-                logger.info(`Update complete. New version: ${newCommitInfo}`);
+                return {
+                    hasChanges: true,
+                    gitStatus: 'Updated successfully',
+                    commitInfo: newCommitInfo
+                };
             } catch (logError) {
-                logger.info(
-                    'Update complete. If critical files were changed, a manual restart might be needed if issues occur.'
-                );
+                return {
+                    hasChanges: true,
+                    gitStatus: 'Updated (restart may be needed)',
+                    commitInfo: recentCommitInfo
+                };
             }
         }
     } catch (error) {
         logger.error('Error performing git pull during startup:', error.message.split('\n')[0]);
         logger.warn(`Proceeding with current version due to git pull error.`);
-        // Decide if you want to exit here or continue:
-        // process.exit(1); // or throw error;
+        
+        // Return error status for startup report
+        return {
+            hasChanges: false,
+            gitStatus: 'Git pull failed',
+            commitInfo: 'Unknown'
+        };
     }
 }
 

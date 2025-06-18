@@ -154,20 +154,20 @@ function discoverCommands() {
                             if (key.includes('CONFIG') && typeof config[key] === 'object') {
                                 const configName = key.replace('_CONFIG', '');
                                 commands[configName] = config[key];
-                                log('DEBUG', `✓ Discovered command: ${configName} from ${relativePath}`);
+                                log('DEBUG', `Discovered command: ${configName} from ${relativePath}`);
                             }
                         }
                     } else if (config.prefixes || config.description) {
                         // Standard single config export
                         commands[commandName] = config;
-                        log('DEBUG', `✓ Discovered command: ${commandName} from ${relativePath}`);
+                        log('DEBUG', `Discovered command: ${commandName} from ${relativePath}`);
                     } else {
                         // Check if it's an object with named configs (like ayub.config.js)
                         for (const [key, val] of Object.entries(config)) {
                             if (typeof val === 'object' && (val.prefixes || val.description)) {
                                 let configName = key.replace(/_CONFIG$/, '');
                                 commands[configName] = val;
-                                log('DEBUG', `✓ Discovered command: ${configName} from ${relativePath}`);
+                                log('DEBUG', `Discovered command: ${configName} from ${relativePath}`);
                             }
                         }
                     }
@@ -226,7 +226,7 @@ function discoverCommands() {
             if (fs.existsSync(commandListPath)) {
                 const commandListConfig = require(path.resolve(commandListPath));
                 commands['COMMAND_LIST'] = commandListConfig;
-                log('DEBUG', `✓ Discovered command: COMMAND_LIST from ../configs/commandList.config.js`);
+                log('DEBUG', `Discovered command: COMMAND_LIST from ../configs/commandList.config.js`);
             } else {
                 log('WARN', `⚠ File not found: ${commandListPath}`);
             }

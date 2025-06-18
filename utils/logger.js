@@ -188,7 +188,7 @@ function getCallerLocation() {
 }
 
 // Function to format the log message with timestamp
-function formatLogWithTimestamp(level, message, error = null) {
+function formatLogWithTimestamp(level, message, error = null, forFile = false) {
     const now = new Date();
     const timestamp = now.toLocaleString('en-US', {
         month: 'short',
@@ -202,14 +202,18 @@ function formatLogWithTimestamp(level, message, error = null) {
     let formattedMessage = message;
     let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
 
-    // Show location for all log types when DEBUG is enabled
-    const showLocation = CONSOLE_LOG_LEVELS.DEBUG === true;
+    // Always show location for all log types
+    const location = getCallerLocation();
 
-    // Get caller location if needed
-    const location = showLocation ? getCallerLocation() : '';
-
-    // In test mode, don't use colors
-    if (process.env.TEST_MODE === 'true') {
+    // For file output or test mode, return clean format without colors and minimal indentation
+    if (forFile || process.env.TEST_MODE === 'true') {
+        // Handle multi-line messages for file output
+        if (typeof message === 'string' && message.includes('\n')) {
+            const lines = message.split('\n');
+            const firstLine = `${prefix} ${lines[0]}${error ? `: ${formatError(error)}` : ''}${location}`;
+            const otherLines = lines.slice(1).map(line => line); // Keep tree structure as-is for files
+            return [firstLine, ...otherLines].join('\n');
+        }
         return `${prefix} ${message}${error ? `: ${formatError(error)}` : ''}${location}`;
     }
 
@@ -342,13 +346,7 @@ async function cleanOldLogs() {
             await cleanLogFile(DEBUG_LOG_FILE);
         }
         
-        logger.debug(`[${new Date().toLocaleString('en-US', {
-            month: 'short',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-        })}] Log cleanup completed - kept logs from the last 24 hours only`);
+        logger.debug(`Log cleanup completed - kept logs from the last 24 hours only`);
         
     } catch (error) {
         console.error('Error cleaning old logs:', formatError(error));
@@ -364,13 +362,46 @@ async function cleanLogFile(filePath) {
 
         // Split into lines and filter to keep only recent logs
         const lines = logContent.split('\n');
-        const recentLines = lines.filter(line => {
-            // Keep empty lines and lines that don't match timestamp format
-            if (!line.trim() || !line.match(/^\[[A-Za-z]{3} \d{1,2},? \d{2}:\d{2}\]/)) {
-                return false;
+        const recentLines = [];
+        let inStartupReport = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            
+            // Check if this line starts a startup report
+            if (line.includes('TANABE-GPT STARTUP REPORT')) {
+                // Check if the timestamp on this line is recent
+                if (isLogFromRecentDays(line)) {
+                    recentLines.push(line);
+                    inStartupReport = true;
+                }
+                continue;
             }
-            return isLogFromRecentDays(line);
-        });
+            
+            // If we're in a startup report, keep all lines until the next timestamp
+            if (inStartupReport) {
+                if (line.match(/^\[[A-Za-z]{3} \d{1,2},? \d{2}:\d{2}\]/)) {
+                    // New timestamped entry, check if it's recent
+                    inStartupReport = false;
+                    if (isLogFromRecentDays(line)) {
+                        recentLines.push(line);
+                    }
+                } else {
+                    // Part of startup report tree structure
+                    recentLines.push(line);
+                }
+                continue;
+            }
+            
+            // Regular filtering for other lines
+            if (!line.trim() || !line.match(/^\[[A-Za-z]{3} \d{1,2},? \d{2}:\d{2}\]/)) {
+                continue; // Skip empty lines and non-timestamped lines
+            }
+            
+            if (isLogFromRecentDays(line)) {
+                recentLines.push(line);
+            }
+        }
 
         // Write filtered content back to file
         if (recentLines.length > 0) {
@@ -410,8 +441,8 @@ async function logToDebugFile(level, message, error = null) {
         return;
     }
     
-    // Format the message for debug file (always log everything)
-    const formattedMessage = formatLogWithTimestamp(level, message, error);
+    // Format the message for debug file (always log everything) with file formatting
+    const formattedMessage = formatLogWithTimestamp(level, message, error, true);
     
     // Always write to debug file regardless of console settings
     await writeToDebugFile(formattedMessage);
@@ -456,32 +487,33 @@ async function log(level, message, error = null, shouldNotifyAdmin = false) {
         return;
     }
 
-    // Format the message for console/file
-    const formattedMessage = formatLogWithTimestamp(level, message, error);
+    // Format messages separately for console and file
+    const consoleMessage = formatLogWithTimestamp(level, message, error, false); // With colors and indentation
+    const fileMessage = formatLogWithTimestamp(level, message, error, true);    // Clean format for files
 
     // Write to main log file (only if console level is enabled)
-    await writeToLogFile(formattedMessage);
+    await writeToLogFile(fileMessage);
 
     // Use appropriate console method based on level
     switch (level) {
         case LOG_LEVELS.ERROR:
-            console.error(formattedMessage);
+            console.error(consoleMessage);
             break;
         case LOG_LEVELS.WARN:
-            console.warn(formattedMessage);
+            console.warn(consoleMessage);
             break;
         case LOG_LEVELS.DEBUG:
             if (typeof message === 'object') {
                 console.log(formatLogWithTimestamp(level, JSON.stringify(message, null, 2)));
             } else {
-                console.log(formattedMessage);
+                console.log(consoleMessage);
             }
             if (error) {
                 console.log(formatLogWithTimestamp(level, `Error: ${formatError(error)}`));
             }
             break;
         default:
-            console.log(formattedMessage);
+            console.log(consoleMessage);
     }
 
     // Check if this log level should be sent to admin
@@ -611,6 +643,93 @@ const logger = {
     
     // Export cleanOldLogs for external use
     cleanOldLogs,
+    
+    // Export spinner controls for external use
+    startSpinner,
+    stopSpinner,
+    
+    // System status logger for comprehensive startup reports
+    systemStatus: async (statusData) => {
+        // Build tree-style report
+        let report = 'TANABE-GPT STARTUP REPORT\n';
+        
+        // Version Information
+        report += '├── Version Information\n';
+        report += `│   ├── Git Status: ${statusData.version.gitStatus}\n`;
+        report += `│   └── Commit: ${statusData.version.commitInfo}\n`;
+        report += '│\n';
+        
+        // News Monitor
+        report += '├── News Monitor\n';
+        report += `│   ├── Status: ${statusData.newsMonitor.enabled ? 'Enabled' : 'Disabled'}\n`;
+        report += `│   ├── Sources: ${statusData.newsMonitor.totalSources} total\n`;
+        
+        // Sources breakdown
+        if (statusData.newsMonitor.twitterSources && statusData.newsMonitor.twitterSources.length > 0 && statusData.newsMonitor.twitterSources[0] !== 'None') {
+            report += `│   │   ├── Twitter: ${statusData.newsMonitor.twitterSources.join(', ')}\n`;
+        }
+        if (statusData.newsMonitor.rssSources && statusData.newsMonitor.rssSources.length > 0 && statusData.newsMonitor.rssSources[0] !== 'None') {
+            report += `│   │   ├── RSS: ${statusData.newsMonitor.rssSources.join(', ')}\n`;
+        }
+        if (statusData.newsMonitor.webscraperSources && statusData.newsMonitor.webscraperSources.length > 0 && statusData.newsMonitor.webscraperSources[0] !== 'None') {
+            report += `│   │   └── Webscraper: ${statusData.newsMonitor.webscraperSources.join(', ')}\n`;
+        }
+        
+        report += `│   ├── Target Group: ${statusData.newsMonitor.targetGroup}\n`;
+        report += '│   └── Twitter API Keys\n';
+        
+        // API Keys
+        if (statusData.newsMonitor.apiKeys && statusData.newsMonitor.apiKeys.length > 0) {
+            statusData.newsMonitor.apiKeys.forEach((key, index) => {
+                const isLast = index === statusData.newsMonitor.apiKeys.length - 1;
+                const prefix = isLast ? '└──' : '├──';
+                
+                // Color the cooldown message in yellow
+                if (key.status === 'cooldown' && key.name === 'Keys on cooldown') {
+                    report += `│       ${prefix} ${COLORS.YELLOW}${key.name}. ${key.usage}${COLORS.RESET}\n`;
+                } else {
+                    report += `│       ${prefix} ${key.name}: ${key.usage}\n`;
+                }
+            });
+        }
+        
+        report += '│\n';
+        
+        // Periodic Summary
+        report += '├── Periodic Summary\n';
+        report += `│   ├── Groups: ${statusData.periodicSummary.groupCount} configured\n`;
+        
+        if (statusData.periodicSummary.groups && statusData.periodicSummary.groups.length > 0) {
+            statusData.periodicSummary.groups.forEach((group, index) => {
+                const isLast = index === statusData.periodicSummary.groups.length - 1;
+                const prefix = isLast ? '└──' : '├──';
+                report += `│   │   ${prefix} ${group.name}: ${group.schedule}\n`;
+            });
+        } else {
+            report += '│   │   └── None configured\n';
+        }
+        
+        report += `│   └── Next Summary: ${statusData.periodicSummary.nextSummary}\n`;
+        report += '│\n';
+        
+        // Core Systems
+        report += '├── Core Systems\n';
+        report += '│   ├── WhatsApp Client\n';
+        report += `│   │   ├── Authentication: ${statusData.coreSystems.whatsapp.authenticated ? 'Successful' : 'Failed'}\n`;
+        report += `│   │   └── Session: ${statusData.coreSystems.whatsapp.sessionSaved ? 'Saved for future use' : 'Not saved'}\n`;
+        report += `│   ├── Context Manager: ${statusData.coreSystems.contextManager ? 'Initialized' : 'Failed'}\n`;
+        report += `│   ├── Conversation Manager: ${statusData.coreSystems.conversationManager ? 'Initialized' : 'Failed'}\n`;
+        report += `│   └── Memory Monitoring: ${statusData.coreSystems.memoryMonitoring ? 'Started (16 min intervals)' : 'Failed to start'}\n`;
+        report += '│\n';
+        
+        // Cache Management
+        report += '└── Cache Management\n';
+        report += `    ├── Files Cleared: ${statusData.cacheManagement.filesCleared}\n`;
+        report += `    └── Memory Usage: ${statusData.cacheManagement.memory}MB allocated`;
+        
+        // Log the comprehensive report
+        await log(LOG_LEVELS.INFO, report);
+    },
 };
 
 module.exports = logger;

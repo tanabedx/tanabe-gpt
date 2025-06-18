@@ -156,4 +156,34 @@ module.exports = {
     getPeriodicSummaryGroups,
     getNextSummaryInfo,
     scheduleNextSummary,
+    /**
+     * Gets the current status of periodic summary configuration for startup reporting.
+     * @returns {Object} Object containing group information and next summary details
+     */
+    getPeriodicSummaryStatus: function() {
+        const groups = getPeriodicSummaryGroups(config);
+        const nextInfo = getNextSummaryInfo();
+        
+        // Structure groups data for proper display
+        const groupsForDisplay = groups.length > 0 ? 
+            groups.map(groupName => {
+                const groupConfig = config.PERIODIC_SUMMARY.groups[groupName];
+                const defaults = config.PERIODIC_SUMMARY.defaults || {};
+                const intervalHours = groupConfig?.intervalHours || defaults.intervalHours || 'unknown';
+                return {
+                    name: groupName,
+                    schedule: `${intervalHours}h interval`
+                };
+            }) : [];
+        
+        return {
+            groupCount: groups.length,
+            groups: groupsForDisplay,
+            nextSummary: nextInfo ? 
+                `"${nextInfo.group}" at ${nextInfo.nextValidTime.toLocaleString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo'
+                })} (${nextInfo.interval}h interval)` :
+                'None scheduled'
+        };
+    }
 };

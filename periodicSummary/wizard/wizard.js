@@ -228,8 +228,14 @@ function getConfiguredGroups() {
 
 // Main handler function for wizard steps
 async function processWizardStep(message) {
-    const userId = message.author || message.from;
-    const chatId = message.chat || message.from; // Use chat ID if available or fallback to user ID for DMs
+    // Get proper chat and contact objects first
+    const chat = await message.getChat();
+    const contact = await message.getContact();
+    
+    // Extract IDs correctly
+    const userId = contact.id._serialized;
+    const chatId = chat.id._serialized;
+    
     const userState = getUserState(userId, chatId);
     const messageText = message.body.trim().toLowerCase();
 
@@ -473,7 +479,7 @@ async function processWizardStep(message) {
                         await saveConfig();
                         await message.reply(
                             `Grupo "${userState.selectedGroup}" ${
-                                !currentConfig.enabled ? 'ativado' : 'desativado'
+                                updatedConfig.enabled ? 'ativado' : 'desativado'
                             } com sucesso!\n\n` +
                                 `${formatGroupConfig(userState.selectedGroup, updatedConfig)}`
                         );
@@ -1038,11 +1044,31 @@ async function processWizardStep(message) {
 
 // Function to start a new wizard session
 async function handleWizard(message) {
-    const userId = message.author || message.from;
-    const chatId = message.chat || message.from; // Use chat ID if available or fallback to user ID for DMs
+    // Get proper chat and contact objects first
+    const chat = await message.getChat();
+    const contact = await message.getContact();
+    
+    // Extract IDs correctly
+    const userId = contact.id._serialized;
+    const chatId = chat.id._serialized;
+
+    logger.debug('handleWizard called', {
+        userId,
+        chatId,
+        messageBody: message.body,
+        currentUserStates: Array.from(userStates.keys()),
+        hasActiveSession: userStates.has(getStateKey(userId, chatId))
+    });
 
     // Check if user already has an active session
     if (userStates.has(getStateKey(userId, chatId))) {
+        logger.debug('Active session detected, sending message', {
+            userId,
+            chatId,
+            stateKey: getStateKey(userId, chatId),
+            currentState: userStates.get(getStateKey(userId, chatId))
+        });
+        
         await message.reply(
             'Você já tem uma sessão de configuração ativa. Digite "cancelar" para encerrar a sessão atual.'
         );
@@ -1063,4 +1089,5 @@ module.exports = {
     handleWizard,
     getUserState,
     isWizardActive,
+    processWizardStep,
 };

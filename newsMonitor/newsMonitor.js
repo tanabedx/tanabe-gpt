@@ -1069,6 +1069,96 @@ async function processNewsCycle(skipPeriodicCheck = false) {
 }
 
 /**
+ * Gets the current status of the News Monitor for startup reporting.
+ * This function provides comprehensive status without triggering initialization.
+ * @returns {Object} Object containing news monitor status information
+ */
+async function getNewsMonitorStartupStatus() {
+    const enabledSources = NEWS_MONITOR_CONFIG.sources.filter(source => source.enabled);
+    
+    // Collect source information by type
+    const twitterSources = enabledSources
+        .filter(s => s.type === 'twitter')
+        .map(s => s.username);
+    
+    const rssSources = enabledSources
+        .filter(s => s.type === 'rss')
+        .map(s => s.name || s.id);
+    
+    const webscraperSources = enabledSources
+        .filter(s => s.type === 'webscraper')
+        .map(s => s.name);
+
+    // Get target group status - wait for WhatsApp to be ready
+    let targetGroupStatus = 'Not found';
+    try {
+        if (global.client) {
+            const targetGroupName = NEWS_MONITOR_CONFIG.TARGET_GROUP;
+            if (targetGroupName) {
+                try {
+                    // Actually check for the target group
+                    const chats = await global.client.getChats();
+                    const targetGroup = chats.find(chat => chat.name === targetGroupName);
+                    
+                    if (targetGroup) {
+                        targetGroupStatus = `Found: ${targetGroupName}`;
+                    } else {
+                        targetGroupStatus = `Not found: ${targetGroupName}`;
+                    }
+                } catch (chatError) {
+                    targetGroupStatus = `Error checking: ${targetGroupName} (${chatError.message})`;
+                }
+            } else {
+                targetGroupStatus = 'No target group configured';
+            }
+        } else {
+            targetGroupStatus = 'WhatsApp client not available';
+        }
+    } catch (error) {
+        targetGroupStatus = `Error: ${error.message}`;
+    }
+
+    // Get API keys status from twitterApiHandler if available
+    let apiKeysStatus = [];
+    try {
+        // Try to get current API key status
+        apiKeysStatus = twitterApiHandler.getApiKeysStatus();
+        
+        // If no keys returned or all show as unusable, check if they're in cooldown
+        if (apiKeysStatus.length === 0 || apiKeysStatus.every(key => key.status === 'unified_api_cooldown')) {
+            // Try to get cooldown information from the handler
+            const cooldownInfo = twitterApiHandler.getCooldownInfo ? twitterApiHandler.getCooldownInfo() : null;
+            if (cooldownInfo && cooldownInfo.isInCooldown) {
+                // Calculate minutes remaining
+                const waitMinutes = Math.ceil((cooldownInfo.cooldownEndTimestamp - Date.now()) / 60000);
+                apiKeysStatus = [{
+                    name: 'Keys on cooldown',
+                    usage: `Waiting ~${waitMinutes} minute(s) (until ${cooldownInfo.cooldownUntil})`,
+                    limit: 'N/A',
+                    resetDate: `Until ${cooldownInfo.cooldownUntil}`,
+                    status: 'cooldown'
+                }];
+            } else if (apiKeysStatus.length === 0) {
+                apiKeysStatus = [{ name: 'Initializing...', usage: 0, limit: 0, resetDate: 'Pending' }];
+            }
+        }
+    } catch (error) {
+        // If not initialized yet, return placeholder
+        apiKeysStatus = [{ name: 'Initializing...', usage: 0, limit: 0, resetDate: 'Pending' }];
+    }
+
+    return {
+        enabled: NEWS_MONITOR_CONFIG.enabled,
+        totalSources: enabledSources.length,
+        twitterSources: twitterSources.length > 0 ? twitterSources : ['None'],
+        rssSources: rssSources.length > 0 ? rssSources : ['None'],
+        webscraperSources: webscraperSources.length > 0 ? webscraperSources : ['None'],
+        targetGroup: targetGroupStatus,
+        apiKeys: apiKeysStatus
+    };
+}
+
+/**
  * Initializes the News Monitor.
  * Sets up the periodic execution of the news processing cycle.
  * @returns {Promise<boolean>} - True if initialization was successful, false otherwise.
@@ -1107,7 +1197,8 @@ async function initialize() {
 
     let twitterApiInitialized = false;
     try {
-        if (!(await twitterApiHandler.initialize())) {
+        const initResult = await twitterApiHandler.initialize();
+        if (!initResult) {
             logger.warn(
                 'NM: Twitter API Handler failed/no usable keys. Twitter fetching impaired.'
             );
@@ -1118,7 +1209,6 @@ async function initialize() {
         }
     } catch (e) {
         logger.error('NM: Critical error during Twitter API Handler initialization:', e);
-        // twitterApiInitialized remains false
     }
 
     // Run the first news cycle immediately after initialization,
@@ -1240,10 +1330,9 @@ async function restartMonitors(restartTwitter = true, restartRss = true) {
 }
 
 module.exports = {
-    initialize,
-    stop,
     processNewsCycle,
-    isQuietHours,
+    initialize,
+    getNewsMonitorStartupStatus,
     generateNewsCycleDebugReport,
     restartMonitors,
 };

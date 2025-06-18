@@ -491,6 +491,7 @@ async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: t
     }
 
     // --- NEW: Initial dynamic wait based on cached cooldowns ---
+    let hadToWaitForCooldowns = false;
     let maxCooldownEndTime = 0;
     for (const keyName in apiKeyStates) {
         const keyState = apiKeyStates[keyName];
@@ -500,9 +501,10 @@ async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: t
     }
 
     if (maxCooldownEndTime > Date.now()) {
+        hadToWaitForCooldowns = true;
         const waitDurationMs = maxCooldownEndTime - Date.now() + 500; // +500ms buffer
         const waitMinutes = Math.ceil(waitDurationMs / 60000);
-        logger.warn(
+        logger.debug(
             `Keys on cooldown from cache. Waiting ~${waitMinutes} minute(s) (until ${new Date(
                 maxCooldownEndTime
             ).toLocaleTimeString()}) before first state update attempt.`
@@ -548,7 +550,9 @@ async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: t
                     return `${ks.name}: ${ks.usage}/${ks.limit} (resets ${resetDateStr}, status ${ks.status})`;
                 })
                 .join(', ');
-            logger.info(
+            // Use INFO level if we had to wait for cooldowns, DEBUG level otherwise
+            const logLevel = hadToWaitForCooldowns ? 'info' : 'debug';
+            logger[logLevel](
                 `Twitter API Handler initialized successfully on attempt ${
                     attempts + 1
                 }. Active key: ${currentKeyName}. All key states: [${keyDetails}]`
@@ -595,6 +599,7 @@ async function initialize(retryConfig = { maxAttempts: 3, dynamicDelayEnabled: t
                     earliestNextAvailability !== Infinity &&
                     earliestNextAvailability > Date.now()
                 ) {
+                    hadToWaitForCooldowns = true; // Mark that we had to wait for cooldowns
                     delay = Math.max(1000, earliestNextAvailability - Date.now() + 500); // Wait until available + 0.5s buffer
                     const minutesToAvailability = Math.ceil(
                         (earliestNextAvailability - Date.now()) / 60000
@@ -703,6 +708,48 @@ async function periodicCheck() {
     await _updateAllKeyStates();
 }
 
+/**
+ * Gets the status of all configured API keys for startup reporting.
+ * @returns {Array} Array of API key status objects
+ */
+function getApiKeysStatus() {
+    return Object.entries(apiKeyStates).map(([name, state]) => ({
+        name: name,
+        usage: `${state.usage || 0}/${state.limit || 100} (resets day ${state.capResetDay || 'unknown'})`,
+        resetTime: state.capResetDay ? `day ${state.capResetDay}` : 'unknown',
+        status: state.status || 'unchecked'
+    }));
+}
+
+/**
+ * Gets cooldown information for startup reporting.
+ * @returns {Object|null} Cooldown info or null if not in cooldown
+ */
+function getCooldownInfo() {
+    // Check if any keys have unified cooldown
+    const keysInCooldown = Object.values(apiKeyStates).filter(state => 
+        state.unifiedCooldownUntil && state.unifiedCooldownUntil > Date.now()
+    );
+    
+    if (keysInCooldown.length > 0) {
+        // Find the earliest cooldown end time
+        const earliestCooldownEnd = Math.min(...keysInCooldown.map(state => state.unifiedCooldownUntil));
+        const cooldownEndTime = new Date(earliestCooldownEnd);
+        
+        return {
+            isInCooldown: true,
+            cooldownUntil: cooldownEndTime.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            }),
+            cooldownEndTimestamp: earliestCooldownEnd
+        };
+    }
+    
+    return null;
+}
+
 module.exports = {
     initialize,
     getCurrentKey,
@@ -712,4 +759,6 @@ module.exports = {
     _getApiKeyStates: () => ({ ...apiKeyStates }), // For testing: return a copy
     _getCurrentKeyName: () => currentKeyName, // For testing
     checkUsageAndFetchContent,
+    getApiKeysStatus,
+    getCooldownInfo,
 };

@@ -22,18 +22,12 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
         const groupsConfig = Object.entries(periodicSummaryConfig.groups || {})
             .map(([name, settings]) => {
                 const defaults = periodicSummaryConfig.defaults;
-                const customConfig = {};
-
-                // Only include enabled if it's false (since default is true)
-                if (settings.enabled === false) {
-                    customConfig.enabled = false;
-                }
+                const customConfig = {
+                    enabled: settings.enabled
+                };
 
                 // Only include intervalHours if different from default
-                if (
-                    settings.intervalHours !== undefined &&
-                    settings.intervalHours !== defaults.intervalHours
-                ) {
+                if (settings.intervalHours !== defaults.intervalHours) {
                     customConfig.intervalHours = settings.intervalHours;
                 }
 
@@ -64,9 +58,8 @@ async function savePeriodicSummaryConfig(periodicSummaryConfig) {
                     customConfig.prompt = settings.prompt;
                 }
 
-                // If there are no custom configs, just save enabled: true
-                const configToSave =
-                    Object.keys(customConfig).length > 0 ? customConfig : { enabled: true };
+                // Always save the config with at least the enabled property
+                const configToSave = customConfig;
 
                 // Format the configuration
                 const configLines = Object.entries(configToSave)
@@ -121,7 +114,7 @@ require('dotenv').config({ path: '../configs/.env' });
 // Avoid circular dependency with envMapper
 let envMapper;
 setTimeout(() => {
-            envMapper = require('../envMapper');
+    envMapper = require('./envMapper');
 }, 0);
 
 const PERIODIC_SUMMARY = {

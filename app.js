@@ -15,7 +15,7 @@ const { setupListeners } = require('./core/listener');
 const { initializeContextManager } = require('./chat/contextManager');
 const { initializeConversationManager } = require('./chat/conversationManager');
 const { initialize } = require('./newsMonitor/newsMonitor.js');
-const { scheduleNextSummary: schedulePeriodicSummary } = require('./periodicSummary/periodicSummaryUtils');
+const { scheduleNextSummary: schedulePeriodicSummary, getPeriodicSummaryStatus } = require('./periodicSummary/periodicSummaryUtils');
 const { performStartupGitPull } = require('./utils/gitUtils');
 const {
     performCacheClearing,
@@ -25,6 +25,9 @@ const {
 const logger = require('./utils/logger');
 const path = require('path');
 const fs = require('fs');
+
+// Initial startup message - logged as early as possible (no spinner yet)
+logger.info('Initializing...');
 
 // Memory management: Setup forced garbage collection
 let memoryUsageLog = [];
@@ -125,15 +128,27 @@ async function reconnectClient() {
 }
 
 // Initialize bot components
-async function initializeBot() {
+async function initializeBot(gitResults) {
     try {
-        // Clear cache if enabled
+        // Track whether Twitter API keys were in cooldown during startup
+        let hadCooldownDuringStartup = false;
+
+        // Initialize status tracking objects for comprehensive reporting
+        let cacheResults = { clearedFiles: 0 };
+        let whatsappStatus = {
+            authenticated: false,
+            sessionSaved: false
+        };
+        let coreSystemsStatus = {
+            contextManager: false,
+            conversationManager: false,
+            memoryMonitoring: false
+        };
+
+        // Clear cache if enabled - capture results silently
         if (config.SYSTEM?.ENABLE_STARTUP_CACHE_CLEARING) {
             logger.debug('Cache clearing is enabled, performing cleanup...');
-            const { clearedFiles } = await performCacheClearing(0);
-            if (clearedFiles > 0) {
-                logger.debug(`Cache cleared successfully: ${clearedFiles} files removed`);
-            }
+            cacheResults = await performCacheClearing(0);
         }
 
         // Initialize WhatsApp client
@@ -198,28 +213,15 @@ async function initializeBot() {
                     '--disable-extensions',
                     '--disable-default-apps',
                     '--disable-translate',
-                    '--disable-sync',
-                    '--disable-site-isolation-trials',
-                    '--mute-audio',
-                    '--disable-background-networking',
                     '--disable-background-timer-throttling',
                     '--disable-backgrounding-occluded-windows',
-                    '--disable-breakpad',
-                    '--disable-component-extensions-with-background-pages',
-                    '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-                    '--disable-ipc-flooding-protection',
                     '--disable-renderer-backgrounding',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection',
                 ],
-                defaultViewport: { width: 800, height: 600 },
-                ignoreHTTPSErrors: true,
-                timeout: 120000,
+                timeout: 60000,
+                takeoverTimeoutMs: 60000,
             },
-            restartOnAuthFail: true,
-            qrMaxRetries: 5,
-            qrTimeoutMs: 60000,
-            authTimeoutMs: 60000,
-            takeoverOnConflict: true,
-            takeoverTimeoutMs: 60000,
         });
 
         // Store client globally for use in other modules
@@ -248,8 +250,13 @@ async function initializeBot() {
 
                 logger.debug('Browser cleanup scheduled every 30 minutes');
 
-                // Start memory monitoring
-                startMemoryMonitoring();
+                // Start memory monitoring and capture status
+                try {
+                    startMemoryMonitoring();
+                    coreSystemsStatus.memoryMonitoring = true;
+                } catch (err) {
+                    logger.debug('Memory monitoring failed to start:', err);
+                }
             } catch (err) {
                 logger.error('Error setting up browser management:', err);
             }
@@ -297,6 +304,7 @@ async function initializeBot() {
 
         client.on('authenticated', () => {
             logger.debug('Client authenticated successfully');
+            whatsappStatus.authenticated = true;
             qrAttempts = 0;
         });
 
@@ -322,6 +330,7 @@ async function initializeBot() {
 
             client.on('ready', () => {
                 logger.debug('WhatsApp client is ready and authenticated!');
+                whatsappStatus.sessionSaved = true;
                 clearTimeout(timeout); // Clear the timeout
                 resolve(); // Resolve the promise
             });
@@ -345,32 +354,103 @@ async function initializeBot() {
         // Now that we're authenticated and ready, set up the rest of the components
         logger.debug('Setting up command handlers and listeners...');
 
-        // Register command handlers
+        // Register command handlers - capture status silently
         logger.debug('Registering command handlers...');
         setupListeners(client);
         logger.debug('Command handlers registered successfully');
-        logger.debug('All listeners set up successfully');
 
-        // Initialize message logging
-        logger.debug('Initializing message logging...');
-        initializeContextManager();
-        initializeConversationManager();
-        logger.debug('Message logging initialized successfully');
-
-        // Initialize news monitor (handles both Twitter and RSS)
+        // Initialize core systems and capture their status
+        logger.debug('Initializing core systems...');
+        
         try {
-            logger.debug('About to call initializeNewsMonitor...');
-            await initialize();
-            logger.debug('Returned from initializeNewsMonitor successfully.');
+            initializeContextManager();
+            coreSystemsStatus.contextManager = true;
         } catch (error) {
-            logger.error('Failed to initialize news monitor (caught in initializeBot):', error);
-            // Continue even if news monitor fails
+            logger.debug('Context manager initialization failed:', error);
         }
 
-        logger.debug(
-            'Proceeding after news monitor block in initializeBot. About to log line 224.'
+        try {
+            initializeConversationManager();
+            coreSystemsStatus.conversationManager = true;
+        } catch (error) {
+            logger.debug('Conversation manager initialization failed:', error);
+        }
+
+        // Simplified newsMonitor initialization - no complex callbacks
+        const { getNewsMonitorStartupStatus } = require('./newsMonitor/newsMonitor');
+        const NEWS_MONITOR_CONFIG = require('./newsMonitor/newsMonitor.config');
+        let newsMonitorStatus = { enabled: false, apiKeys: [], sources: [], targetGroup: 'Not configured' };
+        
+        // Get initial status before starting newsMonitor
+        if (NEWS_MONITOR_CONFIG.enabled) {
+            try {
+                newsMonitorStatus = await getNewsMonitorStartupStatus();
+                logger.debug('Starting newsMonitor initialization...');
+                
+                // Start newsMonitor in background without waiting
+                initialize().catch(error => {
+                    logger.error('Failed to initialize news monitor:', error);
+                });
+                
+                // Give it a moment to initialize Twitter API, then get updated status
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                newsMonitorStatus = await getNewsMonitorStartupStatus();
+            } catch (error) {
+                logger.error('Error getting newsMonitor status:', error);
+                newsMonitorStatus = { 
+                    enabled: false, 
+                    apiKeys: [{ name: 'Error getting status', status: 'error' }], 
+                    sources: [], 
+                    targetGroup: 'Error' 
+                };
+            }
+        } else {
+            logger.debug('News Monitor is disabled');
+        }
+
+        // Determine if Twitter API keys are currently on cooldown (for startup success logic)
+        hadCooldownDuringStartup = NEWS_MONITOR_CONFIG.enabled && newsMonitorStatus.apiKeys.some(key =>
+            key.status === 'cooldown' || key.name === 'All keys in cooldown' || key.name === 'Keys on cooldown'
         );
-        logger.info('Bot initialization completed successfully!');
+
+        // Collect comprehensive status information for reporting
+        const statusData = await collectSystemStatus(gitResults, cacheResults, whatsappStatus, coreSystemsStatus, newsMonitorStatus);
+        
+        // Display the comprehensive startup report
+        await logger.systemStatus(statusData);
+
+        // If News Monitor is disabled OR keys not on cooldown, log startup success now
+        if (!NEWS_MONITOR_CONFIG.enabled || !hadCooldownDuringStartup) {
+            await logger.startup('Bot has been started successfully!');
+        }
+
+        // Post-startup Twitter API status check - only if keys were in cooldown during startup
+        if (hadCooldownDuringStartup) {
+            // Wait for Twitter API to potentially initialize, then check if it succeeded
+            const intervalId = setInterval(async () => {
+                try {
+                    const { getCurrentKey, getApiKeysStatus } = require('./newsMonitor/twitterApiHandler');
+                    const currentKey = getCurrentKey();
+
+                    if (currentKey && currentKey.status === 'ok') {
+                        const currentApiStatus = await getApiKeysStatus();
+
+                        if (currentApiStatus && currentApiStatus.length > 0) {
+                            const activeKey = currentApiStatus.find(key => key.status === 'active') || currentApiStatus[0];
+                            const keyStates = currentApiStatus.map(key => `${key.name}: ${key.usage}` ).join(', ');
+                            logger.info(`Twitter API Handler initialized successfully. Active key: ${activeKey.name}. All key states: [${keyStates}]`);
+
+                            await logger.startup('Bot has been started successfully!');
+                            clearInterval(intervalId);
+                        }
+                    }
+                } catch (error) {
+                    logger.debug('Error checking post-startup Twitter API status:', error);
+                }
+            }, 60000); // Check every minute until keys are ready
+        }
+
+        // Continue with normal operation - newsMonitor is already running in parallel
         return client;
     } catch (error) {
         logger.error('Error during bot initialization:', error);
@@ -378,23 +458,56 @@ async function initializeBot() {
     }
 }
 
+/**
+ * Collects comprehensive system status information for startup reporting
+ * @param {Object} gitResults - Git pull results
+ * @param {Object} cacheResults - Cache clearing results  
+ * @param {Object} whatsappStatus - WhatsApp client status
+ * @param {Object} coreSystemsStatus - Core systems initialization status
+ * @param {Object} newsMonitorStatus - News monitor status (including API keys)
+ * @returns {Object} Comprehensive status data object
+ */
+async function collectSystemStatus(gitResults, cacheResults, whatsappStatus, coreSystemsStatus, newsMonitorStatus) {
+    // Import package.json to get version information
+    const packageJson = require('./package.json');
+    
+    // Get periodic summary status
+    const periodicSummaryStatus = getPeriodicSummaryStatus();
+
+    // Return comprehensive status object
+    return {
+        version: {
+            gitStatus: gitResults.gitStatus,
+            commitInfo: gitResults.commitInfo
+        },
+        newsMonitor: newsMonitorStatus,
+        periodicSummary: periodicSummaryStatus,
+        coreSystems: {
+            whatsapp: whatsappStatus,
+            contextManager: coreSystemsStatus.contextManager,
+            conversationManager: coreSystemsStatus.conversationManager,
+            memoryMonitoring: coreSystemsStatus.memoryMonitoring
+        },
+        cacheManagement: {
+            filesCleared: cacheResults.clearedFiles || 0,
+            memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
+        }
+    };
+}
+
 // Main function
 async function main() {
     try {
-        logger.debug('Starting bot...');
+        // Perform git pull and capture results (no separate log needed now)
+        const gitResults = await performStartupGitPull();
 
-        // Perform git pull unconditionally before full initialization
-        await performStartupGitPull();
-
-        logger.debug('Initializing bot...');
-        // Initialize the bot
-        await initializeBot();
-        logger.debug('Bot initialization completed.');
-        // Start the spinner after initialization is complete
-        await logger.startup('🤖 Bot has been started successfully!');
-
+        // Initialize the bot with git results
+        await initializeBot(gitResults);
+        
         // Schedule periodic summaries
         schedulePeriodicSummary();
+        
+        // Spinner will be started by logger.startup once bot is fully initialized
     } catch (error) {
         logger.error('Error in main function:', error);
 

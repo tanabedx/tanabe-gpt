@@ -1,28 +1,32 @@
 // periodicSummary.config.js in commandConfigs directory
 require('dotenv').config({ path: '../configs/.env' });
 
-const envMapper = require('./envMapper');
+// Avoid circular dependency with envMapper
+let envMapper;
+setTimeout(() => {
+    envMapper = require('./envMapper');
+}, 0);
 
 const PERIODIC_SUMMARY = {
     defaults: {
         intervalHours: 3,
         quietTime: {
             start: '21:00',
-            end: '09:00',
+            end: '09:00'
         },
         deleteAfter: null,
-        promptPath: './periodicSummary.prompt.js',
+        promptPath: './periodicSummary.prompt.js'
     },
     groups: {
         [process.env.GROUP_AG]: {
             enabled: false,
             intervalHours: 2,
             quietTime: {
-                start: '01:00',
-                end: '01:30',
-            },
-        },
-    },
+                start: '22:00',
+                end: '08:00'
+            }
+        }
+    }
 };
 
 /**
@@ -37,35 +41,35 @@ function addGroupToPeriodicSummary(groupName, config = {}) {
     if (groupName.startsWith('dm.')) {
         baseGroupName = groupName.substring(3);
     }
-
+    
     // Check if group already exists
     if (PERIODIC_SUMMARY.groups[baseGroupName]) {
         return false;
     }
-
+    
     // Add group with default config merged with provided config
     PERIODIC_SUMMARY.groups[baseGroupName] = {
         enabled: config.enabled ?? true,
         intervalHours: config.intervalHours ?? PERIODIC_SUMMARY.defaults.intervalHours,
         quietTime: {
             start: config.quietTime?.start ?? PERIODIC_SUMMARY.defaults.quietTime.start,
-            end: config.quietTime?.end ?? PERIODIC_SUMMARY.defaults.quietTime.end,
+            end: config.quietTime?.end ?? PERIODIC_SUMMARY.defaults.quietTime.end
         },
         deleteAfter: config.deleteAfter ?? PERIODIC_SUMMARY.defaults.deleteAfter,
-        promptPath: config.promptPath ?? PERIODIC_SUMMARY.defaults.promptPath,
+        promptPath: config.promptPath ?? PERIODIC_SUMMARY.defaults.promptPath
     };
-
+    
     // If this is a new group, add it to the environment variables
-    if (!envMapper.getGroupKey(baseGroupName)) {
+    if (envMapper && !envMapper.getGroupKey(baseGroupName)) {
         // Generate abbreviation from first letters of words in group name
         const abbreviation = baseGroupName
             .split(/s+/)
             .map(word => word[0].toUpperCase())
             .join('');
-
+        
         envMapper.addNewGroup(baseGroupName, abbreviation);
     }
-
+    
     return true;
 }
 

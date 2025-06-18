@@ -52,7 +52,7 @@ function discoverHandlers() {
                                     logger.warn(`⚠ Duplicate handler for command ${commandName} found in ${handlerPath}. Overwriting.`);
                                 }
                                 handlers[commandName] = func;
-                                logger.debug(`✓ Discovered handler: ${name} for command: ${commandName}`);
+                                logger.debug(`Discovered handler: ${name} for command: ${commandName}`);
                             }
                         }
                     }
@@ -72,7 +72,7 @@ function discoverHandlers() {
                 if (handleCommandList) {
                     handlers['COMMAND_LIST'] = handleCommandList;
                     handlers['COMMANDLIST'] = handleCommandList; // Also map COMMANDLIST to the same handler
-                    logger.debug('✓ Discovered handler: handleCommandList for command: COMMAND_LIST and COMMANDLIST');
+                    logger.debug('Discovered handler: handleCommandList for command: COMMAND_LIST and COMMANDLIST');
                 }
             } catch (error) {
                 logger.warn(`⚠ Failed to load commandList handler from core: ${error.message}`);

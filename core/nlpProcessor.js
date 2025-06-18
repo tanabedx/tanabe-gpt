@@ -27,17 +27,35 @@ class NLPProcessor {
 
         if (isActive) {
             this.wizardStates.set(stateKey, true);
-            logger.debug('Wizard activated for user in chat', { userId, chatId });
+            logger.debug('Wizard activated for user in chat', { 
+                userId, 
+                chatId, 
+                stateKey,
+                totalActiveStates: this.wizardStates.size 
+            });
         } else {
             this.wizardStates.delete(stateKey);
-            logger.debug('Wizard deactivated for user in chat', { userId, chatId });
+            logger.debug('Wizard deactivated for user in chat', { 
+                userId, 
+                chatId, 
+                stateKey,
+                totalActiveStates: this.wizardStates.size 
+            });
         }
     }
 
     // Check if wizard is active for a user in a specific chat
     isWizardActive(userId, chatId) {
         const stateKey = this.getWizardStateKey(userId, chatId);
-        return this.wizardStates.has(stateKey);
+        const isActive = this.wizardStates.has(stateKey);
+        logger.debug('Checking wizard state', { 
+            userId, 
+            chatId, 
+            stateKey, 
+            isActive,
+            allActiveStates: Array.from(this.wizardStates.keys())
+        });
+        return isActive;
     }
 
     /**
