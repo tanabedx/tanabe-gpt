@@ -75,6 +75,17 @@ function isSystemdEnvironment() {
     );
 }
 
+// Function to check if debug mode is active (for showing location info)
+function isDebugMode() {
+    return (
+        CONSOLE_LOG_LEVELS.DEBUG === true ||
+        process.env.FORCE_DEBUG_LOGS === 'true' ||
+        process.env.FORCE_PROMPT_LOGS === 'true' ||
+        process.env.NODE_ENV === 'development' ||
+        process.env.npm_lifecycle_event === 'dev'
+    );
+}
+
 // Function to start the spinner
 function startSpinner() {
     // Don't start spinner in test mode or under systemd
@@ -165,30 +176,61 @@ function formatError(error) {
 
 // Function to get the caller's location (file:line)
 function getCallerLocation() {
+    // Only capture location if debug mode is active
+    if (!isDebugMode()) {
+        return '';
+    }
+    
     const error = new Error();
     const stack = error.stack.split('\n');
 
-    // Skip the first 3 lines (Error, getCallerLocation, log function)
-    // and find the first line that's not from logger.js
-    const callerLine = stack.slice(3).find(line => !line.includes('logger.js'));
 
-    if (!callerLine) return '';
 
-    // Extract file path and line number
-    const match = callerLine.match(/\((.+):(\d+):\d+\)/) || callerLine.match(/at (.+):(\d+):\d+/);
-    if (!match) return '';
+    // Look for the first line that's not from logger.js and not node internals
+    // Start from index 1 to skip the "Error" line
+    for (let i = 1; i < stack.length; i++) {
+        const line = stack[i];
+        
+        // Skip lines that are from logger.js, node internals, or empty
+        if (!line || 
+            line.includes('/logger.js:') ||  // More specific - only skip the actual logger.js file
+            line.includes('\\logger.js:') || // Handle Windows paths
+            line.includes('node:internal') ||
+            line.includes('internal/') ||
+            !line.includes('at ')) {
+            continue;
+        }
 
-    const fullPath = match[1];
-    const line = match[2];
+        // Extract file path and line number from stack trace
+        // Format: "    at functionName (/path/to/file.js:line:col)"
+        const match = line.match(/at\s+[^(]*\(([^)]+):(\d+):\d+\)/);
+        
+        if (!match) {
+            continue;
+        }
 
-    // Extract just the filename from the path
-    const filename = fullPath.split('/').pop();
+        const fullPath = match[1];
+        const lineNumber = match[2];
 
-    return ` ${COLORS.GREY}[${filename}:${line}]${COLORS.RESET}`;
+        // Skip if it's still an internal path or if it's a logger internal function
+        if (fullPath.includes('node_modules') || 
+            fullPath.includes('internal/') ||
+            fullPath.startsWith('node:') ||
+            fullPath.endsWith('/logger.js')) {  // Also skip paths ending with /logger.js
+            continue;
+        }
+
+        // Extract just the filename from the path
+        const filename = fullPath.split('/').pop();
+
+        return ` ${COLORS.GREY}[${filename}:${lineNumber}]${COLORS.RESET}`;
+    }
+
+    return ` ${COLORS.GREY}[unknown]${COLORS.RESET}`;
 }
 
 // Function to format the log message with timestamp
-function formatLogWithTimestamp(level, message, error = null, forFile = false) {
+function formatLogWithTimestamp(level, message, error = null, forFile = false, location = null) {
     const now = new Date();
     const timestamp = now.toLocaleString('en-US', {
         month: 'short',
@@ -202,52 +244,53 @@ function formatLogWithTimestamp(level, message, error = null, forFile = false) {
     let formattedMessage = message;
     let indent = ' '.repeat(prefix.length + 1); // Calculate indentation based on prefix length
 
-    // Always show location for all log types
-    const location = getCallerLocation();
+    // Use provided location or get it once
+    if (!location) {
+        location = getCallerLocation();
+    }
 
     // For file output or test mode, return clean format without colors and minimal indentation
     if (forFile || process.env.TEST_MODE === 'true') {
+        // Strip ANSI color codes from location for file output
+        const cleanLocation = location.replace(/\x1b\[[0-9;]*m/g, '');
+        
         // Handle multi-line messages for file output
         if (typeof message === 'string' && message.includes('\n')) {
             const lines = message.split('\n');
-            const firstLine = `${prefix} ${lines[0]}${error ? `: ${formatError(error)}` : ''}${location}`;
+            const firstLine = `${prefix} ${lines[0]}${error ? `: ${formatError(error)}` : ''}${cleanLocation}`;
             const otherLines = lines.slice(1).map(line => line); // Keep tree structure as-is for files
             return [firstLine, ...otherLines].join('\n');
         }
-        return `${prefix} ${message}${error ? `: ${formatError(error)}` : ''}${location}`;
+        return `${prefix} ${message}${error ? `: ${formatError(error)}` : ''}${cleanLocation}`;
     }
 
     switch (level) {
         case LOG_LEVELS.ERROR:
-            prefix = `${COLORS.BOLD}${COLORS.RED}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${
-                COLORS.RESET
-            }`;
+            prefix = `${COLORS.GREY}[${timestamp}]${COLORS.RESET} ${COLORS.BOLD}${COLORS.RED}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}`;
             break;
         case LOG_LEVELS.WARN:
-            prefix = `${COLORS.YELLOW}[${timestamp}] [${level}]`;
-            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}${
-                COLORS.RESET
-            }`;
+            prefix = `${COLORS.GREY}[${timestamp}]${COLORS.RESET} ${COLORS.YELLOW}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${message}${error ? `: ${formatError(error)}` : ''}${location}`;
             break;
         case LOG_LEVELS.INFO:
-            prefix = `[${timestamp}] ${COLORS.GREEN}[${level}]${COLORS.RESET}`;
+            prefix = `${COLORS.GREY}[${timestamp}]${COLORS.RESET} ${COLORS.GREEN}[${level}]${COLORS.RESET}`;
             formattedMessage = `${message}${location}`; // Regular white text
             break;
         case LOG_LEVELS.DEBUG:
-            prefix = `[${timestamp}] ${COLORS.BLUE}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.GREY}${message}${location}${COLORS.RESET}`;
+            prefix = `${COLORS.GREY}[${timestamp}]${COLORS.RESET} ${COLORS.BLUE}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}${location}`;
             break;
         case LOG_LEVELS.SUMMARY:
-            prefix = `[${timestamp}] ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.GREY}${message}${location}${COLORS.RESET}`;
+            prefix = `${COLORS.GREY}[${timestamp}]${COLORS.RESET} ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}${location}`;
             break;
         case LOG_LEVELS.PROMPT:
-            prefix = `[${timestamp}] ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
-            formattedMessage = `${COLORS.GREY}${message}${location}${COLORS.RESET}`;
+            prefix = `${COLORS.GREY}[${timestamp}]${COLORS.RESET} ${COLORS.PURPLE}[${level}]${COLORS.RESET}`;
+            formattedMessage = `${COLORS.GREY}${message}${COLORS.RESET}${location}`;
             break;
         case LOG_LEVELS.STARTUP:
-            prefix = `[${timestamp}] ${COLORS.BOLD}${COLORS.GREEN}[${level}]${COLORS.RESET}`;
+            prefix = `${COLORS.GREY}[${timestamp}]${COLORS.RESET} ${COLORS.BOLD}${COLORS.GREEN}[${level}]${COLORS.RESET}`;
             formattedMessage = `${COLORS.BOLD}${COLORS.GREEN}${message}${COLORS.RESET}${location}`;
             break;
     }
@@ -435,14 +478,14 @@ async function writeToDebugFile(message) {
 }
 
 // Core debug logging function that always logs to debug file regardless of console flags
-async function logToDebugFile(level, message, error = null) {
+async function logToDebugFile(level, message, error = null, location = null) {
     // Only write to debug file if enabled
     if (!DEBUG_FILE_ENABLED) {
         return;
     }
     
     // Format the message for debug file (always log everything) with file formatting
-    const formattedMessage = formatLogWithTimestamp(level, message, error, true);
+    const formattedMessage = formatLogWithTimestamp(level, message, error, true, location);
     
     // Always write to debug file regardless of console settings
     await writeToDebugFile(formattedMessage);
@@ -479,17 +522,20 @@ async function notifyAdmin(message) {
 
 // Core logging function
 async function log(level, message, error = null, shouldNotifyAdmin = false) {
+    // Capture location once at the beginning
+    const location = getCallerLocation();
+    
     // Always write to debug file regardless of console settings
-    await logToDebugFile(level, message, error);
+    await logToDebugFile(level, message, error, location);
     
     // Check if this log level is enabled in console settings for main log and console output
     if (CONSOLE_LOG_LEVELS[level] !== true) {
         return;
     }
 
-    // Format messages separately for console and file
-    const consoleMessage = formatLogWithTimestamp(level, message, error, false); // With colors and indentation
-    const fileMessage = formatLogWithTimestamp(level, message, error, true);    // Clean format for files
+    // Format messages separately for console and file, passing the location
+    const consoleMessage = formatLogWithTimestamp(level, message, error, false, location); // With colors and indentation
+    const fileMessage = formatLogWithTimestamp(level, message, error, true, location);    // Clean format for files
 
     // Write to main log file (only if console level is enabled)
     await writeToLogFile(fileMessage);
@@ -530,17 +576,20 @@ const logger = {
         log(LOG_LEVELS.WARN, message, error, shouldNotifyAdmin),
     info: message => log(LOG_LEVELS.INFO, message, null, true),
     debug: (message, obj = null) => {
+        // Capture location once for debug calls
+        const location = getCallerLocation();
+        
         // Always write to debug file regardless of console settings
         if (obj) {
             // If an object is provided, log both the message and the object to debug file
-            logToDebugFile(LOG_LEVELS.DEBUG, message);
-            logToDebugFile(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`);
+            logToDebugFile(LOG_LEVELS.DEBUG, message, null, location);
+            logToDebugFile(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`, null, location);
         } else if (typeof message === 'object') {
             // If message is an object, stringify it for debug file
-            logToDebugFile(LOG_LEVELS.DEBUG, JSON.stringify(message, null, 2));
+            logToDebugFile(LOG_LEVELS.DEBUG, JSON.stringify(message, null, 2), null, location);
         } else {
             // Otherwise just log the message to debug file
-            logToDebugFile(LOG_LEVELS.DEBUG, message);
+            logToDebugFile(LOG_LEVELS.DEBUG, message, null, location);
         }
 
         // Only proceed with console/main log output if DEBUG is explicitly set to true OR if forced via environment variable
@@ -548,39 +597,50 @@ const logger = {
             return;
         }
 
-        // Format the log message for console output
-        let formattedMessage;
+        // Format the log message for console output (with colors)
+        let consoleMessage;
+        let fileMessage;
+        
         if (obj) {
             // If an object is provided, log both the message and the object
-            formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message);
-            console.log(formattedMessage);
-            console.log(
-                formatLogWithTimestamp(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`)
-            );
+            consoleMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message, null, false, location);
+            fileMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message, null, true, location);
+            console.log(consoleMessage);
+            
+            const objConsoleMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`, null, false, location);
+            const objFileMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, `Data: ${JSON.stringify(obj, null, 2)}`, null, true, location);
+            console.log(objConsoleMessage);
+            
+            // Write both messages to file
+            writeToLogFile(fileMessage).catch(err => console.error('Error writing log to file:', err));
+            writeToLogFile(objFileMessage).catch(err => console.error('Error writing log to file:', err));
         } else if (typeof message === 'object') {
             // If message is an object, stringify it
-            formattedMessage = formatLogWithTimestamp(
-                LOG_LEVELS.DEBUG,
-                JSON.stringify(message, null, 2)
-            );
-            console.log(formattedMessage);
+            const stringifiedMessage = JSON.stringify(message, null, 2);
+            consoleMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, stringifiedMessage, null, false, location);
+            fileMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, stringifiedMessage, null, true, location);
+            console.log(consoleMessage);
+            
+            // Write to main log file
+            writeToLogFile(fileMessage).catch(err => console.error('Error writing log to file:', err));
         } else {
             // Otherwise just log the message
-            formattedMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message);
-            console.log(formattedMessage);
+            consoleMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message, null, false, location);
+            fileMessage = formatLogWithTimestamp(LOG_LEVELS.DEBUG, message, null, true, location);
+            console.log(consoleMessage);
+            
+            // Write to main log file
+            writeToLogFile(fileMessage).catch(err => console.error('Error writing log to file:', err));
         }
-
-        // Write to main log file in the background (don't wait for it to complete)
-        // This ensures chronological order in console while still writing to file
-        writeToLogFile(formattedMessage).catch(err =>
-            console.error('Error writing log to file:', err)
-        );
     },
     summary: message => log(LOG_LEVELS.SUMMARY, message, null, true),
     prompt: (message, promptText) => {
+        // Capture location once for prompt calls
+        const location = getCallerLocation();
+        
         // Handle undefined promptText
         if (promptText === undefined) {
-            console.warn(formatLogWithTimestamp('WARN', 'Undefined prompt text received'));
+            console.warn(formatLogWithTimestamp('WARN', 'Undefined prompt text received', null, false, location));
             promptText = 'UNDEFINED PROMPT';
         }
 
@@ -593,7 +653,7 @@ const logger = {
             .join('\n');
 
         // Always write to debug file regardless of console settings
-        logToDebugFile(LOG_LEVELS.PROMPT, `${message}\n${promptText}`);
+        logToDebugFile(LOG_LEVELS.PROMPT, `${message}\n${promptText}`, null, location);
 
         // Only proceed with console/main log output if PROMPT is explicitly set to true OR if forced via environment variable
         if (CONSOLE_LOG_LEVELS.PROMPT !== true && process.env.FORCE_PROMPT_LOGS !== 'true') {
@@ -603,7 +663,10 @@ const logger = {
         // Format the prompt header and text together
         const formattedPrompt = formatLogWithTimestamp(
             LOG_LEVELS.PROMPT,
-            `${message}\n${promptText}`
+            `${message}\n${promptText}`,
+            null,
+            false,
+            location
         );
 
         // Temporarily disable spinner for prompt output
@@ -611,8 +674,15 @@ const logger = {
         console.log(formattedPrompt);
         showSpinner();
 
-        // Also write to main log file
-        writeToLogFile(formattedPrompt).catch(err =>
+        // Also write to main log file (with file formatting)
+        const formattedPromptFile = formatLogWithTimestamp(
+            LOG_LEVELS.PROMPT,
+            `${message}\n${promptText}`,
+            null,
+            true,
+            location
+        );
+        writeToLogFile(formattedPromptFile).catch(err =>
             console.error('Error writing prompt to log file:', err)
         );
 
