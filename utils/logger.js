@@ -250,7 +250,8 @@ function formatLogWithTimestamp(level, message, error = null, forFile = false, l
     }
 
     // For file output or test mode, return clean format without colors and minimal indentation
-    if (forFile || process.env.TEST_MODE === 'true') {
+    // Unless FORCE_COLORS_IN_FILES is set to true
+    if ((forFile || process.env.TEST_MODE === 'true') && process.env.FORCE_COLORS_IN_FILES !== 'true') {
         // Strip ANSI color codes from location for file output
         const cleanLocation = location.replace(/\x1b\[[0-9;]*m/g, '');
         

@@ -259,11 +259,6 @@ GROUP_UN=Unique Name
 
 # Special Messages
 WIZARD_WELCOME_MESSAGE="Olá, Mamãe querida!\\n\\nPara configurar um novo grupo para fazer resumos, envie *#ferramentaresumo*.\\n\\nTe amo!"
-
-# VPS Optimization Settings
-OPTIMIZE_FOR_VPS=true
-FORCE_DEBUG_LOGS=false
-FORCE_PROMPT_LOGS=false
 `;
 
     return new Promise(resolve => {
@@ -291,13 +286,7 @@ FORCE_PROMPT_LOGS=false
                 envContent += '\n';
             }
 
-            // Add VPS optimization settings if not present
-            if (!envContent.includes('OPTIMIZE_FOR_VPS')) {
-                envContent += '\n# VPS Optimization Settings\n';
-                envContent += 'OPTIMIZE_FOR_VPS=true\n';
-                envContent += 'FORCE_DEBUG_LOGS=false\n';
-                envContent += 'FORCE_PROMPT_LOGS=false\n';
-            }
+
 
             // Write the .env file
             fs.writeFileSync(envFilePath, envContent);
@@ -336,11 +325,6 @@ TWITTER_FALLBACK2_BEARER_TOKEN=AAAAexample
 GROUP_LF=Group One Name
 GROUP_AG=Another Group
 GROUP_UN=Unique Name
-
-# VPS Optimization Settings
-OPTIMIZE_FOR_VPS=true
-FORCE_DEBUG_LOGS=false
-FORCE_PROMPT_LOGS=false
 `;
         fs.writeFileSync(envExamplePath, exampleContent);
     }

@@ -4,7 +4,7 @@
     "description": "WhatsApp bot with GPT integration",
     "main": "app.js",
     "scripts": {
-        "start": "NODE_ENV=production OPTIMIZE_FOR_VPS=true node --expose-gc app.js",
+        "start": "NODE_ENV=production OPTIMIZE_FOR_VPS=true FORCE_COLORS_IN_FILES=true node --expose-gc app.js",
         "dev": "cross-env FORCE_DEBUG_LOGS=true FORCE_PROMPT_LOGS=true nodemon --ignore 'wwebjs/' --ignore 'prompts/' --ignore 'history/' --ignore 'newsMonitor/newsCache.json' --ignore 'periodicSummary/periodicSummary.config.js' app.js",
         "test": "node tester/testMenu.js",
         "setup": "npm install --no-audit && node services/setup.js"

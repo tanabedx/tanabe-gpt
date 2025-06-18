@@ -5,8 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-Environment=NODE_ENV=production
-Environment=OPTIMIZE_FOR_VPS=true
+
 WorkingDirectory=[path]/tanabe-gpt
 ExecStart=/usr/bin/npm start
 Restart=always
