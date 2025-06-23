@@ -131,26 +131,33 @@ Itens Anteriores:
 {previous_items}
 
 Instruções:
-Compare o novo item com os itens anteriores para determinar se eles se referem essencialmente ao mesmo evento ou notícia.
+Compare o novo item com os itens anteriores para determinar se eles se referem essencialmente ao mesmo evento ou notícia específica.
 
-SEJA LENIENTE AO EXCLUIR. Em caso de dúvida, prefira considerar como duplicado.
+SEJA PRECISO E CRITERIOSO. Marque como duplicado apenas quando claramente tratam do mesmo evento específico.
+
+**EM CASO DE DÚVIDA**: Se estiver incerto entre duplicado ou único, prefira marcar como DUPLICADO para evitar spam no grupo.
 
 Considere como DUPLICADO quando:
-- Trata exatamente do mesmo evento ou desenvolvimento específico
-- É obviamente a mesma notícia, mesmo que com títulos ligeiramente diferentes 
-- Cobre o mesmo tópico específico sem adicionar novas informações significativas e relevantes
-- É uma atualização de uma notícia já publicada
-- É minimamente relacionado a uma notícia já publicada
+- Trata EXATAMENTE do mesmo evento ou desenvolvimento específico
+- É obviamente a mesma notícia reportada por fontes diferentes
+- Cobre a mesma ação/declaração/evento com apenas variações menores na formulação
+- É uma atualização menor que não adiciona informações substancialmente novas
 
-Foque principalmente no conteúdo semântico e não na formulação exata. Dois itens podem parecer diferentes na redação, mas se referir ao mesmo evento.
+NÃO considere como duplicado quando:
+- São eventos relacionados mas DISTINTOS (ex: "Irã ataca Israel" vs "Irã ataca bases dos EUA")
+- Envolvem os mesmos atores mas são ações/eventos SEPARADOS
+- São desenvolvimentos diferentes de uma mesma situação geral
+- Adicionam informações novas importantes ou cobrem aspectos diferentes
+- Têm alvos, locais ou contextos diferentes, mesmo que o ator seja o mesmo
+
+Foque no evento específico, não apenas nos atores envolvidos. Mesmo país/pessoa fazendo coisas diferentes = eventos diferentes.
 
 Responda apenas em um dos seguintes formatos:
-1. Se for duplicado: "duplicate::[ID do item similar]::[Breve justificativa de 10-15 palavras]"
+1. Se for duplicado: "duplicate::Breve justificativa explicando por que é exatamente o mesmo evento"
 2. Se não for duplicado: "unique::Não é duplicado de nenhum item anterior"
-3. Não utilize aspas duplas no seu retorno.
 
 Exemplos:
-- "duplicate::1921915583668355090::Mesmo anúncio sobre o PKK encerrar luta armada na Turquia"
+- "duplicate::Mesmo anúncio sobre o PKK encerrar luta armada na Turquia"
 - "unique::Não é duplicado de nenhum item anterior"
     `,
 

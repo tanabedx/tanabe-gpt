@@ -145,13 +145,12 @@ async function checkIfDuplicate(newItem, cachedItems, config) {
 
         if (cleanedResult.startsWith('duplicate::')) {
             const parts = result.split('::');
-            const duplicateId = parts[1] || 'Unknown ID';
-            const justification = parts[2] || 'No justification provided.';
+            const justification = parts[1] || 'No justification provided.';
             logger.debug(
                 `NM: Item "${(newItem.title || newItem.text || 'Untitled Item').substring(
                     0,
                     50
-                )}..." identified as DUPLICATE of item ID ${duplicateId}. Justification: ${justification}`
+                )}..." identified as DUPLICATE. Justification: ${justification}`
             );
             return true;
         }
