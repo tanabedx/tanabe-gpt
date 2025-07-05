@@ -1,5 +1,5 @@
 const logger = require('../utils/logger');
-const { handleAutoDelete } = require('../utils/messageUtils');
+const { handleAutoDelete, sendStreamingResponse } = require('../utils/messageUtils');
 const { transcribeAudio } = require('./audioUtils');
 const fs = require('fs');
 const path = require('path');
@@ -58,10 +58,9 @@ async function handleAudio(message, command) {
             return;
         }
 
-        // Send the transcription with formatting
+        // Send the transcription with formatting using streaming response
         const formattedResponse = `Transcrição:\n_${transcription}_`;
-        const response = await message.reply(formattedResponse);
-        await handleAutoDelete(response, command);
+        await sendStreamingResponse(message, formattedResponse, command, '🤖', 60, 120, 25);
     } catch (error) {
         logger.error('Error in AUDIO command:', error, {
             mediaType: message.type,

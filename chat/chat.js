@@ -1,6 +1,6 @@
 const config = require('../configs/config');
 const logger = require('../utils/logger');
-const { handleAutoDelete } = require('../utils/messageUtils');
+const { handleAutoDelete, sendStreamingResponse } = require('../utils/messageUtils');
 const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUtils');
 const { formatUserMessage, getPromptTypeFromPrefix } = require('./promptUtils');
 
@@ -171,43 +171,14 @@ async function handleChat(message, command, commandPrefix) {
             }
         }
         
-        // --- Simulated Streaming for Final Response ---
+        // --- Ultra-Fast Streaming for Final Response ---
         if (finalResponse && finalResponse.trim()) {
-            const responseMessage = await message.reply('🤖');
-            const responseText = finalResponse.trim();
-            
-            let currentIndex = 0;
-            let isEditing = false; // Lock to prevent concurrent edits
-
-            const streamInterval = setInterval(async () => {
-                if (isEditing) return; // Don't run if an edit is in progress
-
-                isEditing = true;
-
-                try {
-                    const chunkSize = Math.floor(Math.random() * 15) + 5; // Adjusted chunk size for feel
-                    currentIndex += chunkSize;
-
-                    if (currentIndex >= responseText.length) {
-                        clearInterval(streamInterval);
-                        await responseMessage.edit(responseText);
-                        handleAutoDelete(responseMessage, command);
-                        logger.debug('Final simulated stream response sent', {
-                            name,
-                            groupName,
-                            responseLength: responseText.length,
-                        });
-                    } else {
-                        await responseMessage.edit(responseText.substring(0, currentIndex) + '...');
-                    }
-                } catch (error) {
-                    logger.error('Error during message edit stream:', error);
-                    clearInterval(streamInterval); // Stop streaming on error
-                } finally {
-                    isEditing = false; // Release the lock
-                }
-            }, 400); // Slower interval to prevent rate-limiting
-
+            await sendStreamingResponse(message, finalResponse.trim(), command, '🤖', 50, 100, 25);
+            logger.debug('Final ultra-fast stream response sent', {
+                name,
+                groupName,
+                responseLength: finalResponse.trim().length,
+            });
         } else {
              // Fallback if no valid response
             const errorMessage = await message.reply(

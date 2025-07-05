@@ -15,7 +15,7 @@ const TEST_CASES = {
             description: 'Should summarize the last 3 hours',
             category: 'SUMMARY',
             extraDelay: 5000, // Extra delay for summary commands
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
         {
             name: 'Summary with Quote',
@@ -27,7 +27,7 @@ const TEST_CASES = {
             description: 'Should summarize only the quoted poem',
             category: 'SUMMARY',
             extraDelay: 10000, // Longer delay for processing
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
         {
             name: 'Summary with Link',
@@ -39,7 +39,7 @@ const TEST_CASES = {
             description: 'Should summarize the quoted link',
             category: 'SUMMARY',
             extraDelay: 15000, // Longer delay for link processing
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
         {
             name: 'Summary with Specific Count',
@@ -48,7 +48,7 @@ const TEST_CASES = {
             description: 'Should summarize only the last 10 messages',
             category: 'SUMMARY',
             extraDelay: 5000,
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
         {
             name: 'Summary with Document',
@@ -61,7 +61,7 @@ const TEST_CASES = {
             category: 'SUMMARY',
             extraDelay: 15000, // Much longer delay for document processing
             preDelay: 5000, // Wait before sending the command
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
         {
             name: 'Direct Attachment Summary',
@@ -72,7 +72,7 @@ const TEST_CASES = {
             description: 'Should summarize a document attached directly with the #resumo command',
             category: 'SUMMARY',
             extraDelay: 15000, // Much longer delay for document processing
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
         {
             name: 'Summary Sticker',
@@ -83,7 +83,7 @@ const TEST_CASES = {
             description: 'Should summarize using the summary sticker',
             category: 'SUMMARY',
             extraDelay: 5000,
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
     ],
 
@@ -218,7 +218,7 @@ const TEST_CASES = {
             description: 'Should transcribe the voice note',
             category: 'MEDIA',
             extraDelay: 10000, // Longer delay for audio processing
-            waitForStreaming: false,
+            waitForStreaming: true,
         },
     ],
 

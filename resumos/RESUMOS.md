@@ -14,6 +14,7 @@ Intelligent message and content summarization system for WhatsApp groups that pr
 - **Group Personality Integration**: Context-aware summaries based on group characteristics
 - **Auto-Deletion Management**: Configurable automatic cleanup of command messages and errors
 - **Batch Message Processing**: Intelligent message fetching with pagination for large conversations
+- **Streaming Responses**: Simulated typing effect for better user experience with robot face placeholder
 
 ## Usage Examples
 
@@ -67,7 +68,7 @@ The resumos module implements a **Multi-Modal Content Processing Pattern**:
 
 **Processing Flow**:
 ```
-Input Analysis → Content Type Detection → Specialized Processing → Text Extraction → AI Summarization → Response Delivery → Cleanup
+Input Analysis → Content Type Detection → Specialized Processing → Text Extraction → AI Summarization → Streaming Response → Auto-Delete → Cleanup
 ```
 
 **Design Patterns**:
@@ -109,7 +110,7 @@ async function handleResumos(message, command, input) {
         const text = await downloadAndProcessDocument(message);
         const prompt = getResumoPrompt('DOCUMENT_SUMMARY', { text });
         const summary = await runCompletion(prompt, 0.7);
-        return await message.reply(summary);
+        return await sendStreamingResponse(message, summary, command, '🤖');
     }
     
     // Time-based or count-based message processing

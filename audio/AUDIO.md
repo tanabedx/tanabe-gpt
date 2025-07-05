@@ -8,6 +8,7 @@ Audio transcription system for WhatsApp bot providing automatic speech-to-text c
 - **Multi-Source Audio Support**: Direct audio messages and quoted audio message processing
 - **Temporary File Management**: Secure audio file download, processing, and automatic cleanup
 - **Format Validation**: Audio format verification and error handling for unsupported media types
+- **Streaming Responses**: Simulated typing effect for transcription delivery with robot face placeholder
 
 ## Usage Examples
 ```javascript
@@ -34,8 +35,9 @@ Command-driven audio processing pipeline with temporary file management, externa
 2. **Media Download** → WhatsApp media API (base64 data retrieval)
 3. **File Management** → Temporary file creation with unique naming
 4. **Transcription** → OpenAI Whisper API integration
-5. **Response Delivery** → Formatted transcription with auto-delete handling
-6. **Cleanup** → Automatic temporary file removal
+5. **Streaming Response** → Simulated typing effect for transcription delivery
+6. **Auto-Delete** → Automatic response cleanup after timeout
+7. **Cleanup** → Automatic temporary file removal
 
 ## File Structure & Roles
 
@@ -129,8 +131,8 @@ AUDIO_CONFIG = {
 WhatsApp Audio Message → audio.js (validation) → Media Download → 
   ↓ (temporary file creation)
 File System Write → audioUtils.js (Whisper API) → Transcription Response → 
-  ↓ (formatted response)
-WhatsApp Reply → File Cleanup
+  ↓ (streaming response with 🤖 placeholder)
+Streaming Response → Auto-Delete → File Cleanup
 ```
 
 ### Quoted Message Processing Flow

@@ -57,7 +57,80 @@ function resolveContactName(contact) {
     return 'Unknown';
 }
 
+/**
+ * Send a streaming response that simulates typing effect
+ * @param {Object} message - The original message to reply to
+ * @param {string} finalResponse - The complete response text
+ * @param {Object} command - Command configuration for auto-delete
+ * @param {string} placeholder - Initial placeholder text (default: '🤖')
+ * @param {number} chunkSizeMin - Minimum chunk size for streaming (default: 5)
+ * @param {number} chunkSizeMax - Maximum chunk size for streaming (default: 20)
+ * @param {number} intervalMs - Interval between chunks in milliseconds (default: 400)
+ * @returns {Promise<Object>} The final response message
+ */
+async function sendStreamingResponse(message, finalResponse, command, placeholder = '🤖', chunkSizeMin = 40, chunkSizeMax = 80, intervalMs = 50) {
+    try {
+        // Send initial placeholder message
+        const responseMessage = await message.reply(placeholder);
+        
+        if (!finalResponse || !finalResponse.trim()) {
+            logger.warn('Empty response provided to streaming function');
+            await responseMessage.edit('Resposta vazia recebida.');
+            await handleAutoDelete(responseMessage, command);
+            return responseMessage;
+        }
+
+        const responseText = finalResponse.trim();
+        let currentIndex = 0;
+        let isEditing = false; // Lock to prevent concurrent edits
+
+        const streamInterval = setInterval(async () => {
+            if (isEditing) return; // Don't run if an edit is in progress
+
+            isEditing = true;
+
+            try {
+                // Random chunk size for more natural feel
+                const chunkSize = Math.floor(Math.random() * (chunkSizeMax - chunkSizeMin + 1)) + chunkSizeMin;
+                currentIndex += chunkSize;
+
+                if (currentIndex >= responseText.length) {
+                    clearInterval(streamInterval);
+                    await responseMessage.edit(responseText);
+                    await handleAutoDelete(responseMessage, command);
+                    logger.debug('Streaming response completed', {
+                        responseLength: responseText.length,
+                        placeholder: placeholder
+                    });
+                } else {
+                    await responseMessage.edit(responseText.substring(0, currentIndex) + '...');
+                }
+            } catch (error) {
+                logger.error('Error during streaming message edit:', error);
+                clearInterval(streamInterval); // Stop streaming on error
+                try {
+                    await responseMessage.edit(responseText); // Send full response as fallback
+                    await handleAutoDelete(responseMessage, command);
+                } catch (fallbackError) {
+                    logger.error('Fallback edit also failed:', fallbackError);
+                }
+            } finally {
+                isEditing = false; // Release the lock
+            }
+        }, intervalMs);
+
+        return responseMessage;
+    } catch (error) {
+        logger.error('Error in sendStreamingResponse:', error);
+        // Fallback to regular reply
+        const fallbackMessage = await message.reply(finalResponse);
+        await handleAutoDelete(fallbackMessage, command);
+        return fallbackMessage;
+    }
+}
+
 module.exports = {
     handleAutoDelete,
     resolveContactName,
+    sendStreamingResponse,
 };

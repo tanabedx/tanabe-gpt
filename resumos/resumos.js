@@ -3,7 +3,7 @@ const { runCompletion } = require('../utils/openaiUtils');
 const { extractLinks, unshortenLink, getPageContent } = require('../utils/linkUtils');
 const { getResumoPrompt } = require('./resumoPromptUtils');
 const logger = require('../utils/logger');
-const { handleAutoDelete, resolveContactName } = require('../utils/messageUtils');
+const { handleAutoDelete, resolveContactName, sendStreamingResponse } = require('../utils/messageUtils');
 const { downloadAndProcessDocument } = require('./documentUtils');
 
 async function handleQuotedMessage(message, command) {
@@ -22,10 +22,9 @@ async function handleQuotedMessage(message, command) {
                 });
 
                 const summary = await runCompletion(prompt, 0.7);
-                const response = await quotedMsg.reply(summary);
-
-                // Handle auto-deletion if configured
-                await handleAutoDelete(response, command);
+                
+                // Use streaming response for document summary
+                await sendStreamingResponse(quotedMsg, summary, command, '🤖', 50, 100, 30);
                 await handleAutoDelete(message, command);
                 return;
             } catch (error) {
@@ -62,8 +61,9 @@ async function handleQuotedMessage(message, command) {
                     pageContent,
                 });
                 const summary = await runCompletion(prompt, 1);
-                const response = await quotedMsg.reply(summary);
-                await handleAutoDelete(response, command);
+                
+                // Use streaming response for link summary
+                await sendStreamingResponse(quotedMsg, summary, command, '🤖');
             } catch (error) {
                 logger.error('Error processing link:', {
                     link: links[0],
@@ -81,8 +81,10 @@ async function handleQuotedMessage(message, command) {
                         quotedText: `Link não pôde ser processado: ${links[0]}\n\n${quotedText}`,
                     });
                     const result = await runCompletion(prompt, 1);
-                    const response = await quotedMsg.reply(`⚠️ Não consegui processar o link, mas aqui está um resumo do texto:\n\n${result.trim()}`);
-                    await handleAutoDelete(response, command);
+                    const fallbackResponse = `⚠️ Não consegui processar o link, mas aqui está um resumo do texto:\n\n${result.trim()}`;
+                    
+                    // Use streaming response for fallback summary
+                    await sendStreamingResponse(quotedMsg, fallbackResponse, command, '🤖');
                 } catch (fallbackError) {
                     logger.error('Fallback text summary also failed:', fallbackError);
                     const errorMessage = await message.reply(command.errorMessages.linkError);
@@ -98,8 +100,9 @@ async function handleQuotedMessage(message, command) {
                 quotedText,
             });
             const result = await runCompletion(prompt, 1);
-            const response = await quotedMsg.reply(result.trim());
-            await handleAutoDelete(response, command);
+            
+            // Use streaming response for quoted text summary
+            await sendStreamingResponse(quotedMsg, result.trim(), command, '🤖');
         }
     } catch (error) {
         logger.error('Error handling quoted message:', error);
@@ -107,7 +110,7 @@ async function handleQuotedMessage(message, command) {
     }
 }
 
-async function handleSpecificMessageCount(message, limit) {
+async function handleSpecificMessageCount(message, limit, command) {
     const chat = await message.getChat();
 
     if (isNaN(limit)) {
@@ -194,9 +197,9 @@ async function handleSpecificMessageCount(message, limit) {
     });
 
     const result = await runCompletion(prompt, 1);
-    return await message
-        .reply(result.trim())
-        .catch(error => logger.error('Failed to send message:', error.message));
+    
+    // Use streaming response for message count summary
+    return await sendStreamingResponse(message, result.trim(), command, '🤖', 45, 90, 35);
 }
 
 function parseRelativeTime(input) {
@@ -256,7 +259,7 @@ function parseRelativeTime(input) {
     return null;
 }
 
-async function handleTimeBasedSummary(message, timeInfo) {
+async function handleTimeBasedSummary(message, timeInfo, command) {
     const chat = await message.getChat();
     const messages = await chat.fetchMessages({ limit: 1000 });
 
@@ -285,7 +288,9 @@ async function handleTimeBasedSummary(message, timeInfo) {
     });
 
     const result = await runCompletion(prompt, 1);
-    return await message.reply(result.trim());
+    
+    // Use streaming response for time-based summary
+    return await sendStreamingResponse(message, result.trim(), command, '🤖', 45, 90, 35);
 }
 
 async function handleResumos(message, command, input) {
@@ -316,10 +321,9 @@ async function handleResumos(message, command, input) {
                 });
 
                 const summary = await runCompletion(prompt, 0.7);
-                const response = await message.reply(summary);
-
-                // Handle auto-deletion if configured
-                await handleAutoDelete(response, command);
+                
+                // Use streaming response for document summary
+                await sendStreamingResponse(message, summary, command, '🤖', 50, 100, 30);
                 await handleAutoDelete(message, command);
                 return;
             } catch (error) {
@@ -338,14 +342,14 @@ async function handleResumos(message, command, input) {
                 const timeInfo = parseRelativeTime(trimmedInput);
                 if (timeInfo !== null) {
                     logger.debug('Processing time-based summary:', trimmedInput);
-                    return await handleTimeBasedSummary(message, timeInfo);
+                    return await handleTimeBasedSummary(message, timeInfo, command);
                 }
 
                 // Then try to parse as a number
                 const limit = parseInt(trimmedInput);
                 if (!isNaN(limit)) {
                     logger.debug('Processing specific message count:', limit);
-                    return await handleSpecificMessageCount(message, limit);
+                    return await handleSpecificMessageCount(message, limit, command);
                 }
 
                 // If neither time expression nor number, show error
@@ -362,7 +366,7 @@ async function handleResumos(message, command, input) {
         return await handleTimeBasedSummary(message, {
             startTime: threeHoursAgo,
             timeDescription: 'as mensagens das últimas 3 horas',
-        });
+        }, command);
     } catch (error) {
         logger.error('Error in handleResumos:', error);
         const errorMessage = await message.reply(command.errorMessages.error);

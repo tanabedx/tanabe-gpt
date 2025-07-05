@@ -28,7 +28,7 @@ Event-driven message processing pipeline with modular handlers for different req
 2. **Conversation Initialization** → `conversationManager.js` fetches the last N messages from the chat and constructs the initial system prompt, including chat history and personality.
 3. **Request Type Detection** → Parallel handlers for context/search requests
 4. **Content Processing** → AI model selection and API calls
-5. **Response Delivery** → Sends an initial placeholder message (e.g., '🤖') and then uses a simulated streaming effect to "type out" the final response by repeatedly editing the message for a better user experience.
+5. **Response Delivery** → Sends an initial placeholder message (e.g., '🤖') and then uses an ultra-fast streaming effect to "type out" the final response with 25ms intervals and 50-100 character chunks for almost live typing experience.
 
 ## File Structure & Roles
 
@@ -111,7 +111,7 @@ searchExecution: DuckDuckGo → Google(fallback) → ContentScraping → ModelPr
 
 ### Standard Chat Flow
 ```
-WhatsApp Message → chat.js → conversationManager.js (fetches initial history) → OpenAI API → Simulated Streaming (via message edits) → WhatsApp
+WhatsApp Message → chat.js → conversationManager.js (fetches initial history) → OpenAI API → Ultra-Fast Streaming (25ms intervals) → WhatsApp
 ```
 
 ### Context-Aware Chat Flow  
@@ -120,14 +120,14 @@ WhatsApp Message → chat.js → conversationManager.js → OpenAI API →
   ↓ (AI returns REQUEST_CONTEXT)
 contextRequestHandler.js → contextManager.js → WhatsApp History Fetch →
   ↓ (context injected)
-conversationManager.js → OpenAI API → Response with Context → Simulated Streaming → WhatsApp
+conversationManager.js → OpenAI API → Response with Context → Ultra-Fast Streaming → WhatsApp
 ```
 
 ### Web Search Flow
 ```
 WhatsApp Message → webSearchUtils.js (keyword detection) → Search APIs → Content Scraping →
   ↓ (search results injected as system message)
-conversationManager.js → OpenAI API (with webSearch.model) → Response with Current Info → Simulated Streaming → WhatsApp
+conversationManager.js → OpenAI API (with webSearch.model) → Response with Current Info → Ultra-Fast Streaming → WhatsApp
 
 OR (Manual Search):
 
@@ -135,7 +135,7 @@ WhatsApp Message → conversationManager.js → OpenAI API →
   ↓ (AI returns REQUEST_SEARCH: [query])
 searchRequestHandler.js → webSearchUtils.js → Search APIs → Content Scraping →
   ↓ (search results injected)
-conversationManager.js → OpenAI API → Response with Search Data → Simulated Streaming → WhatsApp
+conversationManager.js → OpenAI API → Response with Search Data → Ultra-Fast Streaming → WhatsApp
 ```
 
 ## Configuration Schema
@@ -191,7 +191,7 @@ contextManagement: {
 - **`global.client`**: WhatsApp Web.js client instance for message sending/receiving
 - **`chat.getMessages()`**: Message history fetching for context system
 - **`message.reply()`**: Used to send the initial response message.
-- **`message.edit()`**: Used repeatedly to update the initial message, creating a simulated streaming effect.
+- **`sendStreamingResponse()`**: Ultra-fast streaming utility with 25ms intervals and 50-100 character chunks for almost live typing effect.
 
 ### OpenAI API Integration
 - **Models Used**: `gpt-4o-mini`, `gpt-4o` (configurable per use case)

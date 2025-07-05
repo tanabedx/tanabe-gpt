@@ -41,6 +41,12 @@ logger.debug('Processing message', { user, command });
 // Debug logs always written to tanabe-gpt-debug.log (if enabled)
 // Main logs respect CONSOLE_LOG_LEVELS settings
 
+// Message Management with Streaming
+const { handleAutoDelete, resolveContactName, sendStreamingResponse } = require('./utils/messageUtils');
+await handleAutoDelete(response, command); // Auto-delete after timeout
+const name = resolveContactName(contact); // Get best available name
+await sendStreamingResponse(message, finalResponse, command, '🤖'); // Streaming response
+
 // OpenAI Integration
 const { runCompletion } = require('./utils/openaiUtils');
 const response = await runCompletion(prompt, 1, 'gpt-4o', 'CHAT');
@@ -67,7 +73,7 @@ Modular utility architecture with shared logging infrastructure and external API
 
 ### Content Processing Files
 - **`linkUtils.js`**: URL processing utilities with link extraction, unshortening, content fetching, and retry logic
-- **`messageUtils.js`**: Message handling utilities with auto-delete functionality and contact name resolution
+- **`messageUtils.js`**: Message handling utilities with auto-delete functionality, contact name resolution, and streaming response capabilities
 
 ### Infrastructure & Integration Files
 - **`logger.js`**: Self-contained, advanced logging infrastructure with multi-level output, file rotation, admin notifications, and spinner UI.
@@ -183,6 +189,61 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
         rawResponse: completion
     };
 };
+```
+
+### Streaming Response System (`messageUtils.js`)
+```javascript
+// Simulated streaming response with typing effect
+const sendStreamingResponse = async (message, finalResponse, command, placeholder = '🤖', chunkSizeMin = 40, chunkSizeMax = 80, intervalMs = 50) => {
+    try {
+        // Send initial placeholder message
+        const responseMessage = await message.reply(placeholder);
+        
+        // Stream response with random chunk sizes for natural feel
+        let currentIndex = 0;
+        let isEditing = false; // Prevent concurrent edits
+        
+        const streamInterval = setInterval(async () => {
+            if (isEditing) return;
+            isEditing = true;
+            
+            try {
+                const chunkSize = Math.floor(Math.random() * (chunkSizeMax - chunkSizeMin + 1)) + chunkSizeMin;
+                currentIndex += chunkSize;
+                
+                if (currentIndex >= finalResponse.length) {
+                    clearInterval(streamInterval);
+                    await responseMessage.edit(finalResponse);
+                    await handleAutoDelete(responseMessage, command);
+                } else {
+                    await responseMessage.edit(finalResponse.substring(0, currentIndex) + '...');
+                }
+            } catch (error) {
+                logger.error('Error during streaming edit:', error);
+                clearInterval(streamInterval);
+                await responseMessage.edit(finalResponse); // Fallback to complete response
+                await handleAutoDelete(responseMessage, command);
+            } finally {
+                isEditing = false;
+            }
+        }, intervalMs);
+        
+        return responseMessage;
+    } catch (error) {
+        logger.error('Error in streaming response:', error);
+        // Fallback to regular reply
+        const fallbackMessage = await message.reply(finalResponse);
+        await handleAutoDelete(fallbackMessage, command);
+        return fallbackMessage;
+    }
+};
+
+// Usage examples:
+// await sendStreamingResponse(message, summary, command, '🤖'); // Default ultra-fast streaming
+// await sendStreamingResponse(message, transcription, command, '🤖', 60, 120, 25); // Almost live for audio
+// await sendStreamingResponse(message, result, command, '🤖', 50, 100, 30); // Almost live for documents
+// await sendStreamingResponse(message, finalResponse, command, '🤖', 50, 100, 25); // Almost live for chat
+```
 ```
 
 ### Link Processing System (`linkUtils.js`)
