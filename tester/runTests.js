@@ -314,6 +314,14 @@ async function runTests() {
             throw error;
         }
 
+        // Clear initialization spinner before starting tests
+        if (spinnerInterval) {
+            clearInterval(spinnerInterval);
+            clearSpinner();
+            spinnerActive = false;
+            spinnerInterval = null;
+        }
+
         // Show which tests we're running
         console.log('\x1b[1mStarting tests...\x1b[0m');
         logger.log(`Preparing to run ${testsToRun.length} tests...`);
