@@ -4,7 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=[user]
+Group=[group]
 
 WorkingDirectory=[path]/tanabe-gpt
 ExecStart=/usr/bin/npm start

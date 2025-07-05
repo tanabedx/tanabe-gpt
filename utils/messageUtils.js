@@ -65,10 +65,19 @@ function resolveContactName(contact) {
  * @param {string} placeholder - Initial placeholder text (default: '🤖')
  * @param {number} chunkSizeMin - Minimum chunk size for streaming (default: 5)
  * @param {number} chunkSizeMax - Maximum chunk size for streaming (default: 20)
- * @param {number} intervalMs - Interval between chunks in milliseconds (default: 400)
+ * @param {number} intervalMs - Interval between chunks in milliseconds (default: 50)
  * @returns {Promise<Object>} The final response message
  */
 async function sendStreamingResponse(message, finalResponse, command, placeholder = '🤖', chunkSizeMin = 40, chunkSizeMax = 80, intervalMs = 50) {
+    const config = require('../configs/config'); // Load config inside function
+    
+    // Check master streaming switch
+    if (config.SYSTEM?.STREAMING_ENABLED === false) {
+        const responseMessage = await message.reply(finalResponse.trim());
+        await handleAutoDelete(responseMessage, command);
+        return responseMessage;
+    }
+
     try {
         // Send initial placeholder message
         const responseMessage = await message.reply(placeholder);

@@ -88,11 +88,15 @@ function performSystemdServiceSetup() {
 
     console.log('\n====== Setting up Tanabe-GPT Systemd Service ======');
 
-    const templateServiceFilePath = path.join(__dirname, 'tanabe-gpt.service');
     let serviceFileContent;
     let currentUser;
     try {
-        currentUser = os.userInfo().username;
+        // Prefer the user who invoked sudo, otherwise get current user.
+        // This ensures the service runs as the user who owns the files, not root.
+        currentUser = process.env.SUDO_USER || os.userInfo().username;
+        if (currentUser === 'root' && process.env.SUDO_USER) {
+            console.log('Running with sudo, but SUDO_USER is not set. Using current user.');
+        }
     } catch (err) {
         console.warn(
             `\nWARNING: Could not determine current user: ${err.message}. Defaulting to 'root' for systemd service user.`
@@ -101,70 +105,30 @@ function performSystemdServiceSetup() {
     }
 
     try {
+        const templateServiceFilePath = path.join(__dirname, 'tanabe-gpt.service');
         console.log(`Reading systemd service template from: ${templateServiceFilePath}`);
         if (!fs.existsSync(templateServiceFilePath)) {
             console.error(
                 `\nERROR: Systemd service template file not found at ${templateServiceFilePath}`
             );
-            console.error("Please ensure 'tanabe-gpt.service' exists in the 'services' directory.");
-            console.error('Skipping systemd service setup.');
             return;
         }
         const templateContent = fs.readFileSync(templateServiceFilePath, 'utf8');
 
-        // Replace WorkingDirectory
-        let tempServiceFileContent = templateContent.replace(
-            'WorkingDirectory=[path]/tanabe-gpt',
-            `WorkingDirectory=${rootDir}`
-        );
+        // Replace placeholders for WorkingDirectory, User, and Group
+        serviceFileContent = templateContent
+            .replace('WorkingDirectory=[path]/tanabe-gpt', `WorkingDirectory=${rootDir}`)
+            .replace('User=[user]', `User=${currentUser}`)
+            .replace('Group=[group]', `Group=${currentUser}`);
 
-        // Check if WorkingDirectory replacement was successful
-        if (
-            templateContent.includes('WorkingDirectory=[path]/tanabe-gpt') &&
-            !tempServiceFileContent.includes(`WorkingDirectory=${rootDir}`)
-        ) {
-            console.warn(
-                `\nWARNING: Placeholder 'WorkingDirectory=[path]/tanabe-gpt' was found, but the WorkingDirectory might not have been updated correctly in the service file content for ${templateServiceFilePath}. Please verify the generated service file.`
-            );
-        } else if (!templateContent.includes('WorkingDirectory=[path]/tanabe-gpt')) {
-            console.warn(
-                `\nWARNING: Could not find exact placeholder 'WorkingDirectory=[path]/tanabe-gpt' in ${templateServiceFilePath}.`
-            );
-            console.warn(
-                'The WorkingDirectory will NOT be dynamically set. The content of the template file will be used as is.'
-            );
-            console.warn(
-                `Ensure that ${templateServiceFilePath} either has the correct WorkingDirectory hardcoded or contains the exact placeholder 'WorkingDirectory=[path]/tanabe-gpt' for dynamic replacement.`
-            );
-            // If placeholder not found, use template content as is for this part,
-            // but still attempt User replacement later.
-            tempServiceFileContent = templateContent;
+        // Verify replacements to prevent accidental root usage
+        if (templateContent.includes('User=[user]') && !serviceFileContent.includes(`User=${currentUser}`)) {
+            throw new Error('Failed to replace User placeholder in systemd service file.');
+        }
+        if (templateContent.includes('Group=[group]') && !serviceFileContent.includes(`Group=${currentUser}`)) {
+            throw new Error('Failed to replace Group placeholder in systemd service file.');
         }
 
-        // Replace User
-        const userPlaceholder = 'User=root'; // Assuming the template uses User=root
-        if (tempServiceFileContent.includes(userPlaceholder)) {
-            serviceFileContent = tempServiceFileContent.replace(
-                userPlaceholder,
-                `User=${currentUser}`
-            );
-            if (!serviceFileContent.includes(`User=${currentUser}`)) {
-                console.warn(
-                    `\nWARNING: Placeholder '${userPlaceholder}' was found, but the User might not have been updated correctly to '${currentUser}' in the service file content. Please verify the generated service file.`
-                );
-            }
-        } else {
-            console.warn(
-                `\nWARNING: Could not find '${userPlaceholder}' in the service template ${templateServiceFilePath}.`
-            );
-            console.warn(
-                `The User will NOT be dynamically set to '${currentUser}'. The existing User setting (if any) or lack thereof in the template will be used.`
-            );
-            console.warn(
-                `Ensure that ${templateServiceFilePath} either has '${userPlaceholder}' for dynamic replacement, or the correct User hardcoded.`
-            );
-            serviceFileContent = tempServiceFileContent; // Use content after WorkingDirectory replacement
-        }
     } catch (error) {
         console.error(
             `\nERROR: Failed to read or process the systemd service template file: ${error.message}`
@@ -294,8 +258,6 @@ WIZARD_WELCOME_MESSAGE="Olá, Mamãe querida!\\n\\nPara configurar um novo grupo
             if (!envContent.endsWith('\n')) {
                 envContent += '\n';
             }
-
-
 
             // Write the .env file
             fs.writeFileSync(envFilePath, envContent);
