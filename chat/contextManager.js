@@ -274,11 +274,87 @@ function getContextStats(groupName) {
     };
 }
 
+/**
+ * Fetches the last N messages from a chat history for initial context.
+ * This is a simplified, one-off fetcher, independent of the main context cache.
+ * @param {string} groupName - The name of the group/chat.
+ * @param {number} messageCount - The number of recent messages to fetch.
+ * @returns {Promise<string>} A formatted string of the last N messages, or an empty string if it fails.
+ */
+async function fetchInitialHistory(groupName, messageCount = 10) {
+    try {
+        const client = global.client;
+        if (!client) {
+            logger.error('Client not available for initial history fetching.');
+            return '';
+        }
+
+        const contextGroupName = getContextGroupName(groupName);
+
+        // Optional: you might want to check for permissions here too
+        const adminNumber = config?.CREDENTIALS?.ADMIN_NUMBER;
+        const isAdminChat = !groupName || groupName.includes(adminNumber);
+        if (!isAdminChat && !isGroupAllowed(contextGroupName)) {
+            logger.debug(`Group ${contextGroupName} is not allowed to fetch initial history.`);
+            return '';
+        }
+        
+        const chats = await client.getChats();
+        const chat = chats.find(c => c.name === contextGroupName);
+
+        if (!chat) {
+            logger.warn(`Chat ${contextGroupName} not found for initial history.`);
+            return '';
+        }
+
+        const messages = await chat.fetchMessages({ limit: messageCount });
+
+        if (!messages || messages.length === 0) {
+            logger.debug(`No initial messages found for ${contextGroupName}.`);
+            return '';
+        }
+
+        // We want the messages in chronological order for the prompt
+        const reversedMessages = messages.reverse();
+
+        const formattedMessages = await Promise.all(
+            reversedMessages.map(async msg => {
+                const contact = await msg.getContact();
+                const date = new Date(msg.timestamp * 1000);
+                const formattedDate = date.toLocaleString('pt-BR', {
+                    timeZone: 'America/Sao_Paulo',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                });
+
+                let prefix;
+                if (msg.fromMe) {
+                    prefix = `<<Você:`;
+                } else {
+                    const senderName = contact.name || contact.pushname || contact.number;
+                    prefix = `>>${senderName}:`;
+                }
+
+                return `[${formattedDate}] ${prefix} ${msg.body}`;
+            })
+        );
+
+        return formatMessages(formattedMessages);
+    } catch (error) {
+        logger.error(`Error fetching initial history for ${groupName}:`, error);
+        return ''; // Return empty string on error to not break the main flow
+    }
+}
+
 module.exports = {
     initializeContextManager,
     fetchContextMessages,
     clearContextCache,
     getContextStats,
     formatMessages,
-    getContextGroupName
+    getContextGroupName,
+    fetchInitialHistory
 }; 

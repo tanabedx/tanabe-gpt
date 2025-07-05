@@ -146,9 +146,13 @@ async function generateNewsCycleDebugReport_core(
     report.push(rssFetchedStats);
 
     // Webscraper fetching
-    let webscraperFetchedStats = 'Webscraper: ';
+    report.push('- Itens de Webscraper: ');
+    let webscraperFetchedStats = '  - Coleta: ';
+
     try {
-        const webscrapedItems = await utilities.webscraperFetcher.fetchAndFormatWebscrapedItems();
+        const fetcher = new utilities.webscraperFetcher(config);
+        const webscrapedItems = await fetcher.fetchAllSources();
+
         if (webscrapedItems?.length) {
             allFetchedItems = allFetchedItems.concat(webscrapedItems);
             const countsBySite = webscrapedItems.reduce((acc, item) => {

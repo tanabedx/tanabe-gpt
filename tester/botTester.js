@@ -293,6 +293,8 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
         checkBotMessageDeletion = false,
         followUpCommand = null,
         followUpDelay = 0,
+        waitForStreaming = false,
+        mentions = null, // New parameter to add mentions to the message
     } = options;
 
     // Use bot chat if specified
@@ -352,6 +354,9 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
     const messageOptions = {};
     if (quote && quotedMessage) {
         messageOptions.quotedMessageId = quotedMessage.id._serialized;
+    }
+    if (mentions) {
+        messageOptions.mentions = mentions;
     }
 
     // Send attachment if needed (and not already sent)
@@ -427,7 +432,61 @@ async function sendMessageAndWaitForResponse(client, group, message, options = {
     });
 
     // Get the response
-    const response = await responsePromise;
+    let response = await responsePromise;
+
+    // If streaming is expected, poll for message edits
+    if (response && waitForStreaming) {
+        logger.log('Initial response received. Waiting for streaming edits to complete...');
+        let lastBody = response.body;
+        let finalResponse = response;
+        let noChangeCounter = 0;
+        const maxNoChangeCount = 2; // Wait for 2 polls with no change (~4s)
+        const pollingInterval = 2000; // 2 seconds
+
+        const pollingTimeout = timeout; // Use the same overall timeout
+        const pollingEndTime = Date.now() + pollingTimeout;
+
+        while (Date.now() < pollingEndTime) {
+            await new Promise(resolve => setTimeout(resolve, pollingInterval));
+
+            try {
+                // Re-fetch the message to get the latest content
+                const messages = await chat.fetchMessages({ limit: 10 });
+                const updatedMsg = messages.find(m => m.id._serialized === response.id._serialized);
+
+                if (updatedMsg) {
+                    finalResponse = updatedMsg;
+                    const newBody = updatedMsg.body;
+
+                    if (newBody === lastBody) {
+                        noChangeCounter++;
+                        if (noChangeCounter >= maxNoChangeCount) {
+                            logger.log(
+                                'Message content has stabilized, considering streaming complete.'
+                            );
+                            break; // Exit loop
+                        }
+                    } else {
+                        logger.log(`Message content updated. New length: ${newBody.length}`);
+                        lastBody = newBody;
+                        noChangeCounter = 0; // Reset counter
+                    }
+                } else {
+                    logger.warn('Could not find message during polling, using last known version.');
+                    break;
+                }
+            } catch (error) {
+                logger.error('Error re-fetching message during polling:', error);
+                break;
+            }
+        }
+
+        if (Date.now() >= pollingEndTime) {
+            logger.log('Polling for streaming edits timed out.');
+        }
+
+        response = finalResponse;
+    }
 
     // Handle bot message reaction deletion test
     if (checkBotMessageDeletion && response) {
@@ -572,7 +631,8 @@ async function checkPromptContent() {
 }
 
 // Run a single test
-async function runTest(client, group, test) {
+async function runTest(client, group, test, options = {}) {
+    const { isRemote = false } = options;
     logger.startTest(test.name);
 
     try {
@@ -584,6 +644,17 @@ async function runTest(client, group, test) {
                 name: test.name,
                 result: 'SKIPPED',
                 reason: 'Admin-only test',
+            });
+            return { needsShortDelay: true };
+        }
+
+        if (isRemote && test.checkPrompt) {
+            logger.endTest(true, test.name, 'Skipped (checkPrompt not available in remote mode)');
+            testResults.skipped++;
+            testResults.details.push({
+                name: test.name,
+                result: 'SKIPPED',
+                reason: 'checkPrompt not available in remote mode',
             });
             return { needsShortDelay: true };
         }
@@ -611,6 +682,8 @@ async function runTest(client, group, test) {
             checkBotMessageDeletion: test.checkBotMessageDeletion,
             followUpCommand: test.followUpCommand,
             followUpDelay: test.followUpDelay,
+            waitForStreaming: test.waitForStreaming,
+            mentions: test.mentions,
         });
 
         // Check if we got a response

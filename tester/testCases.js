@@ -15,6 +15,7 @@ const TEST_CASES = {
             description: 'Should summarize the last 3 hours',
             category: 'SUMMARY',
             extraDelay: 5000, // Extra delay for summary commands
+            waitForStreaming: false,
         },
         {
             name: 'Summary with Quote',
@@ -26,6 +27,7 @@ const TEST_CASES = {
             description: 'Should summarize only the quoted poem',
             category: 'SUMMARY',
             extraDelay: 10000, // Longer delay for processing
+            waitForStreaming: false,
         },
         {
             name: 'Summary with Link',
@@ -37,6 +39,7 @@ const TEST_CASES = {
             description: 'Should summarize the quoted link',
             category: 'SUMMARY',
             extraDelay: 15000, // Longer delay for link processing
+            waitForStreaming: false,
         },
         {
             name: 'Summary with Specific Count',
@@ -45,6 +48,7 @@ const TEST_CASES = {
             description: 'Should summarize only the last 10 messages',
             category: 'SUMMARY',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'Summary with Document',
@@ -57,6 +61,7 @@ const TEST_CASES = {
             category: 'SUMMARY',
             extraDelay: 15000, // Much longer delay for document processing
             preDelay: 5000, // Wait before sending the command
+            waitForStreaming: false,
         },
         {
             name: 'Direct Attachment Summary',
@@ -67,6 +72,7 @@ const TEST_CASES = {
             description: 'Should summarize a document attached directly with the #resumo command',
             category: 'SUMMARY',
             extraDelay: 15000, // Much longer delay for document processing
+            waitForStreaming: false,
         },
         {
             name: 'Summary Sticker',
@@ -77,6 +83,7 @@ const TEST_CASES = {
             description: 'Should summarize using the summary sticker',
             category: 'SUMMARY',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
     ],
 
@@ -89,6 +96,7 @@ const TEST_CASES = {
             description: 'Should fetch the latest news',
             category: 'NEWS',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'Football News',
@@ -97,6 +105,7 @@ const TEST_CASES = {
             description: 'Should fetch the latest football news',
             category: 'NEWS',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'News Search',
@@ -105,6 +114,7 @@ const TEST_CASES = {
             description: 'Should search for news about Trump',
             category: 'NEWS',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'News Sticker',
@@ -115,6 +125,7 @@ const TEST_CASES = {
             description: 'Should fetch news using the news sticker',
             category: 'NEWS',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'Link Auto Summary',
@@ -124,6 +135,7 @@ const TEST_CASES = {
             category: 'NEWS',
             extraDelay: 15000, // Longer delay for link processing
             useBotChat: true, // Use direct chat with bot for auto summary
+            waitForStreaming: false,
         },
     ],
 
@@ -136,6 +148,7 @@ const TEST_CASES = {
             description: 'Should answer a simple question in Portuguese',
             category: 'CHAT',
             extraDelay: 5000,
+            waitForStreaming: true,
         },
         {
             name: 'ChatGPT with Quote',
@@ -147,6 +160,7 @@ const TEST_CASES = {
             description: 'Should explain the quoted formula in Portuguese',
             category: 'CHAT',
             extraDelay: 10000, // Longer delay for processing
+            waitForStreaming: true,
         },
         {
             name: 'ChatGPT with Personality and History',
@@ -159,6 +173,7 @@ const TEST_CASES = {
             checkPrompt: true,
             preDelay: 15000, // Longer wait before sending the message to ensure logs are captured
             optional: false, // Make this test required
+            waitForStreaming: true,
         },
     ],
 
@@ -172,6 +187,7 @@ const TEST_CASES = {
             description: 'Should generate an image of a cat',
             category: 'MEDIA',
             extraDelay: 10000, // Longer delay for image generation
+            waitForStreaming: false,
         },
         {
             name: 'Sticker Creation',
@@ -182,6 +198,7 @@ const TEST_CASES = {
             description: 'Should create a sticker from the image',
             category: 'MEDIA',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'Sticker Search',
@@ -191,6 +208,7 @@ const TEST_CASES = {
             description: 'Should search for a cat sticker',
             category: 'MEDIA',
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'Audio Transcription',
@@ -200,6 +218,7 @@ const TEST_CASES = {
             description: 'Should transcribe the voice note',
             category: 'MEDIA',
             extraDelay: 10000, // Longer delay for audio processing
+            waitForStreaming: false,
         },
     ],
 
@@ -214,6 +233,7 @@ const TEST_CASES = {
             adminOnly: true,
             useAdminChat: true,
             extraDelay: 10000,
+            waitForStreaming: false,
         },
         {
             name: 'News Debug',
@@ -224,6 +244,7 @@ const TEST_CASES = {
             adminOnly: true,
             useAdminChat: true,
             extraDelay: 5000,
+            waitForStreaming: false,
         },
         {
             name: 'Cache Clear',
@@ -234,6 +255,7 @@ const TEST_CASES = {
             adminOnly: true,
             useAdminChat: true,
             extraDelay: 2000,
+            waitForStreaming: false,
         },
     ],
 
@@ -246,6 +268,7 @@ const TEST_CASES = {
             description: 'Should list all available commands',
             category: 'MISC',
             extraDelay: 3000,
+            waitForStreaming: false,
         },
         {
             name: 'Tag Command',
@@ -254,6 +277,7 @@ const TEST_CASES = {
             description: 'Should tag everyone in the group',
             category: 'MISC',
             extraDelay: 3000,
+            waitForStreaming: false,
         },
         {
             name: 'Wizard Command',
@@ -264,6 +288,7 @@ const TEST_CASES = {
             extraDelay: 3000,
             followUpCommand: 'cancelar', // Send "cancelar" after testing the wizard
             followUpDelay: 3000, // Wait 3 seconds before sending the follow-up command
+            waitForStreaming: false,
         },
         {
             name: 'Bot Message Reaction Delete',
@@ -273,6 +298,18 @@ const TEST_CASES = {
             category: 'MISC',
             extraDelay: 5000,
             checkBotMessageDeletion: true, // Check if bot's message is deleted on reaction
+            waitForStreaming: false,
+        },
+        {
+            name: 'Natural Language Processing',
+            command: `@${config.BOT_NUMBER} desenhe um gato para mim`,
+            expectedResponseContains: [],
+            expectMedia: true,
+            description: 'Should process natural language and generate an image',
+            category: 'MISC',
+            extraDelay: 15000,
+            waitForStreaming: false,
+            mentions: [`${config.BOT_NUMBER}@c.us`], // Properly mention the bot
         },
     ],
 };

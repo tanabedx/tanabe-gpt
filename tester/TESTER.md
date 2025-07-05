@@ -4,11 +4,12 @@
 Comprehensive automated testing framework for WhatsApp bot functionality providing multi-category test execution, interactive test menus, detailed logging, and authentication management with support for both group and direct message testing scenarios.
 
 ## Core Features
-- **Multi-Category Testing**: Organized test suites for summary, news, chat, media, and admin functionality with selective execution
+- **Multi-Category Testing**: Organized test suites for summary, news, chat, media, admin, and miscellaneous functionality with selective execution
 - **Interactive Test Menu**: Terminal-based UI for category selection, individual test execution, and results monitoring
 - **Dual Authentication**: Separate WhatsApp client authentication for main bot and test client with session management
 - **Advanced Logging**: Multi-level logging system with spinner UI, debug capture, and test result formatting
 - **Media Testing**: Image, audio, PDF, and sticker testing with attachment handling and response validation
+- **NLP Testing**: Simple Natural Language Processing validation to verify NLP functionality works
 
 ## Usage Examples
 ```bash
@@ -16,6 +17,7 @@ npm test                        # Run all tests with minimal output
 npm test -v                     # Run all tests with verbose logging
 npm run test:summary            # Run only summary tests
 npm run test:chat -v           # Run chat tests with verbose output
+npm run test:misc              # Run miscellaneous tests (includes NLP test)
 npm run test:command "Basic Summary"  # Run specific test by name
 npm run test:menu              # Interactive test selection menu
 npm run setup                  # Setup authentication directories
@@ -103,7 +105,8 @@ const TEST_CATEGORIES = {
     NEWS: true,       // News retrieval tests  
     CHAT: true,       // ChatGPT interaction tests
     MEDIA: true,      // Media processing tests
-    ADMIN: true       // Admin-only functionality tests
+    ADMIN: true,      // Admin-only functionality tests
+    MISC: true        // Miscellaneous tests (includes NLP test)
 };
 
 // Test case structure with execution parameters
@@ -116,6 +119,18 @@ const testCase = {
     attachment: config.SAMPLES.PDF,
     useBotChat: false,
     checkPrompt: false
+};
+
+// Simple NLP test case structure
+const nlpTestCase = {
+    name: 'Natural Language Processing',
+    command: 'desenhe um gato para mim',
+    expectedResponseContains: [],
+    expectMedia: true,
+    description: 'Should process natural language and generate an image',
+    category: 'MISC',
+    extraDelay: 15000,
+    waitForStreaming: false
 };
 ```
 
@@ -199,7 +214,8 @@ module.exports = {
         NEWS: boolean,       // News retrieval tests
         CHAT: boolean,       // ChatGPT interaction tests
         MEDIA: boolean,      // Media processing tests
-        ADMIN: boolean       // Admin-only tests
+        ADMIN: boolean,      // Admin-only tests
+        MISC: boolean        // Miscellaneous tests (includes NLP test)
     }
 };
 ```
@@ -236,7 +252,11 @@ const testCase = {
     // Response validation
     expectMedia: boolean,                   // Expect media response
     checkPrompt: boolean,                   // Validate prompt content
-    checkBotMessageDeletion: boolean        // Test message deletion
+    checkBotMessageDeletion: boolean,       // Test message deletion
+    waitForStreaming: boolean,              // Wait for streaming response completion
+    
+    // Mention handling
+    mentions: string[],                     // Array of contact IDs to mention in message
 };
 ```
 

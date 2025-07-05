@@ -61,7 +61,7 @@ async function handleChat(message, command, commandPrefix) {
         const promptType = getPromptTypeFromPrefix(commandPrefix);
         
         // Initialize conversation
-        const conversation = conversationManager.initializeConversation(groupName, adminNumber, config, promptType);
+        const conversation = await conversationManager.initializeConversation(groupName, adminNumber, config, promptType);
         
         // Handle quoted message or link context
         let quotedContext = null;
@@ -103,7 +103,7 @@ async function handleChat(message, command, commandPrefix) {
         const originalQuestion = question;
         
         // Add user message to conversation
-        conversationManager.addUserMessage(groupName, adminNumber, name, userMessage, config);
+        await conversationManager.addUserMessage(groupName, adminNumber, name, userMessage, config);
         
         logger.debug('User message added to conversation', {
             name,
@@ -112,273 +112,104 @@ async function handleChat(message, command, commandPrefix) {
             model: conversation.model
         });
 
-        // Process conversation with context and search handling loop
+        // Process conversation with a loop for handling tool requests (context, search)
         let contextRequestCount = 0;
         let searchRequestCount = 0;
         let finalResponse = null;
-        let contextFeedbackMessage = null;
 
         while (true) {
             try {
-                const aiResponse = await conversationManager.getAIResponse(groupName, adminNumber, config);
-                
-                // Handle context requests first
+                // Get the full AI response without streaming inside the loop
+                const aiResponseObject = await conversationManager.getAIResponse(groupName, adminNumber, config);
+                const aiResponse = aiResponseObject.content || aiResponseObject;
+
+                // CRITICAL: Add AI response to conversation history immediately
+                conversationManager.addRawMessageToConversation(
+                    conversationManager.getConversationGroupName(groupName, adminNumber),
+                    aiResponseObject,
+                    config
+                );
+
+                // Handle context requests
                 const contextResult = await handleContextRequest(aiResponse, groupName, config);
-                
-                // Handle search requests
-                const searchResult = await handleSearchRequest(aiResponse, config);
-
-                // Check if no requests were made
-                if (!contextResult.hasContextRequest && !searchResult.hasSearchRequest) {
-                    // Check if ChatGPT should have automatically requested more context
-                    if (shouldAutoRequestContext(aiResponse, originalQuestion, contextRequestCount, config)) {
-                        logger.debug('Automatically injecting context request due to response patterns');
-                        
-                        // Inject an automatic context request
-                        const autoContextResult = await handleContextRequest('REQUEST_CONTEXT: 100', groupName, config);
-                        
-                        if (autoContextResult.hasContextRequest && !autoContextResult.error) {
-                            const autoValidation = validateContextRequest(groupName, contextRequestCount, config);
-                            
-                            if (autoValidation.isValid) {
-                                contextRequestCount++;
-                                
-                                if (autoContextResult.fetchStatus === 'NEW_MESSAGES_SENT' && autoContextResult.context && autoContextResult.context.trim()) {
-                                    conversationManager.addContextToConversation(groupName, adminNumber, autoContextResult.context, config, originalQuestion, true);
-                                    logger.debug('Auto-injected context added to conversation', {
-                                        contextLength: autoContextResult.context.length,
-                                        newMessagesCount: autoContextResult.newMessagesCount,
-                                        requestNumber: contextRequestCount
-                                    });
-                                    continue; // Continue the loop to get a new AI response with the added context
-                                }
-                            }
-                        }
-                    }
-                    
-                    finalResponse = aiResponse;
-                    logger.debug('AI provided final response, no context or search request.');
-                    break;
-                }
-
-                // Handle context request if present
                 if (contextResult.hasContextRequest) {
                     const validation = validateContextRequest(groupName, contextRequestCount, config);
-
-                    if (!validation.isValid) {
-                        logger.warn('Context request validation failed (max requests per turn or disabled). Reason:', validation.reason);
-                        const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const limitPrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.contextRequestTurnLimitReached || "Limite de requisições de contexto por turno atingido. Respondendo com o que tenho.";
-                        const promptWithOriginalQuery = `${limitPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
-                        conversationManager.addRawMessageToConversation(
-                            convGroupName,
-                            { role: 'system', content: promptWithOriginalQuery },
-                            config
-                        );
-                        // Update model selection after adding system message
-                        conversationManager.updateModelForConversation(convGroupName, config);
-                        finalResponse = await conversationManager.getAIResponse(groupName, adminNumber, config);
-                        logger.debug('Max context requests per turn reached or validation failed. Got final AI response.');
-                        break;
-                    }
-                    
-                    contextRequestCount++;
-
-                    if (contextResult.error) {
-                        logger.error('Context request processing failed in handler:', contextResult.error);
-                        const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const errorPrompt = CHAT_PROMPTS.ERROR_PROMPTS.contextError || "Erro ao processar o pedido de contexto.";
-                        const promptWithOriginalQuery = `${errorPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
-                        conversationManager.addRawMessageToConversation(
-                            convGroupName,
-                            { role: 'system', content: promptWithOriginalQuery },
-                            config
-                        );
-                        // Update model selection after adding system message
-                        conversationManager.updateModelForConversation(convGroupName, config);
-                        finalResponse = await conversationManager.getAIResponse(groupName, adminNumber, config);
-                        logger.debug('Context request failed during processing. Got final AI response.');
-                        break;
-                    }
-
-                    const fetchStatus = contextResult.fetchStatus;
-                    let systemMessageContent = null;
-
-                    if (fetchStatus === 'NEW_MESSAGES_SENT' && contextResult.context && contextResult.context.trim()) {
+                    if (validation.isValid && contextResult.context) {
+                        contextRequestCount++;
                         conversationManager.addContextToConversation(groupName, adminNumber, contextResult.context, config, originalQuestion);
-                        logger.debug('Context added to conversation', {
-                            contextLength: contextResult.context.length,
-                            newMessagesCount: contextResult.newMessagesCount,
-                            requestNumber: contextRequestCount
-                        });
-                        continue; 
-                    } else {
-                        let basePrompt = '';
-                        if (fetchStatus === 'MAX_MESSAGES_LIMIT_REACHED') {
-                            logger.debug('Max total chat history messages limit reached. Informing AI.');
-                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.maxMessagesLimitReached;
-                        } else if (fetchStatus === 'ALL_MESSAGES_RETRIEVED') {
-                            logger.debug('All available chat history retrieved. Informing AI.');
-                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.noMoreContextAllRetrieved;
-                        } else if (fetchStatus === 'NO_NEW_MESSAGES_IN_CACHE') {
-                            logger.debug('AI requested context, but no new messages were available in the current cache slice. Informing AI to answer.');
-                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.noNewContextInCachePleaseAnswer;
-                        } else if (fetchStatus && fetchStatus.startsWith('ERROR_')) {
-                            logger.warn(`Context fetching ended with error status: ${fetchStatus}. Informing AI to answer with current info.`);
-                            basePrompt = CHAT_PROMPTS.ERROR_PROMPTS.contextFetchErrorInformAI || "Houve um problema ao buscar mais contexto. Por favor, responda com as informações atuais.";
-                        } else {
-                            logger.debug(`Context fetch status: ${fetchStatus}. No new context provided or unhandled status. Informing AI to answer.`);
-                            basePrompt = CHAT_PROMPTS.CONTEXT_PROMPTS.noNewContextPleaseAnswer || "Não há novo contexto. Por favor, responda com as informações atuais.";
-                        }
-
-                        if (basePrompt) {
-                            systemMessageContent = `${basePrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
-                        }
-
-                        if (systemMessageContent) {
-                            const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                            conversationManager.addRawMessageToConversation(
-                                convGroupName,
-                                { role: 'system', content: systemMessageContent },
-                                config
-                            );
-                            // Update model selection after adding system message
-                            conversationManager.updateModelForConversation(convGroupName, config);
-                        }
-                        finalResponse = await conversationManager.getAIResponse(groupName, adminNumber, config);
-                        logger.debug('Proceeding to final AI response after context status: ' + fetchStatus);
-                        break;
+                        continue; // Re-run AI with new context
                     }
                 }
 
-                // Handle search request if present
+                // Handle search requests
+                const searchResult = await handleSearchRequest(aiResponse, config);
                 if (searchResult.hasSearchRequest) {
                     const searchValidation = validateSearchRequest(searchRequestCount, config);
-
-                    if (!searchValidation.isValid) {
-                        logger.warn('Search request validation failed. Reason:', searchValidation.reason);
-                        const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const limitPrompt = CHAT_PROMPTS.ERROR_PROMPTS.searchRequestLimitReached || "Limite de pesquisas manuais atingido. Respondendo com o que tenho.";
-                        const promptWithOriginalQuery = `${limitPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
-                        conversationManager.addRawMessageToConversation(
-                            convGroupName,
-                            { role: 'system', content: promptWithOriginalQuery },
-                            config
-                        );
-                        // Update model selection after adding system message
-                        conversationManager.updateModelForConversation(convGroupName, config);
-                        finalResponse = await conversationManager.getAIResponse(groupName, adminNumber, config);
-                        logger.debug('Max search requests reached or validation failed. Got final AI response.');
-                        break;
-                    }
-
-                    searchRequestCount++;
-
-                    if (searchResult.error) {
-                        logger.error('Search request processing failed:', searchResult.error);
-                        const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const errorPrompt = CHAT_PROMPTS.ERROR_PROMPTS.searchError || "Erro ao realizar a pesquisa solicitada.";
-                        const promptWithOriginalQuery = `${errorPrompt}\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
-                        conversationManager.addRawMessageToConversation(
-                            convGroupName,
-                            { role: 'system', content: promptWithOriginalQuery },
-                            config
-                        );
-                        // Update model selection after adding system message
-                        conversationManager.updateModelForConversation(convGroupName, config);
-                        finalResponse = await conversationManager.getAIResponse(groupName, adminNumber, config);
-                        logger.debug('Search request failed during processing. Got final AI response.');
-                        break;
-                    }
-
-                    // Add search results to conversation if successful
-                    if (searchResult.searchResults && searchResult.searchResults.results && searchResult.searchResults.results.length > 0) {
-                        const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        
-                        // Use webSearch.model if available for manual searches
-                        const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
-                        const currentConversation = conversationManager.initializeConversation(groupName, adminNumber, config);
-                        let modelToUse = currentConversation.model;
-                        if (webSearchConfig.model) {
-                            modelToUse = webSearchConfig.model;
-                        }
-
+                    if (searchValidation.isValid && searchResult.searchResults?.summary) {
+                        searchRequestCount++;
                         const searchResultsMessage = {
                             role: 'system',
-                            content: `RESULTADOS DE PESQUISA MANUAL SOLICITADA:
-Consulta solicitada: "${searchResult.query}"
-Timestamp: ${new Date().toLocaleString('pt-BR')}
-
-${searchResult.searchResults.summary}
-
-INSTRUÇÕES: Use essas informações da pesquisa manual para responder à pergunta do usuário. Cite as fontes adequadamente. Lembre-se: A pergunta original do usuário foi: "${originalQuestion}"`
+                            content: `Manual search results for "${searchResult.query}":\n${searchResult.searchResults.summary}`
                         };
-                        
                         conversationManager.addRawMessageToConversation(
-                            convGroupName,
+                            conversationManager.getConversationGroupName(groupName, adminNumber),
                             searchResultsMessage,
                             config
                         );
-                        
-                        // Update model selection after adding search results
-                        conversationManager.updateModelForConversation(convGroupName, config);
-                        
-                        logger.debug('Manual search results added to conversation', {
-                            query: searchResult.query,
-                            resultsCount: searchResult.searchResults.results.length,
-                            requestNumber: searchRequestCount,
-                            usingModel: modelToUse
-                        });
-                        
-                        continue; // Continue the loop to get a new AI response with the search results
-                    } else {
-                        // No search results found, inform AI
-                        const convGroupName = conversationManager.getConversationGroupName(groupName, adminNumber);
-                        const noResultsPrompt = `Não foram encontrados resultados para a pesquisa manual solicitada: "${searchResult.query}". Responda com base no seu conhecimento base.\n\nLembre-se: A pergunta original do usuário foi: "${originalQuestion}"`;
-                        conversationManager.addRawMessageToConversation(
-                            convGroupName,
-                            { role: 'system', content: noResultsPrompt },
-                            config
-                        );
-                        // Update model selection after adding system message
-                        conversationManager.updateModelForConversation(convGroupName, config);
-                        finalResponse = await conversationManager.getAIResponse(groupName, adminNumber, config);
-                        logger.debug('No search results found. Got final AI response.');
-                        break;
+                        continue; // Re-run AI with new search context
                     }
                 }
 
+                // If no tool requests are handled, this is the final response
+                finalResponse = aiResponse;
+                break;
+
             } catch (error) {
                 logger.error('Error in conversation processing loop:', error);
-                finalResponse = command.errorMessages.conversationError ||
-                              'Erro ao processar a conversa. Tente novamente.';
+                finalResponse = command.errorMessages.conversationError || 'Erro ao processar a conversa. Tente novamente.';
                 break;
             }
         }
-
-        // Clean up context feedback message if we have a final response
-        if (contextFeedbackMessage && finalResponse) {
-            try {
-                await contextFeedbackMessage.delete();
-            } catch (error) {
-                logger.debug('Could not delete context feedback message:', error);
-            }
-        }
-
-        // Send final response
+        
+        // --- Simulated Streaming for Final Response ---
         if (finalResponse && finalResponse.trim()) {
-            const response = await message.reply(finalResponse.trim());
-            await handleAutoDelete(response, command);
+            const responseMessage = await message.reply('🤖');
+            const responseText = finalResponse.trim();
             
-            logger.debug('Final response sent', {
-                name,
-                groupName,
-                responseLength: finalResponse.length,
-                contextRequestsUsed: contextRequestCount,
-                searchRequestsUsed: searchRequestCount
-            });
+            let currentIndex = 0;
+            let isEditing = false; // Lock to prevent concurrent edits
+
+            const streamInterval = setInterval(async () => {
+                if (isEditing) return; // Don't run if an edit is in progress
+
+                isEditing = true;
+
+                try {
+                    const chunkSize = Math.floor(Math.random() * 15) + 5; // Adjusted chunk size for feel
+                    currentIndex += chunkSize;
+
+                    if (currentIndex >= responseText.length) {
+                        clearInterval(streamInterval);
+                        await responseMessage.edit(responseText);
+                        handleAutoDelete(responseMessage, command);
+                        logger.debug('Final simulated stream response sent', {
+                            name,
+                            groupName,
+                            responseLength: responseText.length,
+                        });
+                    } else {
+                        await responseMessage.edit(responseText.substring(0, currentIndex) + '...');
+                    }
+                } catch (error) {
+                    logger.error('Error during message edit stream:', error);
+                    clearInterval(streamInterval); // Stop streaming on error
+                } finally {
+                    isEditing = false; // Release the lock
+                }
+            }, 400); // Slower interval to prevent rate-limiting
+
         } else {
-            // Fallback if no valid response
+             // Fallback if no valid response
             const errorMessage = await message.reply(
                 CHAT_PROMPTS.ERROR_PROMPTS.generalError || 
                 command.errorMessages.error || 

@@ -86,6 +86,7 @@ let rl = readline.createInterface({
 
 // Verbose mode flag
 let isVerboseMode = false;
+let isRemoteMode = false;
 
 /**
  * Run a test command and handle the output
@@ -97,6 +98,9 @@ function runTestCommand(args) {
 
     if (isVerboseMode && !args.includes('--verbose')) {
         args.unshift('--verbose');
+    }
+    if (isRemoteMode && !args.includes('--remote')) {
+        args.unshift('--remote');
     }
 
     // Add environment variables to suppress spinner and initialization logs
@@ -158,16 +162,18 @@ function showMainMenu() {
     console.clear();
     console.log('\n=== WhatsApp Bot Test Menu ===');
     console.log(`Verbose Mode: ${isVerboseMode ? 'ON' : 'OFF'}`);
+    console.log(`Remote Mode:  ${isRemoteMode ? 'ON' : 'OFF'}`);
     console.log('\nOptions:');
     console.log('1. Toggle Verbose Mode');
-    console.log('2. Run All Tests');
-    console.log('3. Select Tests by Category');
-    console.log('4. Select Specific Tests');
+    console.log('2. Toggle Remote Mode');
+    console.log('3. Run All Tests');
+    console.log('4. Select Tests by Category');
+    console.log('5. Select Specific Tests');
     console.log('0. Exit');
 
     rl.question('\nEnter your choice (or press Enter to run all tests): ', answer => {
         // Default to running all tests if no input is provided
-        const choice = answer.trim() || '2';
+        const choice = answer.trim() || '3';
 
         switch (choice) {
             case '0':
@@ -180,20 +186,27 @@ function showMainMenu() {
                 // Toggle verbose mode
                 isVerboseMode = !isVerboseMode;
                 console.log(`\nVerbose mode is now ${isVerboseMode ? 'ON' : 'OFF'}`);
-                showMainMenu();
+                setTimeout(showMainMenu, 1000);
                 break;
 
             case '2':
+                // Toggle remote mode
+                isRemoteMode = !isRemoteMode;
+                console.log(`\nRemote mode is now ${isRemoteMode ? 'ON' : 'OFF'}`);
+                setTimeout(showMainMenu, 1000);
+                break;
+
+            case '3':
                 // Run all tests
                 runTestCommand([]);
                 break;
 
-            case '3':
+            case '4':
                 // Show category selection
                 showCategorySelectionMenu();
                 break;
 
-            case '4':
+            case '5':
                 // Show specific test selection
                 showTestSelectionMenu();
                 break;
@@ -313,6 +326,9 @@ function runCategoriesSequentially(categories, index = 0) {
     const args = [currentCategory];
     if (isVerboseMode) {
         args.unshift('--verbose');
+    }
+    if (isRemoteMode) {
+        args.unshift('--remote');
     }
 
     // Add environment variables to suppress spinner and initialization logs

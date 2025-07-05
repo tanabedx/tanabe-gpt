@@ -273,24 +273,13 @@ function setupListeners(client) {
                         }
                     }
 
-                    // Check if the bot is mentioned
-                    const botNumber = config.CREDENTIALS.BOT_NUMBER;
-                    const isBotMentioned =
-                        message.mentionedIds &&
-                        message.mentionedIds.some(id => id === `${botNumber}@c.us`);
-
-                    if (isBotMentioned) {
-                        logger.debug('Bot was mentioned, processing with command manager', {
-                            messageBody: message.body,
-                            mentions: message.mentionedIds,
-                        });
-                        await chat.sendStateTyping();
-                        const result = await commandManager.processCommand(message);
-                        if (!result) {
-                            logger.debug('Command processing failed for bot mention');
-                        }
-                        return;
-                    }
+                    // We are removing the explicit check for bot mentions here.
+                    // Previously, a separate logic branch handled mentions, but it was
+                    // faulty and prevented the command from being executed properly.
+                    // Now, messages with mentions will fall through to the general NLP
+                    // processing block later in this function. The NLP processor already
+                    // contains the necessary logic to handle mentions correctly, so this
+                    // change streamlines the process and fixes the bug.
 
                     // Check for traditional command syntax (messages starting with # or !)
                     if (message.body.startsWith('#') || message.body.startsWith('!')) {
@@ -381,6 +370,10 @@ function setupListeners(client) {
                             );
                             nlpMessage.body = nlpResult;
 
+                            // Add a flag to indicate this message is from NLP
+                            // to prevent circular processing in CommandManager
+                            nlpMessage.fromNLP = true;
+
                             // Extract command name for logging
                             let commandName = 'unknown';
                             if (nlpResult.startsWith('#')) {
@@ -426,7 +419,14 @@ function setupListeners(client) {
                     // Check for links last
                     await processLinkSummary(message);
                 } catch (error) {
+                    if (
+                        error.message.includes('Protocol error') &&
+                        error.message.includes('Target closed')
+                    ) {
+                        logger.debug('Ignoring "Target closed" error, likely during shutdown.');
+                    } else {
                     logger.error('Error processing message:', error);
+                    }
                 }
             } catch (error) {
                 logger.error('Error processing message:', error);

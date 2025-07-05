@@ -427,22 +427,50 @@ class CommandManager {
         }, 60000);
     }
 
-    // Main command processing function
+    /**
+     * Process a command from an incoming message
+     * @param {Object} message - The message object
+     * @param {string|null} nlpInput - Optional input from NLP, used for tag commands
+     */
     async processCommand(message, nlpInput = null) {
+        let command = null;
+        let input = '';
+        let chat = null;
+
         try {
-            // Get chat object first
-            const chat = await message.getChat();
-            
-            // Parse the command from the message, passing the chat object
-            const mentions = message.mentionedIds || [];
-            const { command, input } = await this.parseCommand(message.body, mentions, chat);
+            chat = await message.getChat();
+            logger.debug('Processing command', {
+                messageBody: message.body,
+                chatName: chat.name,
+                fromNLP: message.fromNLP || false,
+            });
+
+            // If the message is flagged as from NLP, we can trust the body
+            // and parse it directly, skipping the NLP re-processing logic.
+            if (message.fromNLP) {
+                logger.debug('Parsing command directly from NLP-processed message');
+                const result = await this.parseCommand(message.body, [], chat);
+                command = result.command;
+                input = result.input;
+            } else {
+                // For regular messages, use the standard parsing logic
+                const result = await this.parseCommand(
+                    message.body,
+                    message.mentionedIds,
+                    chat
+                );
+                command = result.command;
+                input = result.input;
+            }
+
+            // If a specific NLP input is provided (for tags), use it
+            if (nlpInput) {
+                input = nlpInput;
+            }
 
             if (!command) return false;
 
             const contact = await message.getContact();
-
-            // Use NLP input if provided (for tag commands)
-            const finalInput = nlpInput || input;
 
             // Get chat ID and user ID
             const chatId = chat.id._serialized;
@@ -501,8 +529,8 @@ class CommandManager {
                 logMessage = `Executing command: ${command.name} by ${userIdentifier} ${locationStr} with media attachment`;
             } else if (message.hasQuotedMsg) {
                 logMessage = `Executing command: ${command.name} by ${userIdentifier} ${locationStr} with quoted message`;
-            } else if (finalInput && finalInput.length > 0) {
-                logMessage = `Executing command: ${command.name} by ${userIdentifier} ${locationStr} with input: ${finalInput}`;
+            } else if (input && input.length > 0) {
+                logMessage = `Executing command: ${command.name} by ${userIdentifier} ${locationStr} with input: ${input}`;
             } else {
                 logMessage = `Executing command: ${command.name} by ${userIdentifier} ${locationStr}`;
             }
@@ -511,7 +539,7 @@ class CommandManager {
 
             logger.debug('Processing command', {
                 command: command.name,
-                input: finalInput,
+                input: input,
                 chatId: message.chat?.id?._serialized,
                 hasQuoted: message.hasQuotedMsg,
                 hasMedia: message.hasMedia,
@@ -532,7 +560,7 @@ class CommandManager {
 
             try {
                 // Execute the command with the final input
-                await handler(message, command, finalInput);
+                await handler(message, command, input);
                 return true;
             } catch (error) {
                 // Format user identifier consistently

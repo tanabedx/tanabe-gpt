@@ -89,16 +89,21 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
             temperature: effectiveTemperature,
         });
 
-        const result = completion.choices[0].message.content;
-
-        // Log response (logger handles its own enable/disable logic)
-        if (result) {
-            logger.prompt('ChatGPT Response', result);
+        // Log response (if enabled)
+        if (completion?.choices[0]?.message?.content) {
+            logger.prompt('ChatGPT Completion Response', completion.choices[0].message.content);
         }
 
-        return result;
+        // Return the full response object
+        return completion.choices[0].message.content;
+
     } catch (error) {
-        logger.error('Error in runCompletion:', error);
+        logger.error('Error getting completion from OpenAI:', {
+            error: error.message,
+            model: model || 'default',
+            prompt: prompt,
+            temperature: temperature,
+        });
         throw error;
     }
 };
@@ -170,36 +175,33 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
 
         const openai = getOpenAIClient();
         
-        // Create the completion request (no tools since web search is not available)
-        const completionOptions = {
+        const completion = await openai.chat.completions.create({
             model: modelToUse,
             messages: messages,
             temperature: effectiveTemperature,
-        };
+        });
 
-        const completion = await openai.chat.completions.create(completionOptions);
-
-        const result = completion.choices[0].message.content;
-
-        if (result) {
-            logger.prompt('ChatGPT Conversation Response', result);
+        // Log response (if enabled)
+        if (completion?.choices[0]?.message?.content) {
+            logger.prompt('ChatGPT Conversation Response', completion.choices[0].message.content);
         }
 
-        return {
-            content: result,
-            usedWebSearch: false, // Web search is not available in API
-            searchQueries: [], // No search queries since web search is not supported
-            rawResponse: completion
-        };
+        // Return the full response object
+        return completion.choices[0].message;
+
     } catch (error) {
-        logger.error('Error in runConversationCompletion:', error);
+        logger.error('Error getting conversation completion from OpenAI:', {
+            error: error.message,
+            model: model || 'default',
+            numMessages: messages ? messages.length : 0
+        });
         throw error;
     }
 };
 
 // Legacy function for backward compatibility - returns just the content
 const runConversationCompletionLegacy = async (messages, temperature = 1, model = null, promptType = null) => {
-    const result = await runConversationCompletion(messages, temperature, model, promptType);
+    const result = await runConversationCompletion(messages, temperature, model, promptType, null);
     return result.content;
 };
 

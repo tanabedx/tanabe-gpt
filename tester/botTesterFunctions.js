@@ -283,6 +283,7 @@ async function sendMessageAndWaitForResponse(client, chat, message, options = {}
         checkBotMessageDeletion = false,
         followUpCommand = null,
         followUpDelay = 3000,
+        mentions = null,
     } = options;
 
     // Use the appropriate chat
@@ -337,6 +338,11 @@ async function sendMessageAndWaitForResponse(client, chat, message, options = {}
     // Handle quoting
     if (quote && quotedMessage) {
         messageOptions.quotedMessageId = quotedMessage.id._serialized;
+    }
+    
+    // Handle mentions
+    if (mentions) {
+        messageOptions.mentions = mentions;
     }
 
     // Handle attachment
@@ -580,6 +586,7 @@ async function runTest(client, group, test, testResults) {
             checkBotMessageDeletion: test.checkBotMessageDeletion,
             followUpCommand: test.followUpCommand,
             followUpDelay: test.followUpDelay,
+            mentions: test.mentions,
         });
 
         // Check if we got a response

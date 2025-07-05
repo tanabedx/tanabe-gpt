@@ -6,6 +6,7 @@ const {
     extractSearchQuery,
     searchWithContent
 } = require('./webSearchUtils');
+const { fetchInitialHistory } = require('./contextManager');
 
 // Conversation state management
 let conversations = new Map(); // groupName -> { messages: [], messageCount: number, lastActivity: Date, model: string }
@@ -93,18 +94,22 @@ function selectModel(contextMessageCount, config) {
  * @param {Object} config - Configuration object
  * @param {string} groupName - Group name
  * @param {string} promptType - Type of prompt (initial, withContext, humor)
- * @returns {string} System prompt
+ * @returns {string} System prompt string
  */
 function getSystemPrompt(config, groupName, promptType = 'initial') {
-    let systemPrompt = config?.COMMANDS?.CHAT?.systemPrompts?.[promptType] || '';
+    const chatConfig = config.COMMANDS?.CHAT || {};
+    const basePrompt = chatConfig.systemPrompts?.[promptType] || chatConfig.systemPrompts?.initial || '';
     
     // Add group personality if enabled
-    if (config?.COMMANDS?.CHAT?.useGroupPersonality && GROUP_PERSONALITIES[groupName]) {
+    if (chatConfig.useGroupPersonality) {
         const personality = GROUP_PERSONALITIES[groupName];
-        systemPrompt += `\n\nPersonalidade do grupo:\n ${personality}`;
+        if (personality) {
+            // Append personality to the base prompt
+            return `${basePrompt}\\n\\nPersonalidade do grupo:\\n${personality}`;
+        }
     }
-
-    return systemPrompt;
+    
+    return basePrompt;
 }
 
 /**
@@ -115,15 +120,36 @@ function getSystemPrompt(config, groupName, promptType = 'initial') {
  * @param {string} promptType - Type of prompt for system message
  * @returns {Object} Conversation object
  */
-function initializeConversation(groupName, adminNumber, config, promptType = 'initial') {
+async function initializeConversation(groupName, adminNumber, config, promptType = 'initial') {
     const conversationGroupName = getConversationGroupName(groupName, adminNumber);
     
     if (!conversations.has(conversationGroupName)) {
+        // Get initial history settings from config
+        const historyConfig = config.COMMANDS?.CHAT?.conversation?.initialHistory || { enabled: false, messageCount: 0 };
+        
+        let initialHistory = '';
+        if (historyConfig.enabled && historyConfig.messageCount > 0) {
+            initialHistory = await fetchInitialHistory(groupName, historyConfig.messageCount);
+        }
+
         const systemPrompt = getSystemPrompt(config, conversationGroupName, promptType);
+        
+        let finalSystemPrompt = systemPrompt;
+
+        if (initialHistory) {
+            finalSystemPrompt = `${systemPrompt}
+
+---
+
+Abaixo estão as ${historyConfig.messageCount} mensagens mais recentes deste chat para te dar contexto da conversa atual. Use-as para entender o que está acontecendo.
+
+HISTÓRICO RECENTE DO CHAT:
+${initialHistory}`;
+        }
         
         conversations.set(conversationGroupName, {
             messages: [
-                { role: 'system', content: systemPrompt }
+                { role: 'system', content: finalSystemPrompt }
             ],
             messageCount: 0,
             totalContextMessages: 0, // Track total context messages provided
@@ -133,7 +159,8 @@ function initializeConversation(groupName, adminNumber, config, promptType = 'in
         
         logger.debug(`Initialized new conversation for ${conversationGroupName}`, {
             promptType,
-            systemPromptLength: systemPrompt.length
+            systemPromptLength: finalSystemPrompt.length,
+            withInitialHistory: !!initialHistory,
         });
     } else {
         // Update last activity
@@ -152,8 +179,8 @@ function initializeConversation(groupName, adminNumber, config, promptType = 'in
  * @param {Object} config - Configuration object
  * @returns {Object} Conversation object
  */
-function addUserMessage(groupName, adminNumber, userName, userMessage, config) {
-    const conversation = initializeConversation(groupName, adminNumber, config);
+async function addUserMessage(groupName, adminNumber, userName, userMessage, config) {
+    const conversation = await initializeConversation(groupName, adminNumber, config);
     
     // The userMessage is already formatted by formatUserMessage, so use it directly
     conversation.messages.push({
@@ -285,7 +312,7 @@ function addRawMessageToConversation(conversationGroupName, message, config) {
  * @param {string} groupName - Group name
  * @param {string} adminNumber - Admin number
  * @param {Object} config - Configuration object
- * @returns {Promise<string>} AI response
+ * @returns {Promise<Object>} AI response object
  */
 async function getAIResponse(groupName, adminNumber, config) {
     const conversationGroupName = getConversationGroupName(groupName, adminNumber);
@@ -366,35 +393,8 @@ INSTRUÇÕES: Use essas informações atualizadas da internet para responder à 
             null // promptType
         );
         
-        // Extract the content from the response
-        const responseContent = response.content || response;
-        
-        // Add AI response to conversation
-        conversation.messages.push({
-            role: 'assistant',
-            content: responseContent
-        });
-        
-        // Update model selection based on total context messages (not conversation messages)
-        // Note: Only update if web search wasn't used to preserve the original model logic
-        if (!searchResults) {
-            conversation.model = selectModel(conversation.totalContextMessages, config);
-        }
-        
-        conversation.lastActivity = new Date();
-        
-        logger.debug(`AI response added to conversation`, {
-            groupName: conversationGroupName,
-            responseLength: responseContent.length,
-            totalConversationMessages: conversation.messages.length,
-            totalContextMessages: conversation.totalContextMessages,
-            originalModel: conversation.model,
-            usedModel: modelToUse,
-            usedWebSearch: searchResults ? true : false,
-            modelUpdated: !searchResults
-        });
-        
-        return responseContent;
+        // Return the full response object
+        return response;
         
     } catch (error) {
         logger.error('Error getting AI response:', error);

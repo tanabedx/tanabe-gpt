@@ -1,28 +1,20 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { runCompletion } = require('../utils/openaiUtils');
 const logger = require('../utils/logger');
 
+puppeteer.use(StealthPlugin());
+
 // Function to scrape news
 async function scrapeNews() {
-    // Import puppeteer at the top level to avoid loading it unless needed
-    const puppeteer = require('puppeteer');
-    let browser = null;
+    let browser;
     try {
-        logger.debug('Launching puppeteer browser for news scraping');
+        logger.debug('Launching puppeteer for news scraping with stealth plugin');
         browser = await puppeteer.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu',
-            ],
-            defaultViewport: { width: 1280, height: 800 },
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
         });
         const page = await browser.newPage();
         await page.setRequestInterception(true);
@@ -40,27 +32,40 @@ async function scrapeNews() {
         logger.debug('Navigating to newsminimalist.com');
         await page.goto('https://www.newsminimalist.com/', {
             waitUntil: 'networkidle2',
-            timeout: 30000,
+            timeout: 60000,
         });
-        logger.debug('Waiting for news content to load');
-        await page.waitForSelector('div.mr-auto', { timeout: 10000 });
-        const news = await page.evaluate(() => {
-            const newsItems = [];
-            const elements = document.querySelectorAll('div.mr-auto');
-            for (let i = 0; i < Math.min(elements.length, 5); i++) {
-                const element = elements[i];
-                const headline =
-                    element.querySelector('span:first-child')?.textContent?.trim() || '';
-                const source =
-                    element.querySelector('span.text-xs.text-slate-400')?.textContent?.trim() || '';
-                newsItems.push(`${headline} ${source}`);
+
+        logger.debug('Waiting for news content to load, this may take a moment...');
+        await page.waitForSelector('div.mr-auto', { visible: true, timeout: 60000 });
+        logger.debug('News content is visible, proceeding with scraping.');
+        
+        const itemHandles = await page.$$('div.mr-auto');
+        const newsItems = [];
+
+        logger.debug(`Found ${itemHandles.length} potential news items. Scraping top 5.`);
+
+        for (let i = 0; i < Math.min(itemHandles.length, 5); i++) {
+            const itemHandle = itemHandles[i];
+            const itemText = await itemHandle.evaluate(el => {
+                const headline = el.querySelector('span:first-child')?.textContent || '';
+                const source = el.querySelector('span:last-child')?.textContent || '';
+                return (headline && source) ? `${headline.trim()} ${source.trim()}` : null;
+            });
+
+            if (itemText) {
+                newsItems.push(itemText);
             }
-            return newsItems;
-        });
-        logger.debug(`Scraped ${news.length} news items successfully`);
-        return news;
+            await itemHandle.dispose();
+        }
+
+        if (newsItems.length === 0) {
+            logger.warn('Could not scrape any news items from the page.');
+        } else {
+            logger.debug(`Scraped ${newsItems.length} news items successfully`);
+        }
+        return newsItems;
     } catch (error) {
-        logger.error(`An error occurred while scraping news with puppeteer:`, error.message);
+        logger.error(`An error occurred while scraping news with puppeteer::`, error.message);
         if (error.message.includes('timeout')) {
             logger.error('Puppeteer timeout - page may be loading slowly or structure changed');
         }

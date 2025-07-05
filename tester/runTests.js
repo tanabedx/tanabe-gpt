@@ -123,9 +123,12 @@ const botTester = require('./botTester');
 // Get command line arguments
 const args = process.argv.slice(2);
 const isVerbose = args.includes('--verbose') || args.includes('-v');
+const isRemote = args.includes('--remote');
 
 // Remove verbose flags from args to get actual test specifiers
-const testSpecifiers = args.filter(arg => arg !== '--verbose' && arg !== '-v');
+const testSpecifiers = args.filter(
+    arg => arg !== '--verbose' && arg !== '-v' && arg !== '--remote'
+);
 
 // Check if we have a specific category or test name
 let targetTests = null;
@@ -180,6 +183,7 @@ async function runTests() {
     let client;
     let botProcess;
     let exitCode = 0;
+    let resultsPath; // Declare here to make it available in the finally block
 
     try {
         // Determine which tests to run
@@ -262,37 +266,41 @@ async function runTests() {
             }
         }
 
-        // Always kill any existing bot process and start a new one
-        logger.log('Killing any existing bot process...');
-        try {
-            const { exec } = require('child_process');
-            await new Promise(resolve => {
-                exec('pkill -f "node app.js"', error => {
-                    if (error) {
-                        logger.warn('No existing bot process found or error killing it:', error);
-                    } else {
-                        logger.log('Successfully killed existing bot process');
-                    }
-                    resolve();
+        if (isRemote) {
+            logger.log('Running in remote mode. Assuming bot is already running on VPS.');
+        } else {
+            // Always kill any existing bot process and start a new one
+            logger.log('Killing any existing bot process...');
+            try {
+                const { exec } = require('child_process');
+                await new Promise(resolve => {
+                    exec('pkill -f "node app.js"', error => {
+                        if (error) {
+                            logger.warn('No existing bot process found or error killing it:', error);
+                        } else {
+                            logger.log('Successfully killed existing bot process');
+                        }
+                        resolve();
+                    });
                 });
-            });
 
-            // Wait a moment to ensure the process is fully terminated
-            await new Promise(resolve => setTimeout(resolve, 2000));
+                // Wait a moment to ensure the process is fully terminated
+                await new Promise(resolve => setTimeout(resolve, 2000));
 
-            // Start a new bot instance
-            logger.log('Starting new bot instance...');
-            botProcess = botTester.startBot();
+                // Start a new bot instance
+                logger.log('Starting new bot instance...');
+                botProcess = botTester.startBot();
 
-            // Wait for bot to initialize
-            logger.log(
-                `Waiting ${config.BOT_STARTUP_WAIT / 1000} seconds for bot to initialize...`
-            );
-            await new Promise(resolve => setTimeout(resolve, config.BOT_STARTUP_WAIT));
-            logger.log('Bot initialization wait completed');
-        } catch (error) {
-            logger.error('Failed to start bot:', error);
-            throw error;
+                // Wait for bot to initialize
+                logger.log(
+                    `Waiting ${config.BOT_STARTUP_WAIT / 1000} seconds for bot to initialize...`
+                );
+                await new Promise(resolve => setTimeout(resolve, config.BOT_STARTUP_WAIT));
+                logger.log('Bot initialization wait completed');
+            } catch (error) {
+                logger.error('Failed to start bot:', error);
+                throw error;
+            }
         }
 
         // Find target group
@@ -312,7 +320,7 @@ async function runTests() {
 
         // Run tests sequentially
         for (const test of testsToRun) {
-            const result = await botTester.runTest(client, group, test);
+            const result = await botTester.runTest(client, group, test, { isRemote });
 
             // Use a shorter delay between tests if the test has already completed
             const delayTime = result && result.needsShortDelay ? 1000 : config.DELAY_BETWEEN_TESTS;
@@ -326,7 +334,7 @@ async function runTests() {
         console.log(summary);
 
         // Save results to file
-        const resultsPath = path.join(__dirname, 'test_results.json');
+        resultsPath = path.join(__dirname, 'test_results.json');
         fs.writeFileSync(resultsPath, JSON.stringify(testResults, null, 2));
         logger.log(`Test results saved to ${resultsPath}`);
 
@@ -352,89 +360,43 @@ async function runTests() {
         }
         exitCode = 1;
     } finally {
-        // Clean up
-        logger.log('Cleaning up...');
+        // Stop spinner
+        if (spinnerInterval) {
+            clearInterval(spinnerInterval);
+            spinnerInterval = null;
+        }
+        clearSpinner();
 
-        // Ensure client is properly destroyed
+        // Cleanup
         if (client) {
-            logger.log('Destroying WhatsApp client...');
             try {
-                // First try to close the browser directly if we can access it
-                if (client.pupBrowser) {
-                    logger.log('Closing browser directly...');
-                    await client.pupBrowser
-                        .close()
-                        .catch(e => logger.warn(`Error closing browser: ${e.message}`));
-                }
-
-                // Then destroy the client properly
+                logger.log('Shutting down WhatsApp test client...');
                 await client.destroy();
-                logger.log('WhatsApp client destroyed');
-
-                // Clear the global reference
-                if (global.whatsappClient === client) {
-                    global.whatsappClient = null;
-                }
+                logger.log('Client shut down successfully.');
             } catch (error) {
-                logger.error('Error destroying WhatsApp client:', error);
+                logger.error('Error shutting down client:', error);
             }
         }
-
-        // Force kill any remaining Puppeteer processes
-        await forceKillChromiumProcesses();
-
-        // Always terminate the bot process
-        if (botProcess) {
-            logger.log(`Terminating bot process (PID: ${botProcess.pid})...`);
+        if (botProcess && !botProcess.killed) {
             try {
-                // First try to kill gracefully
-                botProcess.kill('SIGTERM');
-
-                // Wait a moment for the process to terminate
-                await new Promise(resolve => setTimeout(resolve, 2000));
-
-                // If it's still running, force kill it
-                if (botProcess.killed === false) {
-                    logger.log('Bot process did not terminate gracefully, force killing...');
-                    process.kill(botProcess.pid, 'SIGKILL');
+                logger.log('Stopping bot process...');
+                const killed = botProcess.kill('SIGTERM'); // Send SIGTERM for graceful shutdown
+                if (killed) {
+                    logger.log('Bot process stopped.');
+                } else {
+                    logger.warn('Failed to stop bot process.');
                 }
-
-                logger.log('Bot process terminated');
             } catch (error) {
-                logger.error('Error terminating bot process:', error);
-
-                // As a last resort, try to kill using the OS process ID
-                try {
-                    logger.log('Attempting to kill using process ID...');
-                    process.kill(botProcess.pid);
-                    logger.log('Process killed using process ID');
-                } catch (killError) {
-                    logger.error('Failed to kill process:', killError);
-                }
+                logger.error('Error stopping bot process:', error);
             }
         }
+        
+        await forceKillChromiumProcesses();
+        
+        logger.log(`\nTest results saved to ${resultsPath}`);
 
-        // Delete the .wwebjs_cache directory
-        const cachePath = path.join(__dirname, '..', '.wwebjs_cache');
-        logger.log(`Cleaning up cache directory: ${cachePath}`);
-        try {
-            if (fs.existsSync(cachePath)) {
-                // Delete the directory recursively
-                fs.rmSync(cachePath, { recursive: true, force: true });
-                logger.log('Cache directory deleted successfully');
-            } else {
-                logger.log('Cache directory does not exist, nothing to clean up');
-            }
-        } catch (error) {
-            logger.error(`Error cleaning up cache directory: ${error.message}`);
-        }
-
-        logger.log('Cleanup complete');
-
-        // Exit with appropriate code if AUTO_EXIT is set
-        if (process.env.AUTO_EXIT === 'true') {
+        // Exit with the appropriate code
             process.exit(exitCode);
-        }
     }
 }
 
@@ -540,6 +502,9 @@ async function forceKillChromiumProcesses() {
 // Otherwise, we export the runTests function for use by other scripts
 if (require.main === module) {
     // Set environment variables for the current process
+    const isRemote = process.argv.includes('--remote');
+    const isVerbose = process.argv.includes('--verbose') || process.argv.includes('-v');
+
     process.env.DEBUG = isVerbose ? 'true' : 'false';
     process.env.SILENT = isVerbose ? 'false' : 'true';
     process.env.SUPPRESS_INITIAL_LOGS = 'true';
@@ -553,6 +518,9 @@ if (require.main === module) {
     // Log verbose mode status
     if (isVerbose) {
         console.log('\x1b[1mRunning in verbose mode...\x1b[0m');
+    }
+    if (isRemote) {
+        console.log('\x1b[1mRunning in remote mode...\x1b[0m');
     }
 
     // Run in main process

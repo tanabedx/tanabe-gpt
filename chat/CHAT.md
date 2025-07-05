@@ -5,6 +5,7 @@ Complete ChatGPT integration system for WhatsApp bot providing intelligent conve
 
 ## Core Features
 - **Conversation Management**: Persistent conversations with memory across messages, automatic model selection based on context size
+- **Initial Chat Context**: Automatically injects the last N messages from the chat history into the initial prompt for immediate context awareness.
 - **Context System**: On-demand WhatsApp message history fetching when ChatGPT requests context
 - **Web Search Integration**: Automatic detection + manual search tool (`REQUEST_SEARCH: [query]`) with content extraction
 - **Multi-Model Support**: Dynamic GPT model selection based on conversation size and search requirements
@@ -24,17 +25,17 @@ Event-driven message processing pipeline with modular handlers for different req
 
 ### Processing Flow
 1. **Message Reception** → `chat.js` (command detection + routing)
-2. **Conversation Initialization** → `conversationManager.js` (state loading/creation)
+2. **Conversation Initialization** → `conversationManager.js` fetches the last N messages from the chat and constructs the initial system prompt, including chat history and personality.
 3. **Request Type Detection** → Parallel handlers for context/search requests
 4. **Content Processing** → AI model selection and API calls
-5. **Response Delivery** → WhatsApp message formatting and sending
+5. **Response Delivery** → Sends an initial placeholder message (e.g., '🤖') and then uses a simulated streaming effect to "type out" the final response by repeatedly editing the message for a better user experience.
 
 ## File Structure & Roles
 
 ### Core Processing Files
 - **`chat.js`**: Main command processor, message routing, WhatsApp integration
-- **`conversationManager.js`**: Conversation state management, OpenAI API calls, model selection logic
-- **`contextManager.js`**: WhatsApp message history fetching, chunk-based context loading
+- **`conversationManager.js`**: Conversation state management, initial history fetching, OpenAI API calls, model selection logic
+- **`contextManager.js`**: On-demand and initial WhatsApp message history fetching, chunk-based context loading
 - **`promptUtils.js`**: Message formatting, system prompt construction, conversation serialization
 
 ### Request Handler Files  
@@ -43,29 +44,32 @@ Event-driven message processing pipeline with modular handlers for different req
 - **`webSearchUtils.js`**: DuckDuckGo/Google search execution, content scraping, result formatting
 
 ### Configuration Files
-- **`chat.config.js`**: Model selection rules, web search settings, context management limits
+- **`chat.config.js`**: Model selection rules, web search settings, context management limits, conversation settings
 - **`chatgpt.prompt.js`**: System prompts, conversation templates, personality definitions
 
 ## Core Components
 
 ### Conversation Management (`conversationManager.js`)
 ```javascript
+// On conversation initialization, the system can fetch recent history
+initialHistory: {
+    enabled: true,
+    messageCount: 10 // Fetches the last 10 messages
+}
+
 // Central conversation state with automatic cleanup
 conversationState = {
     groupId: { 
-        messages: [...],           // Full conversation history
-        lastActivity: timestamp,   // For cleanup scheduling
-        currentModel: 'gpt-4o'    // Selected based on context size
+        messages: [
+            // The first message is a detailed system prompt including:
+            // 1. Base instructions
+            // 2. Group-specific personality
+            // 3. Recent chat history (e.g., last 10 messages)
+            { role: 'system', content: '...' } 
+        ],
+        lastActivity: timestamp,
+        currentModel: 'gpt-4o'
     }
-}
-
-// Model selection logic based on message count
-modelSelection: {
-    rules: [
-        { maxMessages: 100, model: 'gpt-4o-mini' },
-        { maxMessages: 500, model: 'gpt-4o' },
-        { maxMessages: 1000, model: 'gpt-4o' }
-    ]
 }
 ```
 
@@ -107,7 +111,7 @@ searchExecution: DuckDuckGo → Google(fallback) → ContentScraping → ModelPr
 
 ### Standard Chat Flow
 ```
-WhatsApp Message → chat.js → conversationManager.js → OpenAI API → Response Formatting → WhatsApp
+WhatsApp Message → chat.js → conversationManager.js (fetches initial history) → OpenAI API → Simulated Streaming (via message edits) → WhatsApp
 ```
 
 ### Context-Aware Chat Flow  
@@ -116,14 +120,14 @@ WhatsApp Message → chat.js → conversationManager.js → OpenAI API →
   ↓ (AI returns REQUEST_CONTEXT)
 contextRequestHandler.js → contextManager.js → WhatsApp History Fetch →
   ↓ (context injected)
-conversationManager.js → OpenAI API → Response with Context → WhatsApp
+conversationManager.js → OpenAI API → Response with Context → Simulated Streaming → WhatsApp
 ```
 
 ### Web Search Flow
 ```
 WhatsApp Message → webSearchUtils.js (keyword detection) → Search APIs → Content Scraping →
   ↓ (search results injected as system message)
-conversationManager.js → OpenAI API (with webSearch.model) → Response with Current Info → WhatsApp
+conversationManager.js → OpenAI API (with webSearch.model) → Response with Current Info → Simulated Streaming → WhatsApp
 
 OR (Manual Search):
 
@@ -131,10 +135,23 @@ WhatsApp Message → conversationManager.js → OpenAI API →
   ↓ (AI returns REQUEST_SEARCH: [query])
 searchRequestHandler.js → webSearchUtils.js → Search APIs → Content Scraping →
   ↓ (search results injected)
-conversationManager.js → OpenAI API → Response with Search Data → WhatsApp
+conversationManager.js → OpenAI API → Response with Search Data → Simulated Streaming → WhatsApp
 ```
 
 ## Configuration Schema
+
+### Conversation Configuration (`chat.config.js`)
+```javascript
+conversation: {
+    maxTurns: number,           // Maximum conversation turns before reset
+    timeoutMinutes: number,     // Conversation timeout
+    maintainMemory: boolean,
+    initialHistory: {
+        enabled: boolean,       // Toggle for initial history feature
+        messageCount: number    // Number of messages to fetch
+    }
+}
+```
 
 ### Model Selection Rules (`chat.config.js`)
 ```javascript
@@ -173,7 +190,8 @@ contextManagement: {
 ### WhatsApp Integration
 - **`global.client`**: WhatsApp Web.js client instance for message sending/receiving
 - **`chat.getMessages()`**: Message history fetching for context system
-- **`message.reply()`**: Response delivery to WhatsApp
+- **`message.reply()`**: Used to send the initial response message.
+- **`message.edit()`**: Used repeatedly to update the initial message, creating a simulated streaming effect.
 
 ### OpenAI API Integration
 - **Models Used**: `gpt-4o-mini`, `gpt-4o` (configurable per use case)
@@ -193,7 +211,7 @@ contextManagement: {
 
 ### Cross-Module Dependencies  
 - **`conversationManager.js`** ← imports ← `contextRequestHandler.js`, `searchRequestHandler.js`, `promptUtils.js`
-- **`contextManager.js`** ← imports ← `contextRequestHandler.js`
+- **`contextManager.js`** ← imports ← `contextRequestHandler.js`, `conversationManager.js`
 - **`webSearchUtils.js`** ← imports ← `searchRequestHandler.js`, `conversationManager.js`
 - **`chat.config.js`** ← imports ← All processing modules for behavior configuration
 

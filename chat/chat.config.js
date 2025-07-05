@@ -42,7 +42,11 @@ const CHAT_CONFIG = {
     conversation: {
         maxTurns: 20,           // Maximum conversation turns before reset
         timeoutMinutes: 30,     // Conversation timeout
-        maintainMemory: true
+        maintainMemory: true,
+        initialHistory: {
+            enabled: true,
+            messageCount: 10
+        }
     },
     
     // Web search settings
