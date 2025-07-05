@@ -9,7 +9,14 @@ User=root
 WorkingDirectory=[path]/tanabe-gpt
 ExecStart=/usr/bin/npm start
 Restart=always
-RestartSec=60
+RestartSec=10
+StartLimitInterval=0
+StartLimitBurst=0
+
+# Environment variables
+Environment=NODE_ENV=production
+Environment=OPTIMIZE_FOR_VPS=true
+Environment=FORCE_COLORS_IN_FILES=true
 
 [Install]
 WantedBy=multi-user.target

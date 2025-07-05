@@ -201,10 +201,19 @@ function performSystemdServiceSetup() {
 
         console.log('-------------------------------------------------');
         console.log('Tanabe-GPT systemd service has been set up, enabled, and started.');
+        console.log('');
+        console.log('✅ AUTOMATIC RESTART BEHAVIOR:');
+        console.log('   - Bot will automatically restart every 10 seconds if it exits');
+        console.log('   - When code changes are detected, bot will restart to apply updates');
+        console.log('   - Dependencies will be synchronized automatically on restart');
+        console.log('   - No manual intervention required for deployments');
+        console.log('');
         console.log('You can manage it using systemctl, e.g.:');
-        console.log('  sudo systemctl status tanabe-gpt.service');
-        console.log('  sudo systemctl stop tanabe-gpt.service');
-        console.log('  sudo systemctl restart tanabe-gpt.service');
+        console.log('  sudo systemctl status tanabe-gpt.service    # Check status');
+        console.log('  sudo systemctl stop tanabe-gpt.service      # Stop service');
+        console.log('  sudo systemctl restart tanabe-gpt.service   # Manual restart');
+        console.log('  sudo systemctl logs -f tanabe-gpt.service   # View logs');
+        console.log('  sudo journalctl -u tanabe-gpt.service -f    # View detailed logs');
         console.log('-------------------------------------------------');
     } catch (error) {
         console.error(`\nERROR: Failed to set up systemd service: ${error.message}`);

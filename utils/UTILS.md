@@ -6,6 +6,7 @@ Comprehensive utility library providing environment management, Git integration,
 ## Core Features
 - **Environment Management**: Environment variable parsing with escape sequence handling and configuration templating
 - **Git Integration**: Startup git pull functionality with commit tracking and update notifications
+- **Dependency Management**: Automated npm dependency synchronization with change detection and restart signaling
 - **Link Processing**: URL extraction, unshortening, content fetching with retry logic and rate limiting
 - **Advanced Logging**: Dual-file logging system with console/file output, comprehensive debug capture, admin notifications, and spinner UI
 - **Message Management**: Auto-delete functionality, contact name resolution, and message formatting utilities
@@ -18,8 +19,15 @@ const { getEnvWithEscapes } = require('./utils/envUtils');
 const message = getEnvWithEscapes('WELCOME_MESSAGE', 'Default message\\nWith newlines');
 
 // Git Operations
-const { performStartupGitPull } = require('./utils/gitUtils');
+const { performStartupGitPull, signalSystemdRestart } = require('./utils/gitUtils');
 await performStartupGitPull(); // Update bot on startup
+signalSystemdRestart('Manual restart requested'); // Signal systemd restart
+
+// Dependency Management
+const { performDependencySync, getDependencyStatus, needsDependencySync } = require('./utils/dependencyUtils');
+const depStatus = getDependencyStatus(); // Check current dependency status
+const needsSync = needsDependencySync(['package.json']); // Check if sync needed
+const result = await performDependencySync(); // Synchronize dependencies
 
 // Link Processing
 const { extractLinks, getPageContent } = require('./utils/linkUtils');
@@ -54,7 +62,8 @@ Modular utility architecture with shared logging infrastructure and external API
 
 ### Configuration & Discovery Files
 - **`envUtils.js`**: Environment variable processing with escape sequence parsing and template message handling
-- **`gitUtils.js`**: Git operation utilities with commit tracking and startup update functionality
+- **`gitUtils.js`**: Git operation utilities with commit tracking, startup update functionality, and systemd restart signaling
+- **`dependencyUtils.js`**: Dependency synchronization utilities with change detection and npm ci automation
 
 ### Content Processing Files
 - **`linkUtils.js`**: URL processing utilities with link extraction, unshortening, content fetching, and retry logic
@@ -252,6 +261,72 @@ async function getPageContent(url, attempt = 1) {
 // ... existing code ...
 ```
 
+### Dependency Management System (`dependencyUtils.js`)
+```javascript
+// Automated dependency synchronization with change detection
+const dependencyManagement = {
+    changeDetection: {
+        needsDependencySync: 'Check if package.json/package-lock.json changed',
+        isNodeModulesOutOfSync: 'Compare modification times for sync status',
+        supportedFiles: ['package.json', 'package-lock.json']
+    },
+    synchronization: {
+        primaryMethod: 'npm ci --production --silent (production-safe)',
+        fallbackMethod: 'npm install --production --silent',
+        timeout: 180000, // 3 minutes
+        statusReporting: 'Duration, operation, and success tracking'
+    },
+    statusTracking: {
+        getDependencyStatus: 'Current sync status and file presence',
+        lastSyncTime: 'node_modules modification timestamp',
+        outOfSyncDetection: 'Automated sync requirement detection'
+    }
+};
+
+// Example usage in automated deployment
+async function handleDependencyUpdate(changedFiles) {
+    if (needsDependencySync(changedFiles)) {
+        const result = await performDependencySync();
+        if (result.success) {
+            logger.info(`Dependencies synced: ${result.operation} in ${result.duration}s`);
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+### Enhanced Git Integration System (`gitUtils.js`)
+```javascript
+// Enhanced git operations with dependency awareness and restart signaling
+const gitOperations = {
+    changeDetection: {
+        performStartupGitPull: 'Enhanced with file change tracking',
+        changedFilesAnalysis: 'git diff --name-only HEAD~1',
+        dependencyChangeDetection: 'Automatic dependency sync triggering',
+        restartRequirement: 'Smart restart detection for code changes'
+    },
+    systemdIntegration: {
+        signalSystemdRestart: 'Graceful process exit for systemd restart',
+        restartReason: 'Detailed logging of restart reasons',
+        processManagement: 'Clean shutdown with logging completion'
+    },
+    statusReporting: {
+        enhancedResults: 'changedFiles, needsRestart, needsDependencySync',
+        commitTracking: 'Before/after commit information',
+        errorHandling: 'Graceful fallback with detailed error reporting'
+    }
+};
+
+// Automated restart flow integration
+if (gitResults.hasChanges && gitResults.needsRestart) {
+    if (gitResults.needsDependencySync) {
+        await performDependencySync();
+    }
+    signalSystemdRestart('Code changes detected');
+}
+```
+
 ### Git Integration System (`gitUtils.js`)
 ```javascript
 // ... existing code ...
@@ -259,11 +334,21 @@ async function getPageContent(url, attempt = 1) {
 
 ## Data Flows
 
+### Automated Deployment Flow
+```
+Bot Startup → Git Pull (gitUtils.js) → Change Detection →
+  ↓ (if changes detected)
+Dependency Sync (dependencyUtils.js) → Systemd Restart Signal →
+  ↓ (systemd restarts service)
+New Process → Git Pull (no changes) → Normal Startup → 
+Sync Status Report → Bot Ready with Updated Code & Dependencies
+```
+
 ### Startup Flow
 ```
 Startup → gitUtils.js → Git Pull →
-  ↓ (bot updated)
-Logging Initialization → Admin Notification
+  ↓ (no changes or post-update)
+Logging Initialization → Dependency Status Check → Admin Notification
 ```
 
 ### Standard Logging Flow

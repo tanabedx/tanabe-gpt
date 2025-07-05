@@ -16,7 +16,8 @@ const { initializeContextManager } = require('./chat/contextManager');
 const { initializeConversationManager } = require('./chat/conversationManager');
 const { initialize } = require('./newsMonitor/newsMonitor.js');
 const { scheduleNextSummary: schedulePeriodicSummary, getPeriodicSummaryStatus } = require('./periodicSummary/periodicSummaryUtils');
-const { performStartupGitPull } = require('./utils/gitUtils');
+const { performStartupGitPull, signalSystemdRestart } = require('./utils/gitUtils');
+const { performDependencySync, getDependencyStatus } = require('./utils/dependencyUtils');
 const {
     performCacheClearing,
     startMemoryMonitoring,
@@ -421,7 +422,13 @@ async function initializeBot(gitResults) {
 
         // If News Monitor is disabled OR keys not on cooldown, log startup success now
         if (!NEWS_MONITOR_CONFIG.enabled || !hadCooldownDuringStartup) {
-            await logger.startup('Bot has been started successfully!');
+            // Create startup message with sync status
+            const dependencyStatus = getDependencyStatus();
+            const syncMessage = dependencyStatus.outOfSync ? 
+                'Bot has been started successfully! (Dependencies may need sync on next update)' :
+                'Bot has been started successfully! ✅ Code and dependencies fully synchronized';
+            
+            await logger.startup(syncMessage);
         }
 
         // Post-startup Twitter API status check - only if keys were in cooldown during startup
@@ -440,7 +447,13 @@ async function initializeBot(gitResults) {
                             const keyStates = currentApiStatus.map(key => `${key.name}: ${key.usage}` ).join(', ');
                             logger.info(`Twitter API Handler initialized successfully. Active key: ${activeKey.name}. All key states: [${keyStates}]`);
 
-                            await logger.startup('Bot has been started successfully!');
+                            // Create startup message with sync status
+                            const dependencyStatus = getDependencyStatus();
+                            const syncMessage = dependencyStatus.outOfSync ? 
+                                'Bot has been started successfully! (Dependencies may need sync on next update)' :
+                                'Bot has been started successfully! ✅ Code and dependencies fully synchronized';
+                            
+                            await logger.startup(syncMessage);
                             clearInterval(intervalId);
                         }
                     }
@@ -474,11 +487,24 @@ async function collectSystemStatus(gitResults, cacheResults, whatsappStatus, cor
     // Get periodic summary status
     const periodicSummaryStatus = getPeriodicSummaryStatus();
 
+    // Get dependency status
+    const dependencyStatus = getDependencyStatus();
+
     // Return comprehensive status object
     return {
         version: {
             gitStatus: gitResults.gitStatus,
-            commitInfo: gitResults.commitInfo
+            commitInfo: gitResults.commitInfo,
+            syncStatus: gitResults.hasChanges ? 'Recently updated' : 'Up to date'
+        },
+        dependencies: {
+            status: dependencyStatus.outOfSync ? 'Out of sync' : 'Synchronized',
+            packageJson: dependencyStatus.packageJson,
+            packageLock: dependencyStatus.packageLock,
+            nodeModules: dependencyStatus.nodeModules,
+            lastSync: dependencyStatus.lastSync !== 'Unknown' ? 
+                new Date(dependencyStatus.lastSync).toLocaleString() : 
+                'Unknown'
         },
         newsMonitor: newsMonitorStatus,
         periodicSummary: periodicSummaryStatus,
@@ -501,6 +527,34 @@ async function main() {
         // Perform git pull and capture results (no separate log needed now)
         const gitResults = await performStartupGitPull();
 
+        // Check if restart is needed due to code or dependency changes
+        if (gitResults.hasChanges && gitResults.needsRestart) {
+            logger.info('Code changes detected. Processing update...');
+            
+            // If dependencies need to be synchronized, do it now
+            if (gitResults.needsDependencySync) {
+                logger.info('Dependency changes detected. Synchronizing dependencies...');
+                const depResults = await performDependencySync();
+                
+                if (depResults.success) {
+                    logger.info(`Dependencies synchronized successfully (${depResults.operation}) in ${depResults.duration}s`);
+                } else {
+                    logger.warn(`Dependency synchronization failed: ${depResults.status}`);
+                }
+            }
+            
+            // Signal systemd to restart the service so new code takes effect
+            const changedFilesStr = gitResults.changedFiles.length > 0 ? 
+                `Changed files: ${gitResults.changedFiles.join(', ')}` : 
+                'Files changed';
+            
+            signalSystemdRestart(`${changedFilesStr}. Restarting to apply updates`);
+            
+            // Function will exit here, systemd will restart the service
+            return;
+        }
+
+        // No changes detected, proceed with normal startup
         // Initialize the bot with git results
         await initializeBot(gitResults);
         
