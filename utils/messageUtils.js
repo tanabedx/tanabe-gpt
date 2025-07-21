@@ -103,16 +103,58 @@ async function sendStreamingResponse(message, finalResponse, command, placeholde
                 const chunkSize = Math.floor(Math.random() * (chunkSizeMax - chunkSizeMin + 1)) + chunkSizeMin;
                 currentIndex += chunkSize;
 
+                let newText;
                 if (currentIndex >= responseText.length) {
+                    newText = responseText;
+                    logger.debug('Preparing final edit', { expectedText: newText });
                     clearInterval(streamInterval);
-                    await responseMessage.edit(responseText);
+                    await responseMessage.edit(newText);
+                    logger.debug('Final edit attempted');
                     await handleAutoDelete(responseMessage, command);
                     logger.debug('Streaming response completed', {
                         responseLength: responseText.length,
                         placeholder: placeholder
                     });
+
+                    // Verify final edit
+                    const chat = await message.getChat();
+                    const messages = await chat.fetchMessages({ limit: 1 });
+                    const updatedMsg = messages[0];
+                    if (updatedMsg && updatedMsg.id._serialized === responseMessage.id._serialized) {
+                        if (updatedMsg.body !== newText) {
+                            logger.warn('Final edit verification failed', {
+                                expected: newText,
+                                actual: updatedMsg.body
+                            });
+                        } else {
+                            logger.debug('Final edit verified successfully');
+                        }
+                    } else {
+                        logger.warn('Could not verify final message');
+                    }
                 } else {
-                    await responseMessage.edit(responseText.substring(0, currentIndex) + '...');
+                    newText = responseText.substring(0, currentIndex) + '...';
+                    logger.debug('Preparing chunk edit', { expectedText: newText, currentIndex });
+                    await responseMessage.edit(newText);
+                    logger.debug('Chunk edit attempted');
+                    
+                    // Verify chunk edit
+                    const chat = await message.getChat();
+                    const messages = await chat.fetchMessages({ limit: 1 });
+                    const updatedMsg = messages[0];
+                    if (updatedMsg && updatedMsg.id._serialized === responseMessage.id._serialized) {
+                        if (updatedMsg.body !== newText) {
+                            logger.warn('Chunk edit verification failed', {
+                                expected: newText,
+                                actual: updatedMsg.body,
+                                currentIndex
+                            });
+                        } else {
+                            logger.debug('Chunk edit verified successfully');
+                        }
+                    } else {
+                        logger.warn('Could not verify chunk message');
+                    }
                 }
             } catch (error) {
                 logger.error('Error during streaming message edit:', error);
