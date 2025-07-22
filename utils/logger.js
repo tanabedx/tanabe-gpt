@@ -793,10 +793,21 @@ const logger = {
         report += `│   └── Memory Monitoring: ${statusData.coreSystems.memoryMonitoring ? 'Started (16 min intervals)' : 'Failed to start'}\n`;
         report += '│\n';
         
-        // Cache Management
-        report += '└── Cache Management\n';
-        report += `    ├── Files Cleared: ${statusData.cacheManagement.filesCleared}\n`;
-        report += `    └── Memory Usage: ${statusData.cacheManagement.memory}MB allocated`;
+        // Maintenance (Cache + Performance)
+        report += '└── Maintenance\n';
+        report += '    ├── Cache Management\n';
+        report += `    │   ├── Files Cleared: ${statusData.cacheManagement.filesCleared}\n`;
+        report += `    │   ├── Memory Usage: ${statusData.cacheManagement.memory}MB allocated\n`;
+        report += `    │   └── Garbage Collection: ${statusData.optimization.gcEnabled ? `Enabled (${statusData.optimization.gcInterval})` : 'Disabled'}\n`;
+        
+        // Performance Optimization Status
+        if (statusData.optimization) {
+            report += '    └── Performance Optimization\n';
+            report += `        ├── Mode: ${statusData.optimization.mode}\n`;
+            report += `        ├── Puppeteer: ${statusData.optimization.puppeteer}\n`;
+            report += `        ├── Thread Pool: ${statusData.optimization.threadPool} threads\n`;
+            report += `        └── Memory Limit: ${statusData.optimization.memoryLimit}MB`;
+        }
         
         // Log the comprehensive report
         await log(LOG_LEVELS.INFO, report);

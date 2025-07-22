@@ -7,8 +7,6 @@ const IS_DEDICATED_VPS = process.env.DEDICATED_VPS === 'true';
 
 // Apply runtime optimizations if in VPS mode
 if (IS_VPS_OPTIMIZED) {
-    logger.info(`VPS optimizations enabled (${IS_DEDICATED_VPS ? 'Dedicated' : 'Shared'} mode)`);
-    
     // Set UV thread pool size to match CPU cores
     process.env.UV_THREADPOOL_SIZE = '4'; // Increase for dedicated VPS
     
@@ -31,24 +29,36 @@ if (IS_VPS_OPTIMIZED) {
     }
     
     // Monitor event loop lag - less sensitive for dedicated VPS
-    let lastCheck = Date.now();
-    const lagThreshold = IS_DEDICATED_VPS ? 200 : 100; // Higher threshold for dedicated
-    setInterval(() => {
-        const now = Date.now();
-        const lag = now - lastCheck - 1000;
-        if (lag > lagThreshold) {
-            logger.warn(`Event loop lag detected: ${lag}ms`);
-        }
-        lastCheck = now;
-    }, 1000);
+    // Delay monitoring start to avoid startup noise
+    setTimeout(() => {
+        let lastCheck = Date.now();
+        const lagThreshold = IS_DEDICATED_VPS ? 500 : 300; // Increased thresholds
+        const startupGracePeriod = 5 * 60 * 1000; // 5 minutes grace period
+        const monitoringStartTime = Date.now();
+        
+        setInterval(() => {
+            const now = Date.now();
+            const lag = now - lastCheck - 1000;
+            
+            // Skip warnings during startup grace period
+            const timeSinceStart = now - monitoringStartTime;
+            const adjustedThreshold = timeSinceStart < startupGracePeriod ? 
+                lagThreshold * 2 : lagThreshold;
+            
+            if (lag > adjustedThreshold) {
+                logger.warn(`Event loop lag detected: ${lag}ms (threshold: ${adjustedThreshold}ms)`);
+            }
+            lastCheck = now;
+        }, 1000);
+    }, 30000); // Start monitoring after 30 seconds
     
     // Set process priority (requires root on Linux)
     if (IS_DEDICATED_VPS && process.platform === 'linux') {
         try {
             process.setpriority(-10); // Higher priority
-            logger.info('Process priority increased');
+            // Process priority increased silently
         } catch (err) {
-            logger.debug('Could not set process priority (requires root)');
+            // Could not set process priority (requires root)
         }
     }
 }
@@ -75,15 +85,6 @@ const VPS_CONFIG = {
     MAX_CHAT_HISTORY: IS_DEDICATED_VPS ? 100 : 50,
     MAX_CONCURRENT_AI_CALLS: IS_DEDICATED_VPS ? 2 : 1,
 };
-
-// Log configuration on startup
-logger.info('VPS Configuration:', {
-    vpsOptimized: IS_VPS_OPTIMIZED,
-    dedicatedVps: IS_DEDICATED_VPS,
-    messageBatchSize: VPS_CONFIG.MESSAGE_BATCH_SIZE,
-    maxConcurrentOps: VPS_CONFIG.MAX_CONCURRENT_OPERATIONS,
-    threadPoolSize: process.env.UV_THREADPOOL_SIZE
-});
 
 // Export configuration
 module.exports = {

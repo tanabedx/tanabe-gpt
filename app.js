@@ -473,6 +473,17 @@ async function collectSystemStatus(gitResults, cacheResults, whatsappStatus, cor
     // Get dependency status
     const dependencyStatus = getDependencyStatus();
 
+    // Get optimization status
+    const { IS_VPS_OPTIMIZED, IS_DEDICATED_VPS } = require('./configs/vps-optimizations');
+    const optimizationStatus = {
+        mode: IS_VPS_OPTIMIZED ? (IS_DEDICATED_VPS ? 'Dedicated VPS' : 'Shared VPS') : 'Standard',
+        puppeteer: IS_VPS_OPTIMIZED ? 'Single-process mode' : 'Multi-process mode',
+        threadPool: process.env.UV_THREADPOOL_SIZE || '4',
+        memoryLimit: IS_DEDICATED_VPS ? 1700 : 1536,  // From package.json start script
+        gcEnabled: global.gc !== undefined,
+        gcInterval: IS_DEDICATED_VPS ? 'every 10 min' : 'every 5 min'
+    };
+
     // Return comprehensive status object
     return {
         version: {
@@ -500,7 +511,8 @@ async function collectSystemStatus(gitResults, cacheResults, whatsappStatus, cor
         cacheManagement: {
             filesCleared: cacheResults.clearedFiles || 0,
             memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
-        }
+        },
+        optimization: optimizationStatus
     };
 }
 
