@@ -1,3 +1,6 @@
+// Load VPS optimizations first
+require('./configs/vps-optimizations');
+
 // app.js
 
 process.removeAllListeners('warning');
@@ -11,6 +14,7 @@ process.on('warning', warning => {
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const config = require('./configs/config');
+const { getWhatsAppOptimizedConfig } = require('./configs/puppeteerSettings');
 const { setupListeners } = require('./core/listener');
 const { initializeContextManager } = require('./chat/contextManager');
 const { initializeConversationManager } = require('./chat/conversationManager');
@@ -194,35 +198,14 @@ async function initializeBot(gitResults) {
         };
 
         // Enhanced client configuration
+        const puppeteerConfig = getWhatsAppOptimizedConfig(process.env.NODE_ENV || 'production');
+        
         const client = new Client({
             authStrategy: new LocalAuth({
                 clientId: clientId,
                 dataPath: authPath,
             }),
-            puppeteer: {
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-gpu',
-                    '--js-flags="--max-old-space-size=128"',
-                    '--disable-extensions',
-                    '--disable-default-apps',
-                    '--disable-translate',
-                    '--disable-background-timer-throttling',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-renderer-backgrounding',
-                    '--disable-features=TranslateUI',
-                    '--disable-ipc-flooding-protection',
-                ],
-                timeout: 60000,
-                takeoverTimeoutMs: 60000,
-            },
+            puppeteer: puppeteerConfig
         });
 
         // Store client globally for use in other modules

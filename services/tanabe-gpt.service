@@ -18,6 +18,12 @@ StartLimitBurst=0
 Environment=NODE_ENV=production
 Environment=OPTIMIZE_FOR_VPS=true
 Environment=FORCE_COLORS_IN_FILES=true
+Environment=DEDICATED_VPS=true
+
+# Resource settings for dedicated VPS
+MemoryLimit=1900M
+CPUQuota=195%
+Nice=-10
 
 [Install]
 WantedBy=multi-user.target
