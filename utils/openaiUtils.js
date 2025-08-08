@@ -950,10 +950,17 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
         // 6. Fallback to SYSTEM tiers/defaults (no hardcoded)
 
         let effectiveModel = model;
+        // If caller passed a tier token, resolve it immediately
+        if (typeof effectiveModel === 'string' && effectiveModel.startsWith('TIER:')) {
+            effectiveModel = resolveTierToken(effectiveModel);
+        }
 
         // Prefer the vision-specific key from NEWS_MONITOR if present
         if (!effectiveModel && config?.NEWS_MONITOR?.AI_MODELS?.PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT) {
-            effectiveModel = config.NEWS_MONITOR.AI_MODELS.PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT;
+            // Resolve tier token (e.g., 'TIER:LOW') to concrete model id
+            effectiveModel = resolveTierToken(
+                config.NEWS_MONITOR.AI_MODELS.PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT
+            );
             if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
                 logger.debug(
                     `Using NEWS_MONITOR.AI_MODELS.PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: ${effectiveModel}`
@@ -977,6 +984,11 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
             if (tierModel) {
                 effectiveModel = tierModel;
             }
+        }
+
+        // Ensure any lingering TIER token is resolved before use
+        if (typeof effectiveModel === 'string' && effectiveModel.startsWith('TIER:')) {
+            effectiveModel = resolveTierToken(effectiveModel);
         }
 
         // Legacy vision default
