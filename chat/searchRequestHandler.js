@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
-const { searchWithContent } = require('./webSearchUtils');
+const { searchWithContent } = require('./legacy_webSearchUtils');
+const { runResponsesWithWebSearch } = require('../utils/openaiUtils');
 
 /**
  * Parse search request from ChatGPT response
@@ -110,16 +111,61 @@ async function handleSearchRequest(response, config) {
             };
         }
 
-        const maxResults = webSearchConfig.maxResults || 3;
-        const timeout = webSearchConfig.timeout || 10000;
+        const useOpenAITool = config?.SYSTEM?.WEB_SEARCH?.USE_OPENAI_TOOL === true;
+        let searchResults = null;
+        let usedOpenAITool = false;
 
-        // Perform the search
-        const searchResults = await searchWithContent(
-            searchRequest.cleanQuery,
-            maxResults,
-            true, // Include content
-            config
-        );
+        if (useOpenAITool) {
+            // Use Responses API with web_search tool to directly answer with citations
+            usedOpenAITool = true;
+            try {
+                const assistantMsg = await runResponsesWithWebSearch([
+                    { role: 'user', content: `REQUEST_SEARCH: ${searchRequest.cleanQuery}` }
+                ], {
+                    temperature: 1,
+                    model: config?.SYSTEM?.AI_MODELS?.MEDIUM,
+                });
+                // Return a pseudo search result carrying the assistant content; conversation loop will add it
+                searchResults = {
+                    results: [],
+                    summary: assistantMsg.content || '',
+                    searchPerformed: true,
+                };
+            } catch (e) {
+                usedOpenAITool = false;
+                const allowFallback = config?.SYSTEM?.WEB_SEARCH?.FALLBACK_TO_LEGACY !== false;
+                if (!allowFallback) {
+                    return {
+                        hasSearchRequest: true,
+                        searchResults: null,
+                        query: searchRequest.cleanQuery,
+                        error: e?.message || 'OpenAI web_search tool failed',
+                        isPureRequest: isPureSearchRequest(response)
+                    };
+                }
+            }
+        }
+
+        if (!usedOpenAITool) {
+            const allowFallback = config?.SYSTEM?.WEB_SEARCH?.FALLBACK_TO_LEGACY !== false;
+            if (!allowFallback) {
+                return {
+                    hasSearchRequest: true,
+                    searchResults: null,
+                    query: searchRequest.cleanQuery,
+                    error: 'OpenAI web_search tool failed and legacy fallback is disabled',
+                    isPureRequest: isPureSearchRequest(response)
+                };
+            }
+            const maxResults = webSearchConfig.maxResults || 3;
+            // Perform the legacy search
+            searchResults = await searchWithContent(
+                searchRequest.cleanQuery,
+                maxResults,
+                true, // Include content
+                config
+            );
+        }
 
         const result = {
             hasSearchRequest: true,

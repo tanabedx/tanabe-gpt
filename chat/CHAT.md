@@ -8,7 +8,8 @@ Complete ChatGPT integration system for WhatsApp bot providing intelligent conve
 - **Initial Chat Context**: Automatically injects the last N messages from the chat history into the initial prompt for immediate context awareness.
 - **Context System**: On-demand WhatsApp message history fetching when ChatGPT requests context
 - **Web Search Integration**: Automatic detection + manual search tool (`REQUEST_SEARCH: [query]`) with content extraction
-- **Multi-Model Support**: Dynamic GPT model selection based on conversation size and search requirements
+- **Multi-Model Support**: Dynamic GPT model selection based on centralized tiers (LOW/MEDIUM/HIGH) and search requirements
+  - Reasoning effort is automatically applied for MEDIUM (low) and HIGH (medium) tiers with a safe fallback retry if unsupported.
 
 ## Usage Examples
 ```
@@ -68,7 +69,7 @@ conversationState = {
             { role: 'system', content: '...' } 
         ],
         lastActivity: timestamp,
-        currentModel: 'gpt-4o'
+        currentModel: config.SYSTEM.AI_MODELS.MEDIUM
     }
 }
 ```
@@ -95,7 +96,7 @@ fetchContext(groupName, messageCount) → {
 webSearch: {
     automatic: {                         // Keyword-triggered
         activationKeywords: ['pesquisar', 'latest', 'current'],
-        model: 'gpt-4o'                 // Model for processing results
+        model: config.SYSTEM.AI_MODELS.MEDIUM // Model for processing results
     },
     manual: {                           // AI-requested via REQUEST_SEARCH
         maxSearchRequests: 5,           // Per conversation turn
@@ -194,7 +195,7 @@ contextManagement: {
 - **`sendStreamingResponse()`**: Ultra-fast streaming utility with 25ms intervals and 50-100 character chunks for almost live typing effect.
 
 ### OpenAI API Integration
-- **Models Used**: `gpt-4o-mini`, `gpt-4o` (configurable per use case)
+- **Models Used**: Selected via centralized tiers `config.SYSTEM.AI_MODELS` (LOW/MEDIUM/HIGH), with module overrides as needed
 - **API Endpoints**: Chat completions for all conversational AI processing
 - **Token Management**: Automatic model switching based on context size to optimize costs
 

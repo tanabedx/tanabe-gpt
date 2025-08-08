@@ -3,6 +3,12 @@
 
 const CHAT_PROMPTS = require('./chatgpt.prompt');
 
+function getConfig() {
+    // Lazy-load to avoid circular dependency during startup
+    // eslint-disable-next-line global-require
+    return require('../configs/config');
+}
+
 const CHAT_CONFIG = {
     prefixes: ['#', '#!'],
     description:
@@ -18,15 +24,23 @@ const CHAT_CONFIG = {
         contextError: 'Erro ao buscar contexto adicional.',
         conversationError: 'Erro ao manter a conversa. Tente novamente.',
     },
+
+    // Streaming behavior moved back to SYSTEM.STREAMING_ENABLED
     
     // Model selection based on context size
     modelSelection: {
-        rules: [
-            { maxMessages: 100, model: 'gpt-4o-mini' },   // Lightweight for small contexts
-            { maxMessages: 500, model: 'gpt-4o' },        // Advanced for medium contexts
-            { maxMessages: 1000, model: 'o4-mini' }        // Advanced for large contexts
-        ],
-        default: 'gpt-4o-mini' // Default fallback
+        get rules() {
+            const config = getConfig();
+            return [
+                { maxMessages: 100, model: config.SYSTEM.AI_MODELS.LOW },
+                { maxMessages: 500, model: config.SYSTEM.AI_MODELS.MEDIUM },
+                { maxMessages: 1000, model: config.SYSTEM.AI_MODELS.HIGH }
+            ];
+        },
+        get default() {
+            const config = getConfig();
+            return config.SYSTEM.AI_MODELS.LOW;
+        }
     },
     
     // Context management settings
@@ -52,7 +66,17 @@ const CHAT_CONFIG = {
     // Web search settings
     webSearch: {
         enabled: true,
-        model: 'gpt-4o',        // Model to use when processing web search results
+        // OpenAI web_search tool integration (moved from SYSTEM)
+        useOpenAITool: true,
+        toolChoice: 'auto', // 'auto' | 'required'
+        country: 'br',
+        locale: 'pt_BR',
+        enforceCitations: true, // Append a FONTES block at the end
+        fallbackToLegacy: false, // Keep disabled while testing
+        get model() {
+            const config = getConfig();
+            return config.SYSTEM.AI_MODELS.MEDIUM; // Model to use when processing web search results
+        },
         maxResults: 5,          // Maximum number of search results to process
         maxSearchRequests: 5,   // Maximum manual search requests per conversation turn
         contentExtraction: {
@@ -96,6 +120,8 @@ const CHAT_CONFIG = {
         ],
         timeout: 10000          // Timeout for web search requests (ms)
     },
+
+    // Reasoning stays centralized under SYSTEM in configs/config.js
     
     // System prompts reference from chatgpt.prompt.js
     systemPrompts: CHAT_PROMPTS.SYSTEM_PROMPTS,
@@ -105,7 +131,10 @@ const CHAT_CONFIG = {
     errorPrompts: CHAT_PROMPTS.ERROR_PROMPTS,
     
     useGroupPersonality: true,
-    model: '', // Will be determined dynamically
+    get model() {
+        const config = getConfig();
+        return config.SYSTEM.AI_MODELS.LOW; // Default fallback
+    },
     maxMessageFetch: 1000, // Legacy compatibility
 };
 

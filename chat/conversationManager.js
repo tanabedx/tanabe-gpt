@@ -1,11 +1,12 @@
 const logger = require('../utils/logger');
-const { runConversationCompletion } = require('../utils/openaiUtils');
+const { runConversationCompletion, runResponsesWithWebSearch } = require('../utils/openaiUtils');
+const CHAT_CONFIG = require('./chat.config');
 const GROUP_PERSONALITIES = require('./personalities.prompt');
 const {
     shouldPerformWebSearch,
     extractSearchQuery,
     searchWithContent
-} = require('./webSearchUtils');
+} = require('./legacy_webSearchUtils');
 const { fetchInitialHistory } = require('./contextManager');
 
 // Conversation state management
@@ -75,7 +76,7 @@ function getConversationGroupName(originalGroupName, adminNumber) {
  */
 function selectModel(contextMessageCount, config) {
     const rules = config?.COMMANDS?.CHAT?.modelSelection?.rules || [];
-    const defaultModel = config?.COMMANDS?.CHAT?.modelSelection?.default || 'gpt-4o-mini';
+    const defaultModel = config?.COMMANDS?.CHAT?.modelSelection?.default || (config?.SYSTEM?.AI_MODELS?.LOW || config?.SYSTEM?.OPENAI_MODELS?.DEFAULT || 'gpt-5-nano');
 
     // Find the appropriate model based on context message count
     for (const rule of rules) {
@@ -339,49 +340,66 @@ async function getAIResponse(groupName, adminNumber, config) {
         let searchResults = null;
         let modelToUse = conversation.model;
         
-        if (lastUserMessage && shouldPerformWebSearch(lastUserMessage.content, config)) {
-            const query = extractSearchQuery(lastUserMessage.content);
-            if (query && query.length > 2) {
-                logger.debug(`Performing web search for query: "${query}"`);
+        // Use chat-level config for web search tool
+        const useOpenAITool = CHAT_CONFIG?.webSearch?.useOpenAITool === true;
+        if (lastUserMessage) {
+            if (useOpenAITool) {
+                // Delegate to Responses API with web_search tool and let it decide; do NOT extract/log explicit queries here
                 try {
-                    // Use config settings for web search
-                    const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
-                    const maxResults = webSearchConfig.maxResults || 3;
-                    
-                    searchResults = await searchWithContent(query, maxResults, true, config);
-                    
-                    if (searchResults && searchResults.results && searchResults.results.length > 0) {
-                        // Use webSearch.model if available and web search was performed
-                        if (webSearchConfig.model) {
-                            modelToUse = webSearchConfig.model;
-                            logger.debug(`Using web search model: ${modelToUse}`);
-                        }
-                        
-                        // Add search results as a system message
-                        const searchResultsMessage = {
-                            role: 'system',
-                            content: `RESULTADOS DE PESQUISA NA INTERNET:
+                    const assistantMsg = await runResponsesWithWebSearch(conversation.messages, {
+                        temperature: 1,
+                        model: modelToUse,
+                    });
+                    // Short-circuit: return this as the AI response for this turn
+                    return assistantMsg;
+                } catch (e) {
+                    // Honor chat-level fallback setting; default false while testing
+                    const allowFallback = CHAT_CONFIG?.webSearch?.fallbackToLegacy === true;
+                    if (!allowFallback) {
+                        // If fallback disabled during testing, propagate so we see the error
+                        throw e;
+                    }
+                    // Fall through to legacy path if allowed
+                }
+            }
+
+            // Legacy path: only extract and log queries when legacy search is actually used
+            if (shouldPerformWebSearch(lastUserMessage.content, config)) {
+                const query = extractSearchQuery(lastUserMessage.content);
+                if (query && query.length > 2) {
+                    logger.debug(`Performing legacy web search for query: "${query}"`);
+                    try {
+                        const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
+                        const maxResults = webSearchConfig.maxResults || 3;
+                        searchResults = await searchWithContent(query, maxResults, true, config);
+                        if (searchResults && searchResults.results && searchResults.results.length > 0) {
+                            if (webSearchConfig.model) {
+                                modelToUse = webSearchConfig.model;
+                                logger.debug(`Using web search model: ${modelToUse}`);
+                            }
+                            const searchResultsMessage = {
+                                role: 'system',
+                                content: `RESULTADOS DE PESQUISA NA INTERNET:
 Consulta: "${query}"
 Timestamp: ${new Date().toLocaleString('pt-BR')}
 
 ${searchResults.summary}
 
 INSTRUÇÕES: Use essas informações atualizadas da internet para responder à pergunta do usuário. Cite as fontes quando relevante. Se as informações estiverem desatualizadas ou incompletas, mencione isso ao usuário.`
-                        };
-                        
-                        conversation.messages.push(searchResultsMessage);
-                        
-                        logger.debug(`Added web search results to conversation`, {
-                            groupName: conversationGroupName,
-                            query,
-                            resultsCount: searchResults.results.length,
-                            totalConversationMessages: conversation.messages.length,
-                            usingWebSearchModel: webSearchConfig.model ? true : false
-                        });
+                            };
+                            conversation.messages.push(searchResultsMessage);
+                            logger.debug(`Added web search results to conversation`, {
+                                groupName: conversationGroupName,
+                                query,
+                                resultsCount: searchResults.results.length,
+                                totalConversationMessages: conversation.messages.length,
+                                usingWebSearchModel: webSearchConfig.model ? true : false
+                            });
+                        }
+                    } catch (searchError) {
+                        logger.error('Error performing legacy web search:', searchError);
+                        // Continue without search results
                     }
-                } catch (searchError) {
-                    logger.error('Error performing web search:', searchError);
-                    // Continue without search results
                 }
             }
         }

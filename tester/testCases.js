@@ -23,7 +23,7 @@ const TEST_CASES = {
             preMessage: 'do not go gentle into that good night by dylan thomas',
             quote: true,
             preDelay: 5000, // Longer wait before sending the preMessage
-            expectedResponseContains: ['Dylan', 'Thomas'],
+            expectedResponseContains: ['Dylan', 'Thomas','poema'],
             description: 'Should summarize only the quoted poem',
             category: 'SUMMARY',
             extraDelay: 10000, // Longer delay for processing

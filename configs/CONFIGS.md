@@ -37,6 +37,21 @@ const { VPS_CONFIG, IS_VPS_OPTIMIZED, IS_DEDICATED_VPS } = require('./configs/vp
 const batchSize = VPS_CONFIG.MESSAGE_BATCH_SIZE;  // Automatically optimized based on VPS mode
 ```
 
+### Tier-based Usage Examples
+```javascript
+// Prefer centralized tier references
+const lowTierModel = config.SYSTEM.AI_MODELS.LOW;      // e.g., 'gpt-5-nano'
+const mediumTierModel = config.SYSTEM.AI_MODELS.MEDIUM; // e.g., 'gpt-5-mini'
+const highTierModel = config.SYSTEM.AI_MODELS.HIGH;     // e.g., 'gpt-5'
+
+// Context-size based selection (example)
+function selectChatModel(tokenCount) {
+  if (tokenCount < 2000) return config.SYSTEM.AI_MODELS.LOW;
+  if (tokenCount < 8000) return config.SYSTEM.AI_MODELS.MEDIUM;
+  return config.SYSTEM.AI_MODELS.HIGH;
+}
+```
+
 ## Architecture Overview
 
 ### Core Design Pattern
@@ -85,15 +100,58 @@ const config = {
     ENABLE_STARTUP_CACHE_CLEARING: true,
     MAX_RECONNECT_ATTEMPTS: 5,
     OPENAI_MODELS: {
-        DEFAULT: 'gpt-4o-mini',
+        DEFAULT: 'gpt-5-nano',
         VOICE: 'whisper-1',
-        VISION_DEFAULT: 'gpt-4o-mini',
+        VISION_DEFAULT: 'gpt-5-nano',
     },
     ADMIN_NOTIFICATION_CHAT: CREDENTIALS.ADMIN_WHATSAPP_ID,
     PRESERVED_FILES_ON_UPDATE: ['configs/config.js', 'commands/periodicSummary.js'],
   },
 };
 ```
+
+### AI_MODELS Tier System
+
+Centralized model tiers used across the application for consistent behavior, simpler maintenance, and cost-aware performance.
+
+- **LOW**: Optimized for speed and cost for lightweight tasks (e.g., summarization, short Q&A, small-context chat).
+- **MEDIUM**: Balanced performance for moderate complexity (e.g., extraction, tagging, medium-context chat, routine agents).
+- **HIGH**: Maximum capability for complex reasoning, long-context chat, and batch evaluations.
+
+#### Model Selection Hierarchy (high-level)
+1. Explicit model override in a module/config (if provided)
+2. Tier hint from a module (LOW/MEDIUM/HIGH) → mapped via `SYSTEM.AI_MODELS`
+3. Mode-specific defaults (e.g., `OPENAI_MODELS.VOICE`/`VISION_DEFAULT`) or `OPENAI_MODELS.DEFAULT`
+4. Safe hardcoded default (conservative) if nothing else is set
+
+#### Tier Mapping Guidelines
+- Summarization, short answers, lightweight utilities → `LOW`
+- Content extraction, tagging, medium-length conversations → `MEDIUM`
+- Batch evaluation, long-context threads, complex reasoning → `HIGH`
+
+Backward compatibility: `SYSTEM.models.OPENAI_MODELS` remains available. Prefer `SYSTEM.AI_MODELS` for new development.
+
+### Reasoning Effort (Chat Completions)
+
+Centralized configuration to enable OpenAI "reasoning" effort on chat completions for specific tiers.
+
+```javascript
+SYSTEM: {
+  REASONING: {
+    ENABLED: true,                          // Master toggle
+    BY_TIER: { MEDIUM: 'low', HIGH: 'medium' }, // Effort mapping
+    RETRY_ON_UNSUPPORTED: true,             // Retry if API rejects reasoning
+    MAX_RETRIES: 1,                         // One retry without reasoning
+    APPLY_TO_VISION: false,                 // Exclude vision calls
+    MODEL_ALLOWLIST: []                     // Optional safety allowlist; empty = all
+  }
+}
+```
+
+Behavior:
+- Applied automatically in `utils/openaiUtils.js` for single and conversation chat completions.
+- MEDIUM tier → low effort; HIGH tier → medium effort.
+- If the API rejects the parameter, a single retry occurs without reasoning and a warning is logged.
 
 ### VPS Optimization System (`vps-optimizations.js`)
 ```javascript
@@ -236,6 +294,19 @@ config.js → Import Dependencies → Direct Assembly →
 Module Imports → Direct Access → Runtime Usage
 ```
 
+### Model Selection Flow
+```
+Module request → openaiUtils.selectModel(input) →
+  Explicit override? → use it
+  else Tier hint? → map LOW/MEDIUM/HIGH via SYSTEM.AI_MODELS
+  else Mode defaults? → VOICE/VISION_DEFAULT or OPENAI_MODELS.DEFAULT
+  Runtime fallback: HIGH → MEDIUM → LOW on capacity/timeouts/context constraints
+```
+Key points:
+- Tier-first development: prefer `SYSTEM.AI_MODELS` for portability and centralized updates.
+- Backward compatibility remains via `SYSTEM.models.OPENAI_MODELS`.
+- Fallback logic lives in `utils/openaiUtils.js` and integrates tier-based degradation.
+
 ### System Configuration
 ```javascript
 SYSTEM = {
@@ -244,11 +315,19 @@ SYSTEM = {
         MESSAGE_DELETE_TIMEOUT: 60000,
         MAX_RECONNECT_ATTEMPTS: 5
     },
+    STREAMING_ENABLED: false, // Master switch for simulated streaming responses
     models: {
+        // Backward compatibility for direct model references
         OPENAI_MODELS: {
-            DEFAULT: 'gpt-4o-mini',
+            DEFAULT: 'gpt-5-nano',
             VOICE: 'whisper-1',
-            VISION_DEFAULT: 'gpt-4o-mini'
+            VISION_DEFAULT: 'gpt-5-nano'
+        },
+        // Centralized tier mapping used across modules
+        AI_MODELS: {
+            LOW: 'gpt-5-nano',
+            MEDIUM: 'gpt-5-mini',
+            HIGH: 'gpt-5'
         }
     },
     maintenance: {
@@ -295,6 +374,37 @@ VPS_CONFIG = {
         IS_VPS_OPTIMIZED: boolean,        // VPS optimization enabled
         IS_DEDICATED_VPS: boolean         // Dedicated VPS mode
     }
+}
+```
+
+### System Models Schema
+```javascript
+SYSTEM.models = {
+  OPENAI_MODELS: {
+    DEFAULT: string,
+    VOICE: string,
+    VISION_DEFAULT: string
+  },
+  AI_MODELS: {
+    LOW: string,     // e.g., 'gpt-5-nano'
+    MEDIUM: string,  // e.g., 'gpt-5-mini'
+    HIGH: string     // e.g., 'gpt-5'
+  }
+}
+
+// Tier-based selection patterns (guidance)
+function chooseModelByTask(task) {
+  switch (task) {
+    case 'summarization':
+    case 'light_chat':
+      return SYSTEM.models.AI_MODELS.LOW;
+    case 'extraction':
+    case 'tagging':
+    case 'medium_chat':
+      return SYSTEM.models.AI_MODELS.MEDIUM;
+    default:
+      return SYSTEM.models.AI_MODELS.HIGH;
+  }
 }
 ```
 

@@ -140,18 +140,34 @@ keyManagement = {
 ```
 
 ### AI Model Selection (`newsMonitor.config.js`)
+
+The News Monitor uses centralized, tier-based model selection from `config.SYSTEM.AI_MODELS` to keep model management consistent across the project.
+
 ```javascript
+// Tiers from main config:
+// config.SYSTEM.AI_MODELS = { LOW: 'gpt-5-nano', MEDIUM: 'gpt-5-mini', HIGH: 'gpt-5' }
+
 AI_MODELS = {
-    EVALUATE_CONTENT: 'o4-mini',           // Content relevance assessment
-    BATCH_EVALUATE_TITLES: 'gpt-4o',      // RSS title batch processing
-    SUMMARIZE_CONTENT: 'gpt-4o-mini',     // Article summarization
-    DETECT_DUPLICATE: 'gpt-4o',           // Semantic similarity analysis
-    DETECT_TOPIC_REDUNDANCY: 'gpt-4o',    // Basic topic clustering (legacy)
-    DETECT_STORY_DEVELOPMENT: 'gpt-4o',   // Story type classification (core/consequence/development)
-    EVALUATE_CONSEQUENCE_IMPORTANCE: 'gpt-4o', // AI importance scoring for consequences
-    PROCESS_IMAGE_TEXT_EXTRACTION: 'gpt-4o-mini' // OCR processing
+    // HIGH tier: complex evaluation tasks
+    BATCH_EVALUATE_TITLES: config.SYSTEM.AI_MODELS.HIGH,
+    EVALUATE_CONSEQUENCE_IMPORTANCE: config.SYSTEM.AI_MODELS.HIGH,
+
+    // MEDIUM tier: standard processing tasks
+    EVALUATE_CONTENT: config.SYSTEM.AI_MODELS.MEDIUM,
+    DETECT_DUPLICATE: config.SYSTEM.AI_MODELS.MEDIUM,
+    DETECT_STORY_DEVELOPMENT: config.SYSTEM.AI_MODELS.MEDIUM,
+    DETECT_TOPIC_REDUNDANCY: config.SYSTEM.AI_MODELS.MEDIUM,
+
+    // LOW tier: simpler tasks and fallbacks
+    SUMMARIZE_CONTENT: config.SYSTEM.AI_MODELS.LOW,
+    SITREP_artorias_PROMPT: config.SYSTEM.AI_MODELS.LOW,
+    PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: config.SYSTEM.AI_MODELS.LOW,
+    TRANSLATION: config.SYSTEM.AI_MODELS.LOW,
+    DEFAULT: config.SYSTEM.AI_MODELS.LOW,
 }
 ```
+
+This preserves the existing `AI_MODELS[promptType]` interface while centralizing the underlying model names.
 
 ### Importance-Based Topic Filtering (`persistentCache.js`, `filteringUtils.js`)
 ```javascript

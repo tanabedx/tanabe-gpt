@@ -171,14 +171,27 @@ async function handleChat(message, command, commandPrefix) {
             }
         }
         
-        // --- Ultra-Fast Streaming for Final Response ---
+        // --- Send final response honoring STREAMING_ENABLED flag ---
         if (finalResponse && finalResponse.trim()) {
-            await sendStreamingResponse(message, finalResponse.trim(), command, '🤖', 50, 100, 25);
-            logger.debug('Final ultra-fast stream response sent', {
-                name,
-                groupName,
-                responseLength: finalResponse.trim().length,
-            });
+            const cfg = require('../configs/config');
+            const streamingEnabled = cfg?.SYSTEM?.STREAMING_ENABLED === true;
+
+            if (streamingEnabled) {
+                await sendStreamingResponse(message, finalResponse.trim(), command, '🤖', 50, 100, 25);
+                logger.debug('Final ultra-fast stream response sent', {
+                    name,
+                    groupName,
+                    responseLength: finalResponse.trim().length,
+                });
+            } else {
+                const responseMessage = await message.reply(finalResponse.trim());
+                await handleAutoDelete(responseMessage, command, false);
+                logger.debug('Final non-stream response sent', {
+                    name,
+                    groupName,
+                    responseLength: finalResponse.trim().length,
+                });
+            }
         } else {
              // Fallback if no valid response
             const errorMessage = await message.reply(

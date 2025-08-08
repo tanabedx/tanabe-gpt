@@ -49,7 +49,8 @@ await sendStreamingResponse(message, finalResponse, command, '🤖'); // Streami
 
 // OpenAI Integration
 const { runCompletion } = require('./utils/openaiUtils');
-const response = await runCompletion(prompt, 1, 'gpt-4o', 'CHAT');
+// Prefer centralized tiers; explicit model override is optional
+const response = await runCompletion(prompt, 1, null, 'CHAT');
 ```
 
 ## Architecture Overview
@@ -146,17 +147,19 @@ async function cleanOldLogs() {
 
 ### OpenAI Integration System (`openaiUtils.js`)
 ```javascript
-// Model selection with priority hierarchy
+// Model selection with priority hierarchy (centralized tiers)
 const runCompletion = async (prompt, temperature = 1, model = null, promptType = null) => {
     let modelToUse = model ||
         config?.NEWS_MONITOR?.AI_MODELS?.[promptType] ||
         config?.NEWS_MONITOR?.AI_MODELS?.DEFAULT ||
-        config?.SYSTEM?.OPENAI_MODELS?.DEFAULT ||
-        'gpt-4o-mini';
+        // Centralized tiers
+        (promptType ? getTierBasedModel(promptType) : null) ||
+        // Legacy default as a safe fallback
+        config?.SYSTEM?.OPENAI_MODELS?.DEFAULT;
     
     // Temperature restrictions for specific models
     let effectiveTemperature = temperature;
-    if (['gpt-4o-mini', 'o4-mini'].includes(modelToUse) && temperature !== 1) {
+    if (['gpt-5-nano', 'gpt-5-mini'].includes(modelToUse) && temperature !== 1) {
         effectiveTemperature = 1;
     }
     
@@ -190,6 +193,15 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
     };
 };
 ```
+
+#### Reasoning Effort Injection
+
+- The utilities automatically add an optional `reasoning: { effort }` parameter to chat completions based on `SYSTEM.REASONING` and the resolved tier (MEDIUM/HIGH).
+- Effort mapping defaults: MEDIUM → `low`, HIGH → `medium`.
+- Vision/OCR calls are excluded by default (`APPLY_TO_VISION: false`).
+- If the API rejects reasoning (e.g., 400/unsupported), the call is retried once without reasoning when `RETRY_ON_UNSUPPORTED` is enabled. A warning is logged with model, tier, effort, and operation context.
+- When using the Responses API, we also attempt `reasoning.summary` with the configured value, then `'detailed'`, and finally without `summary`.
+- Regardless of whether a summary is returned, the system prints a `Reasoning Summary` block via `logger.prompt`. If the model does not include a summary, the block will contain `(none returned by model)` to make this explicit in the logs.
 
 ### Streaming Response System (`messageUtils.js`)
 ```javascript

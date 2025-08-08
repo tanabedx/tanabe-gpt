@@ -1,5 +1,10 @@
 // resumo.config.js
 // Configuration for the resumo command
+function getConfig() {
+    // Lazy-load to avoid circular dependency during startup
+    // eslint-disable-next-line global-require
+    return require('../configs/config');
+}
 
 const RESUMO_PROMPT = require('./resumo.prompt');
 
@@ -38,7 +43,10 @@ const RESUMOS_CONFIG = {
         error: 'Ocorreu um erro ao gerar o resumo.',
     },
     useGroupPersonality: true,
-    model: '',
+    get model() {
+        const config = getConfig();
+        return config?.SYSTEM?.AI_MODELS?.MEDIUM;
+    },
     prompt: RESUMO_PROMPT,
 };
 

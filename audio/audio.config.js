@@ -1,5 +1,11 @@
 // audio.config.js
 // Configuration for the audio command
+function getConfig() {
+    // Lazy-load to avoid circular dependency during startup
+    // Always fetch fresh reference to finalized config
+    // eslint-disable-next-line global-require
+    return require('../configs/config');
+}
 
 const AUDIO_CONFIG = {
     prefixes: ['#audio'],
@@ -16,7 +22,10 @@ const AUDIO_CONFIG = {
         invalidFormat: 'Formato de áudio inválido.',
     },
     useGroupPersonality: false,
-    model: '', // Using specific model for voice transcription
+    get model() {
+        const config = getConfig();
+        return config?.SYSTEM?.AI_MODELS?.LOW;
+    },
 };
 
 module.exports = AUDIO_CONFIG;

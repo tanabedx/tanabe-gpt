@@ -1,5 +1,10 @@
 // news.config.js
 // Configuration for the news commands
+function getConfig() {
+    // Lazy-load to avoid circular dependency during startup
+    // eslint-disable-next-line global-require
+    return require('../configs/config');
+}
 
 const RESUMO_PROMPT = require('../resumos/resumo.prompt');
 
@@ -20,7 +25,10 @@ const NEWS_CONFIG = {
         notAllowed: 'Você não tem permissão para usar este comando.',
     },
     useGroupPersonality: true,
-    model: '',
+    get model() {
+        const config = getConfig();
+        return config?.SYSTEM?.AI_MODELS?.MEDIUM;
+    },
     prompt: RESUMO_PROMPT,
 };
 

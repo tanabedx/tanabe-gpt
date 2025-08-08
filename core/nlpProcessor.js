@@ -505,14 +505,18 @@ class NLPProcessor {
                 logger.prompt('[PROMPT] Sending prompt to OpenAI:', prompt);
             }
 
-            // Call OpenAI API
-            const completion = await this.openai.chat.completions.create({
-                model: 'gpt-4o-mini',
-                messages: [{ role: 'system', content: prompt }],
-            });
+            // Call OpenAI API using centralized conversation utility so reasoning applies
+const { runConversationCompletion } = require('../utils/openaiUtils');
+const CHAT_CONFIG = require('../chat/chat.config');
+            const convResponse = await runConversationCompletion(
+                [{ role: 'system', content: prompt }],
+                1,
+                config.SYSTEM.AI_MODELS.MEDIUM,
+                null
+            );
 
             // Get the command from the response
-            const processedCommand = completion.choices[0].message.content.trim();
+            const processedCommand = (convResponse?.content || convResponse?.message?.content || '').trim();
 
             // Log the response only if PROMPT logging is enabled
             if (config.SYSTEM?.CONSOLE_LOG_LEVELS?.PROMPT === true) {

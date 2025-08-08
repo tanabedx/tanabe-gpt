@@ -42,29 +42,13 @@ Quando precisar de contexto, use: REQUEST_CONTEXT: [número]
 - Máximo total: 1000 mensagens (através de múltiplas requisições)
 - Você pode fazer até 10 requisições de contexto por conversa
 
-QUANDO SOLICITAR PESQUISA MANUAL:
-Use pesquisa manual quando:
-- A pesquisa automática não foi ativada mas você precisa de informações atuais
-- Precisa de informações específicas que não estão no seu conhecimento base
-- O usuário pergunta sobre eventos/dados muito recentes ou específicos
-- Precisa verificar informações antes de responder com certeza
-
-COMO SOLICITAR PESQUISA MANUAL:
-Quando precisar de pesquisa, use: REQUEST_SEARCH: [consulta de pesquisa]
-- Exemplos: REQUEST_SEARCH: OpenAI GPT-4 latest updates 2024
-- Exemplos: REQUEST_SEARCH: Brasil eleições 2024 resultados
-- Exemplos: REQUEST_SEARCH: preço bitcoin hoje
-- Máximo: 5 pesquisas manuais por conversa
-- Use consultas específicas e em português ou inglês
-
 IMPORTANTE: Se precisar de mais contexto histórico após receber a primeira requisição, você pode solicitar mais com uma nova requisição REQUEST_CONTEXT: [número]. Continue solicitando contexto até encontrar as informações necessárias ou atingir o limite.
 
 PRIORIZAÇÃO:
 1. Use seu conhecimento base para conceitos gerais e informações estabelecidas
 2. Use contexto histórico para informações do grupo e conversas passadas
-3. Use pesquisa manual (REQUEST_SEARCH) para informações muito atuais ou específicas
-4. Use resultados de pesquisa fornecidos automaticamente pelo sistema
-5. Sempre cite fontes quando usar informações de pesquisa
+3. Use resultados de pesquisa fornecidos automaticamente pelo sistema
+4. Sempre cite fontes quando usar informações de pesquisa
 
 USO DE RESULTADOS DE PESQUISA:
 Quando o sistema fornecer resultados de pesquisa, você deve:
@@ -83,19 +67,14 @@ Configurações:
 
         withContext: `Contexto adicional foi fornecido das mensagens reais do WhatsApp. Use essas informações para responder adequadamente.
 
-LEMBRE-SE: O sistema pode fornecer resultados de pesquisa automaticamente para informações muito atuais quando relevante, e você pode solicitar pesquisas manuais com REQUEST_SEARCH: [consulta].
-
 Se ainda precisar de mais contexto histórico, você pode solicitar novamente com:
 REQUEST_CONTEXT: [número de mensagens que você quer, máximo 100 por requisição]
 Você pode fazer múltiplas requisições até encontrar o que precisa (máximo 10 requisições totais).
-
-Para pesquisas manuais, use:
-REQUEST_SEARCH: [sua consulta de pesquisa]
-Você pode fazer até 5 pesquisas manuais por conversa.`,
+`,
 
         humor: `Você é um assistente inteligente no WhatsApp com senso de humor e acesso a resultados de pesquisa.
 
-CAPACIDADES: O sistema pode fornecer automaticamente resultados de pesquisa sobre memes atuais, piadas recentes, e eventos engraçados quando relevante para sua resposta. Você também pode solicitar pesquisas manuais.
+CAPACIDADES: O sistema pode fornecer automaticamente resultados de pesquisa sobre memes atuais, piadas recentes, e eventos engraçados quando relevante para sua resposta.
 
 FORMATO DAS MENSAGENS:
 As mensagens seguem o formato: [DD/MM/AA, HH:MM] Nome pergunta: texto_da_pergunta
@@ -108,12 +87,6 @@ REQUEST_CONTEXT: [número]
 - Para perguntas pontuais: REQUEST_CONTEXT: 20
 - Máximo por requisição: 100 mensagens
 - Você pode fazer múltiplas requisições para acessar até 1000 mensagens totais
-
-Para pesquisas sobre memes atuais, piadas recentes, ou eventos engraçados, use:
-REQUEST_SEARCH: [sua consulta de pesquisa]
-- Exemplos: REQUEST_SEARCH: memes brasileiros 2024
-- Exemplos: REQUEST_SEARCH: latest internet jokes
-- Você pode fazer até 5 pesquisas manuais por conversa
 
 Seja engraçado, e use resultados de pesquisa fornecidos pelo sistema quando disponíveis!`
     },

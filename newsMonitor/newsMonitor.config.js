@@ -10,6 +10,10 @@ const {
     EVALUATE_CONSEQUENCE_IMPORTANCE,
 } = require('./newsMonitor.prompt');
 
+// Note: Do NOT require the main config here to avoid circular dependency with `configs/config.js`.
+// We express tier intent using tokens (e.g., 'TIER:LOW') that are resolved at runtime in `utils/openaiUtils.js`.
+const TIER = { LOW: 'TIER:LOW', MEDIUM: 'TIER:MEDIUM', HIGH: 'TIER:HIGH' };
+
 /**
  * Dynamically loads Twitter API keys from environment variables.
  * Looks for variables matching the pattern TWITTER_*_BEARER_TOKEN.
@@ -209,19 +213,24 @@ const NEWS_MONITOR_CONFIG = {
         RETRY_DELAY: 1000, // Delay between retries in milliseconds
     },
 
-    // AI model configurations
+    // AI model configurations (tier tokens resolved at runtime)
     AI_MODELS: {
-        EVALUATE_CONTENT: 'o4-mini',
-        BATCH_EVALUATE_TITLES: 'gpt-4o',
-        SUMMARIZE_CONTENT: 'gpt-4o-mini',
-        SITREP_artorias_PROMPT: 'gpt-4o-mini',
-        PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: 'gpt-4o-mini',
-        DETECT_DUPLICATE: 'gpt-4o',
-        DETECT_TOPIC_REDUNDANCY: 'gpt-4o',
-        DETECT_STORY_DEVELOPMENT: 'gpt-4o',
-        EVALUATE_CONSEQUENCE_IMPORTANCE: 'gpt-4o',
-        TRANSLATION: 'gpt-4o-mini',
-        DEFAULT: 'gpt-4o-mini',
+        // HIGH tier: complex evaluation tasks
+        BATCH_EVALUATE_TITLES: TIER.HIGH,
+        EVALUATE_CONSEQUENCE_IMPORTANCE: TIER.HIGH,
+
+        // MEDIUM tier: standard processing tasks
+        EVALUATE_CONTENT: TIER.MEDIUM,
+        DETECT_DUPLICATE: TIER.MEDIUM,
+        DETECT_STORY_DEVELOPMENT: TIER.MEDIUM,
+        DETECT_TOPIC_REDUNDANCY: TIER.MEDIUM,
+
+        // LOW tier: simpler tasks and fallbacks
+        SUMMARIZE_CONTENT: TIER.LOW,
+        SITREP_artorias_PROMPT: TIER.LOW,
+        PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: TIER.LOW,
+        TRANSLATION: TIER.LOW,
+        DEFAULT: TIER.LOW,
     },
 
     // Prompts for content evaluation and summarization

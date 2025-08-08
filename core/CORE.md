@@ -101,7 +101,9 @@ nlpProcessing = {
         patternMatching: 'common phrase detection before API calls'
     },
     openaiIntegration: {
-        model: 'gpt-4o-mini',
+        model: config.SYSTEM.AI_MODELS.MEDIUM,
+        centralUtility: 'uses utils/openaiUtils.runConversationCompletion',
+        reasoning: 'tier-based reasoning effort (MEDIUM=low, HIGH=medium) with fallback retry',
         commandMapping: 'natural language → structured commands (dynamic discovery)',
         contextAware: 'chat-specific command interpretation',
         promptTemplates: 'structured prompts from commandProcessor.prompt.js'
@@ -319,7 +321,7 @@ commandConfig = {
 ```javascript
 nlpConfig = {
     openai: {
-        model: 'gpt-4o-mini',            // AI model for NLP
+        model: 'gpt-5-nano',            // AI model for NLP
         apiKey: string,                     // OpenAI API credentials
         temperature: number                 // Response creativity level
     },
@@ -361,7 +363,7 @@ eventConfig = {
 
 ### OpenAI Integration
 - **`openai`**: GPT model access for natural language processing and command interpretation
-- **Model Usage**: `gpt-4o-mini` for efficient command analysis and pattern recognition
+- **Model Usage**: `gpt-5-nano` for efficient command analysis and pattern recognition
 - **API Features**: Chat completions for contextual command understanding
 
 ### WhatsApp Web.js Integration
