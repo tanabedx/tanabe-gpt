@@ -601,42 +601,46 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                     processedRssItems = [...rssItemsForBatchEval];
                 } else {
                     const cleanedResult = result.trim();
+                    // Accept flexible AI outputs:
+                    // - "0" → no relevant items
+                    // - "1" or any single number → keep that indexed item
+                    // - "1,2,4" or "1 2 4" → keep listed indices (1-based)
+                    // Any non-parseable response falls back to keeping all items
+                    const normalized = cleanedResult.replace(/\s+/g, '');
 
-                    // Handle completely unexpected responses (single characters, nonsense)
-                    if (cleanedResult.length <= 2 && cleanedResult !== '0') {
-                        logger.warn(`NM: Batch title evaluation received unexpected short response: "${result}". Keeping all RSS items.`);
-                        processedRssItems = [...rssItemsForBatchEval];
-                    } else if (cleanedResult === '0') {
-                        // Handle "0" response (no relevant items)
+                    // Explicit "0" means no relevant items
+                    if (normalized === '0') {
                         logger.debug(`NM: Batch title evaluation marked all items as irrelevant.`);
                         batchTitleEvalFilteredOutItems.push(...rssItemsForBatchEval);
-                        processedRssItems = []; // No items pass
+                        processedRssItems = [];
                     } else {
-                        // Parse the response more robustly
+                        // Extract all numeric indices from the response (supports "1", "1,2,4", "1 2 4")
                         let relevantIndices = [];
                         try {
-                            relevantIndices = cleanedResult
-                                .split(',')
-                                .map(numStr => parseInt(numStr.trim(), 10) - 1) // 0-indexed
+                            const matches = normalized.match(/\d+/g) || [];
+                            relevantIndices = matches
+                                .map(numStr => parseInt(numStr, 10) - 1)
                                 .filter(num => !isNaN(num) && num >= 0 && num < rssItemsForBatchEval.length);
                         } catch (parseError) {
                             logger.warn(`NM: Error parsing batch evaluation response "${cleanedResult}": ${parseError.message}. Keeping all RSS items.`);
                             processedRssItems = [...rssItemsForBatchEval];
                         }
 
-                        // If no valid indices were parsed, keep all items to be safe
-                        if (relevantIndices.length === 0 && cleanedResult !== '0') {
-                            logger.warn(`NM: Batch evaluation response "${cleanedResult}" produced no valid indices. Keeping all RSS items.`);
-                            processedRssItems = [...rssItemsForBatchEval];
-                        } else {
-                            // Process the items based on relevantIndices
-                            rssItemsForBatchEval.forEach((item, index) => {
-                                if (relevantIndices.includes(index)) {
-                                    processedRssItems.push(item);
-                                } else {
-                                    batchTitleEvalFilteredOutItems.push(item);
-                                }
-                            });
+                        if (processedRssItems.length === 0) {
+                            if (relevantIndices.length === 0) {
+                                // No valid indices parsed; keep all to be safe
+                                logger.debug(`NM: Batch evaluation response "${cleanedResult}" produced no valid indices. Keeping all RSS items.`);
+                                processedRssItems = [...rssItemsForBatchEval];
+                            } else {
+                                // Keep only items whose indices were selected by the AI
+                                rssItemsForBatchEval.forEach((item, index) => {
+                                    if (relevantIndices.includes(index)) {
+                                        processedRssItems.push(item);
+                                    } else {
+                                        batchTitleEvalFilteredOutItems.push(item);
+                                    }
+                                });
+                            }
                         }
                     }
                 }
