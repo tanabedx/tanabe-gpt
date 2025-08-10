@@ -933,6 +933,12 @@ updateLastRunTimestamp(timestamp) // Updates timestamp (only during non-quiet ho
 - **Media Support**: Image attachment capabilities for Twitter media content
 - **Message Formatting**: Rich text formatting with source attribution
 
+#### Event Loop Performance and Media Encoding
+- Base64 encoding for WhatsApp images is offloaded to worker threads to avoid blocking the Node.js event loop.
+- Files: `newsMonitor/workerBase64.js` (pool) and `newsMonitor/workers/base64Encoder.js` (worker).
+- Integration: `newsMonitor/newsMonitor.js` uses `encodeBufferToBase64(...)` when preparing Twitter images.
+- Benefit: Reduces event loop latency spikes on low-core VPS environments.
+
 ## Internal Dependencies
 
 ### Configuration Dependencies

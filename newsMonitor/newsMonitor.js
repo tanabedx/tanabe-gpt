@@ -27,6 +27,7 @@ const { generateNewsCycleDebugReport_core } = require('./debugReportUtils');
 const path = require('path');
 const axios = require('axios');
 const { MessageMedia } = require('whatsapp-web.js');
+const { encodeBufferToBase64 } = require('./workerBase64');
 
 let newsMonitorIntervalId = null;
 let targetGroup = null; // To store the WhatsApp target group
@@ -905,9 +906,10 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                                 });
                                 const imageName =
                                     path.basename(new URL(imageUrl).pathname) || 'image.jpg';
+                                const base64Data = await encodeBufferToBase64(Buffer.from(imageResponse.data));
                                 mediaToSend = new MessageMedia(
                                     'image/jpeg',
-                                    Buffer.from(imageResponse.data).toString('base64'),
+                                    base64Data,
                                     imageName
                                 );
                                 logger.debug(
@@ -943,9 +945,10 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                                 });
                                 const imageName =
                                     path.basename(new URL(imageUrl).pathname) || 'image.jpg';
+                                const base64Data = await encodeBufferToBase64(Buffer.from(imageResponse.data));
                                 mediaToSend = new MessageMedia(
                                     'image/jpeg',
-                                    Buffer.from(imageResponse.data).toString('base64'),
+                                    base64Data,
                                     imageName
                                 );
                                 logger.debug(`NM: Image prepared for tweet @${item.accountName}`);
