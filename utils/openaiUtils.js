@@ -2,9 +2,17 @@ const OpenAI = require('openai');
 const logger = require('./logger');
 
 let config;
-setTimeout(() => {
-    config = require('../configs/config');
-}, 0);
+// Lazy-load config on demand to avoid early access/circular timing issues
+function ensureConfigLoaded() {
+    if (!config) {
+        try {
+            // eslint-disable-next-line global-require
+            config = require('../configs/config');
+        } catch (e) {
+            // Keep config undefined; callers will handle when still unavailable
+        }
+    }
+}
 
 // Safe accessors for CHAT-level configuration to avoid tight coupling/cycles
 function getChatConfigSafe() {
@@ -114,12 +122,46 @@ async function responsesCreateHandlingTemperature(openai, args) {
 
 // Initialize OpenAI with a getter function
 function getOpenAIClient() {
+    ensureConfigLoaded();
     if (!config) {
         throw new Error('Configuration not yet loaded');
     }
-    return new OpenAI({
-        apiKey: config.CREDENTIALS.OPENAI_API_KEY,
-    });
+    const apiKey = config?.CREDENTIALS?.OPENAI_API_KEY;
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+        throw new Error('OPENAI_API_KEY is not set');
+    }
+    return new OpenAI({ apiKey });
+}
+
+// Transient network error detection
+function isTransientNetworkError(error) {
+    const code = (error && (error.code || error.errno)) || '';
+    const status = error?.response?.status;
+    const msg = String(error?.message || '').toLowerCase();
+    if (status && [502, 503, 504].includes(status)) return true;
+    const transientCodes = new Set(['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNABORTED']);
+    if (transientCodes.has(code)) return true;
+    if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('network')) return true;
+    if (msg.includes('connection') && msg.includes('error')) return true;
+    return false;
+}
+
+async function withRetries(fn, { maxAttempts = 3, baseDelayMs = 300, jitterMs = 150 } = {}) {
+    let attempt = 0;
+    let lastErr;
+    while (attempt < maxAttempts) {
+        try {
+            return await fn();
+        } catch (e) {
+            lastErr = e;
+            attempt += 1;
+            if (!isTransientNetworkError(e) || attempt >= maxAttempts) break;
+            const backoff = baseDelayMs * Math.pow(2, attempt - 1);
+            const jitter = Math.floor(Math.random() * jitterMs);
+            await new Promise(r => setTimeout(r, backoff + jitter));
+        }
+    }
+    throw lastErr;
 }
 
 /**
@@ -699,11 +741,11 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
             // Prefer Responses API when reasoning is enabled (per OpenAI docs)
             try {
                 logger.debug(`OpenAI Responses API Call - Model: ${modelToUse} | Temperature: ${effectiveTemperature} | Type: Single Completion | Reasoning: ${reasoningParams.reasoning.effort}`);
-                const resp = await createResponsesWithReasoning(openai, {
+                const resp = await withRetries(() => createResponsesWithReasoning(openai, {
                     model: modelToUse,
                     input: [{ role: 'user', content: prompt }],
                     temperature: effectiveTemperature,
-                }, reasoningParams.reasoning.effort);
+                }, reasoningParams.reasoning.effort));
                 finalText = extractTextFromResponses(resp);
                 const reasoningSummary = extractReasoningSummary(resp);
                 const reasoningTrace = extractReasoningTrace(resp);
@@ -716,10 +758,10 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
                 }
                 if (!finalText) {
                     // As a safety net, try chat.completions with reasoning (some models may accept it)
-                    const completion = await openai.chat.completions.create({
+                    const completion = await withRetries(() => openai.chat.completions.create({
                         ...basePayload,
                         ...reasoningParams,
-                    });
+                    }));
                     finalText = completion?.choices?.[0]?.message?.content || null;
                 }
             } catch (err) {
@@ -732,7 +774,7 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
                         operation: 'single',
                         error: err.message,
                     });
-                    const completion = await openai.chat.completions.create(basePayload);
+                    const completion = await withRetries(() => openai.chat.completions.create(basePayload));
                     finalText = completion?.choices?.[0]?.message?.content || null;
                 } else {
                     throw err;
@@ -740,7 +782,7 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
             }
         } else {
             // Standard Chat Completions path (no reasoning)
-            const completion = await openai.chat.completions.create(basePayload);
+            const completion = await withRetries(() => openai.chat.completions.create(basePayload));
             finalText = completion?.choices?.[0]?.message?.content || null;
         }
 
@@ -757,6 +799,8 @@ const runCompletion = async (prompt, temperature = 1, model = null, promptType =
     } catch (error) {
         logger.error('Error getting completion from OpenAI:', {
             error: error.message,
+            code: error.code || error.errno,
+            status: error?.response?.status,
             model: model || 'default',
             prompt: prompt,
             temperature: temperature,
@@ -864,11 +908,11 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
         if (reasoningParams.reasoning) {
             try {
                 logger.debug(`OpenAI Responses API Call - Model: ${modelToUse} | Temperature: ${effectiveTemperature} | Type: Conversation Completion | Reasoning: ${reasoningParams.reasoning.effort}`);
-                const resp = await createResponsesWithReasoning(openai, {
+                const resp = await withRetries(() => createResponsesWithReasoning(openai, {
                     model: modelToUse,
                     input: messages,
                     temperature: effectiveTemperature,
-                }, reasoningParams.reasoning.effort);
+                }, reasoningParams.reasoning.effort));
                 const text = extractTextFromResponses(resp);
                 finalMessageObj = { role: 'assistant', content: text || '' };
                 const reasoningSummary = extractReasoningSummary(resp);
@@ -882,10 +926,10 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
                 }
                 if (!text) {
                     // Fallback to chat.completions with reasoning params
-                    const completion = await openai.chat.completions.create({
+                    const completion = await withRetries(() => openai.chat.completions.create({
                         ...basePayload,
                         ...reasoningParams,
-                    });
+                    }));
                     finalMessageObj = completion?.choices?.[0]?.message || null;
                 }
             } catch (err) {
@@ -898,14 +942,14 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
                         operation: 'conversation',
                         error: err.message,
                     });
-                    const completion = await openai.chat.completions.create(basePayload);
+                    const completion = await withRetries(() => openai.chat.completions.create(basePayload));
                     finalMessageObj = completion?.choices?.[0]?.message || null;
                 } else {
                     throw err;
                 }
             }
         } else {
-            const completion = await openai.chat.completions.create(basePayload);
+            const completion = await withRetries(() => openai.chat.completions.create(basePayload));
             finalMessageObj = completion?.choices?.[0]?.message || null;
         }
 
@@ -922,6 +966,8 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
     } catch (error) {
         logger.error('Error getting conversation completion from OpenAI:', {
             error: error.message,
+            code: error.code || error.errno,
+            status: error?.response?.status,
             model: model || 'default',
             numMessages: messages ? messages.length : 0
         });

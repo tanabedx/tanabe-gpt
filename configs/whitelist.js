@@ -26,6 +26,9 @@ const COMMAND_WHITELIST = {
 
     // Desenho command whitelist
     DESENHO: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
+    
+    // Desenho edit command whitelist
+    DESENHO_EDIT: [GROUP_LF, `dm.${GROUP_LF}`, GROUP_AG],
 
     // Command list whitelist
     COMMAND_LIST: 'all',

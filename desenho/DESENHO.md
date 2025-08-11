@@ -2,16 +2,22 @@
 
 ## Overview
 
-AI-powered image generation system that creates high-quality images from text descriptions. The system automatically enhances user prompts using OpenAI's language models and generates images via GetImg.ai's Essential V2 API. Features Portuguese language interface with automatic prompt optimization and error handling.
+AI-powered image generation and editing system with routing logic:
+- Public figure requests → GetImg.ai (text-to-image)
+- Non-public figure requests → OpenAI Images API (`dall-e-3`)
+- All edits → OpenAI Images API (images/edits)
+
+The system uses gpt-5-nano to classify whether a request is about a public figure, then routes accordingly. Image generation (`#desenho`) uses prompt enhancement, while editing (`#desenhoedit`) uses raw user input. User-facing replies are in Portuguese; code comments and documentation are in English.
 
 ## Core Features
 
-- **AI Image Generation**: Creates photorealistic images from text descriptions using GetImg.ai API
-- **Prompt Enhancement**: Automatically improves user prompts using OpenAI for better image quality
-- **Portuguese Interface**: User-friendly Portuguese language commands and error messages
+- **AI Image Generation (Routed)**: Public figure→GetImg.ai; others→OpenAI `dall-e-3`
+- **Selective Enhancement**: Generation uses prompt enhancement; editing uses raw input
+- **Portuguese UX**: User-facing texts in Portuguese; code/docs in English
 - **Auto-Deletion**: Configurable automatic deletion of error messages and responses
-- **Error Handling**: Comprehensive error management with fallback mechanisms
-- **Media Integration**: Direct image delivery through WhatsApp Web.js MessageMedia
+- **Error Handling**: Comprehensive error management with defensive fallbacks
+- **Media Integration**: Delivery via WhatsApp Web.js `MessageMedia`
+- **Image Editing**: All edits handled by OpenAI Images API
 
 ## Usage Examples
 
@@ -46,6 +52,14 @@ const improvedPrompt = await improvePrompt("uma casa moderna");
 
 // Generate image
 const imageBase64 = await generateImage(improvedPrompt);
+```
+
+### Image Editing
+```javascript
+// User command (with attached image or quoting an image)
+#desenhoedit make the image more cinematic and high contrast
+
+// The system enhances the instruction and performs the edit via OpenAI Images API
 ```
 
 ## Architecture Overview
@@ -119,6 +133,13 @@ async function generateImage(prompt, cfg_scale = 7) {
 }
 ```
 
+### Image Editing Service (`desenhoUtils.js`)
+```javascript
+async function editImageWithOpenAI(imageBase64, prompt, options) {
+  // Uses OpenAI Images API (gpt-image-1) to edit an image
+}
+```
+
 ### Prompt Enhancement Service
 ```javascript
 async function improvePrompt(prompt) {
@@ -161,6 +182,19 @@ graph TD
     I --> K["Cleanup Complete"]
 ```
 
+### Image Editing Flow
+```mermaid
+graph TD
+    A["Input: #desenhoedit + image + instruction"] --> B["Validate instruction and image"]
+    B --> C["Instruction enhancement (OpenAI)"]
+    C --> D["OpenAI Images API (gpt-image-1) edit"]
+    D --> E{"Image produced?"}
+    E -- No --> F["Error message + Auto-Delete"]
+    E -- Yes --> G["Base64 edited image"]
+    G --> H["WhatsApp MessageMedia"]
+    H --> I["Deliver to user + Auto-Delete"]
+```
+
 ## Configuration Schema
 
 ### Main Configuration (`desenho.config.js`)
@@ -184,6 +218,24 @@ graph TD
 }
 ```
 
+### Edit Configuration (`desenho.config.js`)
+```javascript
+{
+    prefixes: ["#desenhoedit"],               // Disparo do comando de edição
+    description: "string",
+    autoDelete: { errorMessages: boolean, commandMessages: boolean, deleteTimeout: number },
+    errorMessages: {
+        noImage: "string",                    // Missing image
+        noInstruction: "string",              // Missing instruction
+        editError: "string",                  // Edit failure
+        notAllowed: "string"                  // Permission denied
+    },
+    useGroupPersonality: boolean,
+    model: "string",
+    prompt: "object"
+}
+```
+
 ### Prompt Configuration (`desenho.prompt.js`)
 ```javascript
 {
@@ -201,11 +253,15 @@ OPENAI_API_KEY                              // OpenAI API access (via configs)
 ## External Dependencies
 
 ### GetImg.ai Integration
-- **Service**: Essential V2 Text-to-Image API
+- **Service**: Essential V2 Text-to-Image for public figure requests
 - **Endpoint**: `https://api.getimg.ai/v1/essential-v2/text-to-image`
 - **Authentication**: Bearer token via API key
-- **Output**: Base64-encoded PNG images
-- **Configuration**: Photorealism style, 1:1 aspect ratio, CFG scale 7
+- **Output**: Base64 PNG (or `image_url` → fetched and converted)
+
+### OpenAI Images Integration
+- **Service**: `gpt-image-1` for non-public figure generation and all edits
+- **Endpoints**: Images Generate and Images Edits
+- **Output**: Base64 PNG
 
 ### OpenAI Integration
 - **Service**: Completion API for prompt enhancement
