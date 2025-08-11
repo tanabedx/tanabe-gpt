@@ -582,6 +582,25 @@ Batch Title Evaluation (step 6) → Full Content Evaluation (step 7) → Duplica
 Traditional Topic Redundancy (step 9) → Enhanced Topic Redundancy (step 10) → Approved Content
 ```
 
+#### Skip Evaluation semantics and profile-specific prompts
+- If a Twitter source has `skipEvaluation: true` but also `promptSpecific: true`, the system now STILL RUNS the account-specific prompt while skipping the heavier main evaluation stages.
+- Main filters skipped when `skipEvaluation: true`:
+  - Blacklist keyword filter (unless you explicitly re-enable a minimal pass)
+  - Batch title evaluation (RSS-only)
+  - Full content evaluation
+  - Duplicate detection and topic redundancy filters still apply as configured
+- Logging/justification behavior for profile prompts:
+  - When an account-specific prompt returns a decision with justification (format `sim::justificativa` or `não::motivo`), the item gets `item.relevanceJustification` set to:
+    - On pass: `Account prompt: {justificativa}`
+    - On reject: `Account prompt rejected: {motivo}`
+  - Plain "sim"/"não" responses remain supported; in that case justification may be absent.
+
+#### QuiverQuant prompt response format (for logs)
+- The `QuiverQuant_PROMPT` requires responses with an explicit, concise justification:
+  - Relevant: `sim::justificativa-concisa` (≤ 12 palavras)
+  - Not relevant: `não::motivo-conciso` (≤ 12 palavras)
+- These justifications are recorded in logs and attached to `item.relevanceJustification` when applicable.
+
 ### Enhanced Topic Redundancy Processing
 ```
 News Item → filterByEnhancedTopicRedundancy():

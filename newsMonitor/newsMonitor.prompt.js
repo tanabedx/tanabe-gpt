@@ -82,8 +82,10 @@ Responda "não" se o tweet for:
 - Rumor sem dados verificáveis ou sem tickers/datas/valores.
 - Qualquer ambiguidade ou falta de excepcionalidade clara.
 
-Formato da resposta: apenas "sim" ou "não" (sem aspas, sem pontuação, sem texto extra).
-Em caso de dúvida, responda "não".
+Formato da resposta e justificativa para logs:
+- Se RELEVANTE: responda "sim::justificativa-concisa" (em no máximo 12 palavras)
+- Se NÃO relevante: responda "não::motivo-conciso" (em no máximo 12 palavras)
+- Em caso de dúvida, responda "não::ambíguo/sem excepcionalidade"
     `,
 
     DETECT_IMAGE_PROMPT: `

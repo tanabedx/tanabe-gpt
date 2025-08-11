@@ -44,46 +44,65 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
             `NM: Evaluating @${item.accountName}'s item with "${promptName}" using model ${modelName}. Using ${item.originalText ? 'original' : 'current'} text.`
         );
         const result = await runCompletion(formattedPrompt, 0.1, modelName, promptName);
-        
-        // Enhanced response parsing - handle unexpected responses more gracefully
+
+        // Enhanced response parsing - support optional justification with delimiter '::'
         if (!result || typeof result !== 'string') {
             logger.warn(`NM: Item from @${item.accountName} received invalid response from AI: ${result}. Item rejected.`);
             return false;
         }
 
-        let cleanedResult = result.trim().toLowerCase();
-        
-        // Remove common punctuation and quotes
-        cleanedResult = cleanedResult.replace(/[.!?",';:()[\]{}]/g, '').trim();
-        
-        // Handle completely unexpected responses (single characters, nonsense)
+        const raw = result.trim();
+        let decisionRaw = raw;
+        let justification = '';
+        if (raw.includes('::')) {
+            const parts = raw.split('::');
+            decisionRaw = (parts[0] || '').trim();
+            justification = (parts[1] || '').trim();
+        }
+
+        const decision = decisionRaw
+            .toLowerCase()
+            .replace(/[\s\"'`]/g, '')
+            .normalize('NFD')
+            .replace(/\p{Diacritic}/gu, '');
+
+        // Positive decision
+        if (['sim', 'yes', 'si'].includes(decision)) {
+            if (justification) {
+                item.relevanceJustification = `Account prompt: ${justification}`;
+            }
+            return true;
+        }
+
+        // Negative decision
+        if (['nao', 'no'].includes(decision) || decision.startsWith('nao')) {
+            if (justification) {
+                item.relevanceJustification = `Account prompt rejected: ${justification}`;
+            }
+            return false;
+        }
+
+        // Fallback legacy parsing
+        let cleanedResult = raw.toLowerCase().replace(/[.!?",';:()[\]{}]/g, '').trim();
         if (cleanedResult.length <= 2 && !['si', 'no'].includes(cleanedResult)) {
             logger.warn(`NM: Item from @${item.accountName} received unexpected short response: "${result}" (cleaned: "${cleanedResult}"). Item rejected due to ambiguity.`);
             return false;
         }
-        
-        // Check for positive responses (sim/yes/si)
         if (cleanedResult === 'sim' || cleanedResult === 'yes' || cleanedResult === 'sí' || cleanedResult === 'si') {
             return true;
         }
-        
-        // Check for negative responses (não/no/nao)
         if (cleanedResult === 'não' || cleanedResult === 'nao' || cleanedResult === 'no') {
             return false;
         }
-
-        // Handle partial matches for common typos or variations
         if (cleanedResult.includes('sim') || cleanedResult.includes('yes')) {
             logger.debug(`NM: Item from @${item.accountName} received partial positive match: "${result}". Interpreting as positive.`);
             return true;
         }
-        
         if (cleanedResult.includes('não') || cleanedResult.includes('nao') || cleanedResult.includes('no')) {
             logger.debug(`NM: Item from @${item.accountName} received partial negative match: "${result}". Interpreting as negative.`);
             return false;
         }
 
-        // If response doesn't match expected format, log warning and REJECT (safer to avoid spam)
         logger.warn(
             `NM: Item from @${item.accountName} FAILED "${promptName}". Unexpected response format: "${result}" (cleaned: "${cleanedResult}"). Item rejected due to parsing ambiguity.`
         );

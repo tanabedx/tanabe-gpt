@@ -284,7 +284,7 @@ async function generateNewsCycleDebugReport_core(
                 const sourceConfig = config.sources.find(
                     s => s.type === 'twitter' && s.username === item.accountName
                 );
-                if (sourceConfig && sourceConfig.promptSpecific && !sourceConfig.skipEvaluation) {
+                if (sourceConfig && sourceConfig.promptSpecific) {
                     passed = await utilities.evaluationUtils.evaluateItemWithAccountSpecificPrompt(
                         item,
                         config

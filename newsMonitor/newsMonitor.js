@@ -513,18 +513,13 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                 const sourceConfig = NEWS_MONITOR_CONFIG.sources.find(
                     s => s.type === 'twitter' && s.username === item.accountName
                 );
-                if (sourceConfig && sourceConfig.skipEvaluation) {
-                    // Already set to true, so it passes
-                } else {
-                    // Only evaluate if not skipping and it's a tweet with a configured account for prompts
-                    if (sourceConfig && sourceConfig.promptSpecific) {
-                        // Check if promptSpecific is configured
-                        passedAccountSpecificEval = await evaluateItemWithAccountSpecificPrompt(
-                            item,
-                            NEWS_MONITOR_CONFIG
-                        );
-                    } // else, if no promptSpecific, it implicitly passes this filter stage
-                }
+                if (sourceConfig && sourceConfig.promptSpecific) {
+                    // Run profile-specific prompt EVEN WHEN skipEvaluation is true
+                    passedAccountSpecificEval = await evaluateItemWithAccountSpecificPrompt(
+                        item,
+                        NEWS_MONITOR_CONFIG
+                    );
+                } // else, if no promptSpecific, it implicitly passes this filter stage
             } else {
                 // For RSS or other types, they don't have accountName for this filter, so they pass.
                 // evaluateItemWithAccountSpecificPrompt itself handles non-applicable items gracefully.
