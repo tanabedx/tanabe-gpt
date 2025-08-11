@@ -43,12 +43,12 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
         logger.debug(
             `NM: Evaluating @${item.accountName}'s item with "${promptName}" using model ${modelName}. Using ${item.originalText ? 'original' : 'current'} text.`
         );
-        const result = await runCompletion(formattedPrompt, 0.3, modelName, promptName);
+        const result = await runCompletion(formattedPrompt, 0.1, modelName, promptName);
         
         // Enhanced response parsing - handle unexpected responses more gracefully
         if (!result || typeof result !== 'string') {
-            logger.warn(`NM: Item from @${item.accountName} received invalid response from AI: ${result}. Item passes.`);
-            return true;
+            logger.warn(`NM: Item from @${item.accountName} received invalid response from AI: ${result}. Item rejected.`);
+            return false;
         }
 
         let cleanedResult = result.trim().toLowerCase();
@@ -58,8 +58,8 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
         
         // Handle completely unexpected responses (single characters, nonsense)
         if (cleanedResult.length <= 2 && !['si', 'no'].includes(cleanedResult)) {
-            logger.warn(`NM: Item from @${item.accountName} received unexpected short response: "${result}" (cleaned: "${cleanedResult}"). Item passes due to ambiguity.`);
-            return true;
+            logger.warn(`NM: Item from @${item.accountName} received unexpected short response: "${result}" (cleaned: "${cleanedResult}"). Item rejected due to ambiguity.`);
+            return false;
         }
         
         // Check for positive responses (sim/yes/si)
@@ -83,16 +83,16 @@ async function evaluateItemWithAccountSpecificPrompt(item, config) {
             return false;
         }
 
-        // If response doesn't match expected format, log warning and pass (safer than failing)
+        // If response doesn't match expected format, log warning and REJECT (safer to avoid spam)
         logger.warn(
-            `NM: Item from @${item.accountName} FAILED "${promptName}". Unexpected response format: "${result}" (cleaned: "${cleanedResult}"). Item passes due to parsing ambiguity.`
+            `NM: Item from @${item.accountName} FAILED "${promptName}". Unexpected response format: "${result}" (cleaned: "${cleanedResult}"). Item rejected due to parsing ambiguity.`
         );
-        return true; // Changed from false to true - err on the side of caution
+        return false;
     } catch (error) {
         logger.error(
-            `NM: Error during account-specific eval for @${item.accountName}: ${error.message}. Item passes.`
+            `NM: Error during account-specific eval for @${item.accountName}: ${error.message}. Item rejected.`
         );
-        return true; // Err on the side of caution, item passes if evaluation fails
+        return false; // Err on the side of caution, item rejected if evaluation fails
     }
 }
 
@@ -172,7 +172,7 @@ async function evaluateItemFullContent(item, config, recentNewsCache = []) {
         );
         const rawAiResponse = await runCompletion(
             formattedPrompt,
-            0.3,
+            0.1,
             modelName,
             'EVALUATE_CONTENT'
         );

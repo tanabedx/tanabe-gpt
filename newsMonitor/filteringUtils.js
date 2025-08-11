@@ -120,7 +120,7 @@ async function filterByTopicRedundancy(items, config) {
         );
         const result = await runCompletion(
             formattedPrompt,
-            0.3,
+            0.1,
             modelName,
             'DETECT_TOPIC_REDUNDANCY'
         );
@@ -142,7 +142,7 @@ async function filterByTopicRedundancy(items, config) {
 
             const groupItemsWithDetails = [];
             for (const itemNumber of groupItemNumbers) {
-                if (isNaN(itemNumber) || !itemIndexMap[itemNumber]) {
+                if (isNaN(itemNumber) || !(itemNumber in itemIndexMap)) {
                     logger.warn(
                         `NM: Invalid item number ${itemNumber} from DETECT_TOPIC_REDUNDANCY AI response.`
                     );
@@ -349,7 +349,7 @@ async function determineStoryType(item, config) {
 
         const result = await runCompletion(
             formattedPrompt,
-            0.3,
+            0.1,
             modelName,
             'DETECT_STORY_DEVELOPMENT'
         );

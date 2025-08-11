@@ -8,6 +8,7 @@ Automated news monitoring and distribution system for WhatsApp bot with multi-so
 - **Website Scraping**: Direct pagination-based scraping for sites without RSS feeds (no Puppeteer required)
 - **Smart Content Processing**: Link extraction for short tweets with priority-based processing (images → links → original text)
 - **Advanced Filtering Pipeline**: 10-stage content evaluation from interval filtering to enhanced topic redundancy detection
+- **Strict GPT-5 Guardrails**: Baseline-knowledge prompts, low-temperature completions, and reject-by-default parsing to avoid leniency
 - **AI Content Evaluation**: Relevance assessment, summarization, and semantic duplicate detection
 - **Importance-Based Topic Filtering**: AI-powered consequence evaluation with dynamic thresholds and category weighting
 - **Dynamic API Management**: Multi-key Twitter API system with automatic failover and usage monitoring
@@ -36,6 +37,24 @@ Multi-stage filtering pipeline with parallel source processing, centralized AI e
 4. **Duplicate Detection** → `contentProcessingUtils.js` (semantic similarity analysis)
 5. **Two-Stage Topic Filtering** → Traditional (within-batch priority) + Enhanced (historical context)
 6. **Message Distribution** → WhatsApp integration with media support
+
+## Stricter GPT-5 Guardrails (Post-Upgrade)
+
+To counter increased leniency observed after upgrading to GPT-5, several strictness controls were added across prompts, model tiers, and parsing rules:
+
+- **Presidential Baseline Knowledge**: Prompts now presume the president already knows widely reported headlines from major agencies (Reuters/AP/AFP) and portals (G1, Folha, NYT, BBC), and receives ongoing briefings. Only truly novel, specific, and decision-altering updates pass.
+- **Default-to-Reject on Ambiguity**: Account-specific evaluations default to rejection when AI responses are invalid, malformed, or ambiguous. Batch title selection also defaults to “0” on doubt.
+- **Low Temperature for Decision Prompts**: Key prompts run at a lower temperature (~0.1) to reduce creative drift and enforce consistency.
+- **Higher Model Tier for Critical Steps**: `EVALUATE_CONTENT`, `DETECT_STORY_DEVELOPMENT`, and `DETECT_TOPIC_REDUNDANCY` use the HIGH tier model for more conservative and reliable judgments.
+- **Stricter Consequence Scoring**: Importance thresholds remain high (7/8/10) and escalation requires ≥9.5 with clear novelty over originals.
+
+Tuning knobs if further strictness is needed:
+- Increase thresholds to `FIRST_CONSEQUENCE: 8`, `SECOND_CONSEQUENCE: 9`, keep `THIRD_CONSEQUENCE: 10`.
+- Reduce `SPORTS` weight from `1.2` → `1.0` if soccer volume is still high.
+- Tighten `CONTENT_FILTERING.WHITELIST_PATHS` by removing broad domains and favoring specific paths.
+- Lower `LINK_PROCESSING.MIN_CHAR_THRESHOLD` from `25` → `15` to avoid rescuing very short tweets via link expansion.
+
+These changes make the system significantly more selective while preserving the ability to surface genuinely novel or escalating developments.
 
 ## File Structure & Roles
 
@@ -148,15 +167,15 @@ The News Monitor uses centralized, tier-based model selection from `config.SYSTE
 // config.SYSTEM.AI_MODELS = { LOW: 'gpt-5-nano', MEDIUM: 'gpt-5-mini', HIGH: 'gpt-5' }
 
 AI_MODELS = {
-    // HIGH tier: complex evaluation tasks
+    // HIGH tier: complex/critical evaluation tasks
     BATCH_EVALUATE_TITLES: config.SYSTEM.AI_MODELS.HIGH,
     EVALUATE_CONSEQUENCE_IMPORTANCE: config.SYSTEM.AI_MODELS.HIGH,
+    EVALUATE_CONTENT: config.SYSTEM.AI_MODELS.HIGH,
+    DETECT_STORY_DEVELOPMENT: config.SYSTEM.AI_MODELS.HIGH,
+    DETECT_TOPIC_REDUNDANCY: config.SYSTEM.AI_MODELS.HIGH,
 
     // MEDIUM tier: standard processing tasks
-    EVALUATE_CONTENT: config.SYSTEM.AI_MODELS.MEDIUM,
     DETECT_DUPLICATE: config.SYSTEM.AI_MODELS.MEDIUM,
-    DETECT_STORY_DEVELOPMENT: config.SYSTEM.AI_MODELS.MEDIUM,
-    DETECT_TOPIC_REDUNDANCY: config.SYSTEM.AI_MODELS.MEDIUM,
 
     // LOW tier: simpler tasks and fallbacks
     SUMMARIZE_CONTENT: config.SYSTEM.AI_MODELS.LOW,
@@ -556,7 +575,7 @@ Interval Filter (lastRunTimestamp or CHECK_INTERVAL) → Whitelist Filter → Bl
   ↓ (Twitter media-only content)
 Image Text Extraction (step 3.5) →
   ↓ (Twitter short tweets with links)  
-Link Content Processing (step 3.6) → Prompt-Specific Filter (step 5) →
+Link Content Processing (step 3.6) → Prompt-Specific Filter (step 5; rejects by default on ambiguity) →
   ↓ (RSS content)
 Batch Title Evaluation (step 6) → Full Content Evaluation (step 7) → Duplicate Detection (step 8) → 
   ↓ (two-stage topic filtering)
@@ -776,7 +795,11 @@ Result: Keep #1 (highest priority), remove #2 and #3
 2. **Historical Topic Matching**: Checks against active topics from past 48 hours
 3. **AI Importance Scoring**: Evaluates follow-up stories on 1-10 geopolitical importance scale
 4. **Dynamic Thresholds**: Progressive scoring requirements (5→7→9) for consequences
-5. **Escalation Detection**: High-scoring items (≥8.5) become new core events
+5. **Escalation Detection**: High-scoring items (≥9.5) become new core events; must show novelty beyond the original
+
+### Presidential Baseline Knowledge in Prompts
+- Prompts for full-content evaluation and consequence scoring explicitly instruct the model to assume awareness of mainstream headlines and prior briefings.
+- In case of any uncertainty about novelty or urgency, the model is told to answer with `null` (do not send) and to keep internal reasoning hidden.
 
 ### Benefits of Two-Stage Approach
 - **No Redundant IDs**: Time filtering prevents duplicate fetches, eliminating need for ID-based tracking

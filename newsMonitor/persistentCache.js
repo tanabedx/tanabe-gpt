@@ -264,6 +264,34 @@ function readCache() {
         const prunedCache = pruneOldEntries(cacheData);
         // After pruning items, the prunedCache still contains other top-level keys like twitterApiStates
 
+        // Sanitize activeTopics to ensure valid non-empty topicId slugs
+        if (!Array.isArray(prunedCache.activeTopics)) {
+            prunedCache.activeTopics = [];
+        } else {
+            let fixedCount = 0;
+            prunedCache.activeTopics = prunedCache.activeTopics.map(topic => {
+                if (!topic || typeof topic !== 'object') return topic;
+                const id = topic.topicId || '';
+                const invalid = !id || /^-\d{4}-\d{2}-\d{2}$/.test(id) || id.startsWith('-');
+                if (invalid) {
+                    const newId = generateTopicId(
+                        Array.isArray(topic.entities) ? topic.entities : [],
+                        Array.isArray(topic.keywords) ? topic.keywords : [],
+                        { title: topic.originalItem?.title || '' },
+                        topic.startTime || Date.now()
+                    );
+                    if (newId && newId !== id) {
+                        fixedCount++;
+                        return { ...topic, topicId: newId };
+                    }
+                }
+                return topic;
+            });
+            if (fixedCount > 0) {
+                logger.debug(`Sanitized ${fixedCount} active topic IDs with empty or invalid slugs.`);
+            }
+        }
+
         return prunedCache; // Return the full cache object, including twitterApiStates
     } catch (error) {
         logger.error(`Failed to read cache: ${error.message}`);
@@ -559,10 +587,32 @@ function updateLastRunTimestamp(timestamp) {
  * @param {string[]} entities - Key entities/keywords for the topic
  * @returns {string} - Unique topic ID
  */
-function generateTopicId(entities) {
-    const dateStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const entitiesStr = entities.slice(0, 2).join('-').toLowerCase().replace(/[^a-z0-9]/g, '');
-    return `${entitiesStr}-${dateStr}`;
+function slugify(text) {
+    return (text || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .substring(0, 40);
+}
+
+function generateTopicId(entities = [], keywords = [], item = null, dateMs = null) {
+    const date = dateMs ? new Date(dateMs) : new Date();
+    const dateStr = date.toISOString().split('T')[0];
+    const entitySlug = slugify(entities.slice(0, 2).join('-'));
+    if (entitySlug) return `${entitySlug}-${dateStr}`;
+    const keywordSlug = slugify((keywords || []).slice(0, 2).join('-'));
+    if (keywordSlug) return `${keywordSlug}-${dateStr}`;
+    const fallbackText = (item && (item.title || item.text)) || '';
+    const words = fallbackText
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .match(/[a-z0-9]+/g) || [];
+    const fromTextSlug = slugify(words.slice(0, 2).join('-'));
+    if (fromTextSlug) return `${fromTextSlug}-${dateStr}`;
+    return `topic-${dateStr}`;
 }
 
 /**
@@ -652,7 +702,7 @@ function createActiveTopic(item, justification) {
     const coolingHours = NEWS_MONITOR_CONFIG.TOPIC_FILTERING?.COOLING_HOURS || DEFAULT_TOPIC_COOLING_HOURS;
     
     return {
-        topicId: generateTopicId(signature.entities),
+        topicId: generateTopicId(signature.entities, signature.keywords, item, now),
         entities: signature.entities,
         keywords: signature.keywords,
         startTime: now,
@@ -889,7 +939,7 @@ async function evaluateConsequenceImportance(originalTopic, consequenceItem) {
 
         const result = await runCompletion(
             formattedPrompt,
-            0.3,
+            0.1,
             modelName,
             'EVALUATE_CONSEQUENCE_IMPORTANCE'
         );

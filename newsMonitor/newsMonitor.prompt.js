@@ -21,6 +21,11 @@ Você é um assistente do fictício presidente do Brasil e é encarregado de inf
 - Contém detalhes específicos e impactantes que mudam fundamentalmente a situação
 - É genuinamente urgente e não pode esperar até o amanhecer
 
+📌 **BASE DE CONHECIMENTO PRESIDENCIAL (pressuposta):**
+- O presidente recebe briefings contínuos e já acompanha manchetes de agências (Reuters, AP, AFP) e dos principais portais (Folha, G1, Estadão, NYT, BBC, etc.).
+- Considere como “já sabido” qualquer informação de nível de manchete amplamente divulgada nas últimas horas.
+- Só acorde se houver fatos novos, específicos e inesperados que alterem decisões nas próximas 4–5 horas.
+
 🏆 **EXCEÇÃO FUTEBOL**: Para notícias de futebol, acorde apenas se for:
 - Vitórias/derrotas em competições IMPORTANTES (Copa do Mundo, Copa América, Libertadores, Champions League)
 - Mudanças SIGNIFICATIVAS em grandes clubes brasileiros (técnicos, jogadores estrela)
@@ -32,14 +37,18 @@ Você é um assistente do fictício presidente do Brasil e é encarregado de inf
 - É consequência previsível de eventos já noticiados
 - Adiciona apenas detalhes menores a situações já conhecidas
 - Pode esperar algumas horas sem prejuízo
+- A fonte aparenta baixa confiabilidade ou rumor sem confirmação independente
 
 **EM CASO DE DÚVIDA, SEMPRE ESCOLHA "null"**
+Padrão: se QUALQUER critério acima não for atendido, responda "null". Presuma que o presidente já sabe do previsível.
+
+Faça sua análise internamente e silenciosamente (sem mostrar raciocínio). Responda SOMENTE no formato exigido.
 
 Resposta obrigatória:
 1. Se genuinamente novo e urgente: "relevant::Justificativa específica explicando a novidade"
 2. Se não urgente ou repetitivo: "null::Motivo específico da exclusão"
 
-Seja IMPLACAVELMENTE seletivo. O presidente prefere dormir do que receber informações repetidas.
+Seja IMPLACAVELMENTE seletivo. O presidente prefere dormir do que receber informações repetidas ou irrelevantes.
     `,
 
     SITREP_artorias_PROMPT: `
@@ -47,7 +56,53 @@ Tweet de SITREP_artorias para Avaliação:
 {post}
 
 Instruções:
-Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Se for algum tipo de anúncio comercial, responda 'não.'  Responda com apenas 'sim' ou 'não,' sem aspas, pontuação, letr ou outros caracteres.
+Avalie o tweet acima de SITREP_artorias e determine se ele é relacionado a notícias, conflitos ou atualizações militares. Se for algum tipo de anúncio comercial, responda 'não.'  Responda com apenas 'sim' ou 'não,' sem aspas, pontuação, letra ou outros caracteres. Em caso de dúvida, responda 'não'.
+    `,
+
+    QuiverQuant_PROMPT: `
+Tweet de QuiverQuant para Avaliação:
+{post}
+
+Objetivo:
+Decidir se o tweet reporta (a) negociações EXTREMAMENTE SUSPEITAS por políticos dos EUA, ou (b) operações de mercado realmente NOTÁVEIS (não rotineiras) por fundos/gestores relevantes — apenas quando houver sinais claros de excepcionalidade e impacto.
+
+Critérios para responder "sim" (se TODOS aplicáveis de forma clara):
+1) Políticos dos EUA: Evidências específicas e nomeadas de possível conflito de interesse ou timing atípico:
+   - Compra/venda imediatamente antes/depois de audiências, votações, briefings fechados, decisões regulatórias.
+   - Uso de opções (alavancadas) ou tamanho incomum em setor sob supervisão/comissões do político.
+   - Tickers, datas e valores explícitos, com fonte verificável (documento/divulgação oficial ou rastreamento confiável).
+2) Fundos/gestores: Movimento realmente fora da curva por players notórios:
+   - Aumento/redução material e repentina em grandes participações, blocos excepcionais, rotação setorial atípica.
+   - Gestor/fundo com histórico/escala relevantes; inclui ETFs apenas se houver fluxo extraordinário com implicação macro/sectorial clara.
+3) Impacto: Potencial de repercussão relevante no curto prazo (mercado/regulatório/político) e novidade concreta.
+
+Responda "não" se o tweet for:
+- Recapitulação genérica ("top buys/sells do dia"), fluxos rotineiros, listas amplas sem destaque extraordinário.
+- Conteúdo promocional, newsletter, infográficos sem caso específico claro.
+- Rumor sem dados verificáveis ou sem tickers/datas/valores.
+- Qualquer ambiguidade ou falta de excepcionalidade clara.
+
+Formato da resposta: apenas "sim" ou "não" (sem aspas, sem pontuação, sem texto extra).
+Em caso de dúvida, responda "não".
+    `,
+
+    DETECT_IMAGE_PROMPT: `
+Você receberá uma imagem. Sua tarefa é responder estritamente se a imagem é um gráfico/visual informativo (ex.: gráfico de linhas/barras/velas, tabela financeira, heatmap, quadro informativo) que ajude a entender dados de mercado/finanças.
+
+Sinais fortes a favor: presença de eixos, legendas, séries, grades; tokens como $, %, +, -, K, números (com ou sem separadores), e/ou palavras como "Stock", "Price", "Chart".
+
+Regras:
+- Responda apenas com "sim" ou "não" (sem aspas, sem pontuação extra).
+- Se houver dúvida ou a imagem não for claramente informativa, responda "não".
+    `,
+
+    QuiverQuant_IMAGE_PROMPT: `
+Você receberá uma imagem publicada em um tweet do perfil QuiverQuant.
+Responda "sim" se a imagem for claramente um gráfico/visual informativo de finanças/mercado (gráfico de preços, tabela de posições, performance, heatmap, etc.) — ou se os seguintes indicadores aparecerem de forma clara: $, %, +, -, K, números, "Stock", "Price", "Chart". Caso contrário, responda "não".
+
+Regras:
+- Saída obrigatória: apenas "sim" ou "não" (sem aspas, sem pontuação, sem texto adicional).
+- Em caso de dúvida, responda "não".
     `,
 
     BATCH_EVALUATE_TITLES: `
@@ -55,7 +110,7 @@ Lista de Títulos de Artigos para Avaliação em Lote:
 {titles}
 
 Instruções:
-Avalie cada título acima para determinar quais têm potencial de serem relevantes. Seja extremamente seletivo para evitar spam de mensagens no grupo de WhatsApp.
+Avalie cada título acima para determinar quais têm potencial de serem relevantes. Seja EXTREMAMENTE seletivo para evitar spam de mensagens no grupo de WhatsApp. Considere a base de conhecimento presidencial: manchetes amplamente divulgadas nas últimas horas são presumidas como já conhecidas; só selecione o que sinaliza novidade substancial.
 
 Um título é potencialmente RELEVANTE se sugerir:
 - Calamidades naturais ou desastres
@@ -70,6 +125,8 @@ Considere IRRELEVANTE qualquer título que claramente sugira:
 - Celebridades (exceto mortes ou impacto global)
 - Política de EUA (exceto eventos críticos)
 - Esportes não significativos
+
+Padrão: se houver ambiguidade, NÃO selecione. Responda "0" quando nada atingir o nível exigido.
 
 Seja especialmente seleto em notícias involvendo a cidade de São Paulo, educação, saúde, ciência, tecnologia e meio ambiente. Somente as marque relevante se tiverem impacto significativo globalmente ou no Brasil inteiro.
 
@@ -229,6 +286,8 @@ Se a notícia se relaciona com algum dos tópicos ativos listados, use o ID corr
 {consequence_content}
 
 ⚠️ **CRITÉRIO PRESIDENCIAL RIGOROSO**: O presidente já está ciente do evento principal e desenvolvimentos relacionados listados acima. Você será DEMITIDO se acordá-lo com informações redundantes ou consequências previsíveis.
+
+📌 **BASE DE CONHECIMENTO PRESIDENCIAL (pressuposta):** Ele já acompanha agências (Reuters, AP, AFP) e briefings de segurança. Reações óbvias (mercado, notas protocolares, medidas padrão) são presumidas como já sabidas, mesmo que não estejam no cache.
 
 **ESCALA DE IMPORTÂNCIA PRESIDENCIAL (1-10):**
 

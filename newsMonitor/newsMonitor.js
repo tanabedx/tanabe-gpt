@@ -928,34 +928,63 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                             );
                         }
                     } else if (!sourceConfig.mediaOnly) {
-                        // Regular tweet, check for optional photo
-                        const photoMediaObj = item.mediaObjects?.find(m => m.type === 'photo');
-                        if (
-                            photoMediaObj &&
-                            (photoMediaObj.url || photoMediaObj.preview_image_url)
-                        ) {
+                        // Regular tweet; optionally attach image based on vision detection settings
+                        // Per-account image attachment settings
+                        const sourceConfig = NEWS_MONITOR_CONFIG.sources.find(
+                            s => s.type === 'twitter' && s.username === item.accountName
+                        ) || {};
+                        const perAcctImg = sourceConfig.imageAttachments || { enabled: false, maxImagesPerItem: 1 };
+                        const attachable = perAcctImg.enabled === true && Array.isArray(item.mediaObjects);
+
+                        if (attachable) {
                             try {
-                                const imageUrl =
-                                    photoMediaObj.url || photoMediaObj.preview_image_url;
-                                logger.debug(
-                                    `NM: Fetching image ${imageUrl} for tweet @${item.accountName}`
-                                );
-                                const imageResponse = await axios.get(imageUrl, {
-                                    responseType: 'arraybuffer',
-                                });
-                                const imageName =
-                                    path.basename(new URL(imageUrl).pathname) || 'image.jpg';
-                                const base64Data = await encodeBufferToBase64(Buffer.from(imageResponse.data));
-                                mediaToSend = new MessageMedia(
-                                    'image/jpeg',
-                                    base64Data,
-                                    imageName
-                                );
-                                logger.debug(`NM: Image prepared for tweet @${item.accountName}`);
-                            } catch (imgError) {
-                                logger.error(
-                                    `NM: Error fetching image for tweet @${item.accountName} (${item.id}): ${imgError.message}. Sending summary as text only.`
-                                );
+                                const maxImages = Math.max(1, Math.min(perAcctImg.maxImagesPerItem || 1, 1));
+                                const photos = item.mediaObjects.filter(m => m.type === 'photo' && (m.url || m.preview_image_url));
+                                let selectedImageUrl = null;
+                                if (photos.length > 0) {
+                                    // Vision-only detection: choose per-account prompt if present, else global
+                                    const prompts = NEWS_MONITOR_CONFIG.PROMPTS || {};
+                                    const aiModels = NEWS_MONITOR_CONFIG.AI_MODELS || {};
+                                    const promptName = `${item.accountName}_IMAGE_PROMPT` in prompts
+                                        ? `${item.accountName}_IMAGE_PROMPT`
+                                        : null; // generic prompt intentionally blank for now
+                                    const visionPrompt = promptName ? prompts[promptName] : null;
+                                    const modelForVision = promptName ? (aiModels[promptName] || aiModels.DEFAULT) : null;
+
+                                    if (!promptName || !visionPrompt) {
+                                        logger.debug(`NM: No generic image detection prompt configured; skipping image detection for @${item.accountName}.`);
+                                    }
+
+                                    for (const p of photos) {
+                                        const imageUrl = p.url || p.preview_image_url;
+                                        try {
+                                            if (promptName && visionPrompt && modelForVision) {
+                                                logger.debug(`NM: Vision detection (${promptName}) for image ${imageUrl} @${item.accountName}`);
+                                                const verdict = await extractTextFromImageWithOpenAI(imageUrl, visionPrompt, modelForVision);
+                                                const answer = (verdict || '').trim().toLowerCase();
+                                                logger.debug(`NM: Vision verdict for ${imageUrl}: "${answer}"`);
+                                                if (answer === 'sim') {
+                                                    selectedImageUrl = imageUrl;
+                                                    break; // attach first positive
+                                                }
+                                            }
+                                        } catch (visionErr) {
+                                            logger.warn(`NM: Vision detection error for ${imageUrl}: ${visionErr.message}`);
+                                        }
+                                    }
+                                }
+
+                                if (selectedImageUrl && maxImages > 0) {
+                                    logger.debug(`NM: Attaching detected image for @${item.accountName}: ${selectedImageUrl}`);
+                                    const imageResponse = await axios.get(selectedImageUrl, { responseType: 'arraybuffer' });
+                                    const imageName = path.basename(new URL(selectedImageUrl).pathname) || 'image.jpg';
+                                    const base64Data = await encodeBufferToBase64(Buffer.from(imageResponse.data));
+                                    mediaToSend = new MessageMedia('image/jpeg', base64Data, imageName);
+                                } else {
+                                    logger.debug(`NM: No attachable image detected for @${item.accountName}; sending text only.`);
+                                }
+                            } catch (imgErrOuter) {
+                                logger.error(`NM: Error during image detection/attachment for @${item.accountName}: ${imgErrOuter.message}`);
                                 mediaToSend = null;
                             }
                         }

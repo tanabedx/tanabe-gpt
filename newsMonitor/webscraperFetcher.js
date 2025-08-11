@@ -44,7 +44,8 @@ class WebscraperFetcher {
         logger.debug(`Using pagination scraping for ${source.name}`);
         
         // Start with page 1 (main page)
-        const page1Articles = await this.scrapePage(source.url, source);
+        const remainingForPage1 = Math.max(0, maxItems - totalScraped);
+        const page1Articles = await this.scrapePage(source.url, source, remainingForPage1);
         allArticles.push(...page1Articles);
         totalScraped += page1Articles.length;
         
@@ -58,7 +59,8 @@ class WebscraperFetcher {
             const pageUrl = source.paginationPattern.replace('{page}', currentPage);
             
             try {
-                const pageArticles = await this.scrapePage(pageUrl, source);
+                const remainingForPage = Math.max(0, maxItems - totalScraped);
+                const pageArticles = await this.scrapePage(pageUrl, source, remainingForPage);
                 
                 if (pageArticles.length === 0) {
                     logger.debug(`Page ${currentPage}: No articles found, stopping pagination`);
@@ -78,8 +80,8 @@ class WebscraperFetcher {
                 
                 currentPage++;
                 
-                // Small delay to be respectful
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // Small delay to be respectful and yield the event loop
+                await new Promise(resolve => setTimeout(resolve, 50));
                 
             } catch (error) {
                 logger.warn(`⚠️ Error scraping page ${currentPage}: ${error.message}`);
@@ -91,7 +93,7 @@ class WebscraperFetcher {
         return allArticles;
     }
 
-    async scrapePage(url, source) {
+    async scrapePage(url, source, maxToCollect = Infinity) {
         try {
             const response = await axios.get(url, {
                 headers: {
@@ -107,16 +109,25 @@ class WebscraperFetcher {
             const $ = cheerio.load(response.data);
             const articles = [];
 
-            $(source.selectors.container).each((index, element) => {
+            const containers = $(source.selectors.container).slice(0, isFinite(maxToCollect) ? maxToCollect : undefined).toArray();
+
+            for (let i = 0; i < containers.length; i++) {
+                const element = containers[i];
                 try {
                     const article = this.extractArticleData($, $(element), source);
                     if (article && article.title && article.link) {
                         articles.push(article);
                     }
                 } catch (error) {
-                    logger.debug(`Error extracting article ${index}:`, error.message);
+                    logger.debug(`Error extracting article ${i}:`, error.message);
                 }
-            });
+                // Cooperative yield every 20 items to avoid long event-loop stalls
+                if (i > 0 && i % 20 === 0) {
+                    // eslint-disable-next-line no-await-in-loop
+                    await new Promise(resolve => setImmediate(resolve));
+                }
+                if (articles.length >= maxToCollect) break;
+            }
 
             return articles;
         } catch (error) {

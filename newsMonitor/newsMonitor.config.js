@@ -1,14 +1,4 @@
-const {
-    EVALUATE_CONTENT,
-    BATCH_EVALUATE_TITLES,
-    SUMMARIZE_CONTENT,
-    SITREP_artorias_PROMPT,
-    PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT,
-    DETECT_DUPLICATE,
-    DETECT_TOPIC_REDUNDANCY,
-    DETECT_STORY_DEVELOPMENT,
-    EVALUATE_CONSEQUENCE_IMPORTANCE,
-} = require('./newsMonitor.prompt');
+const PROMPTS = require('./newsMonitor.prompt');
 
 // Note: Do NOT require the main config here to avoid circular dependency with `configs/config.js`.
 // We express tier intent using tokens (e.g., 'TIER:LOW') that are resolved at runtime in `utils/openaiUtils.js`.
@@ -86,6 +76,7 @@ const NEWS_MONITOR_CONFIG = {
             priority: 8,
             processLinksForShortTweets: true, // Enable link processing for short tweets
             shortTweetThreshold: null, // Use global threshold if null
+            imageAttachments: { enabled: false, maxImagesPerItem: 1 },
         },
         {
             type: 'twitter',
@@ -97,18 +88,20 @@ const NEWS_MONITOR_CONFIG = {
             priority: 9,
             processLinksForShortTweets: false, // Disabled for mediaOnly accounts (images take priority)
             shortTweetThreshold: null, // Use global threshold if null
+            imageAttachments: { enabled: false, maxImagesPerItem: 1 },
         },
         // Example: Account with custom threshold for link processing
         {
             type: 'twitter',
-            enabled: false, // Disabled by default - enable when needed
-            username: 'example_news_account',
+            enabled: true,
+            username: 'QuiverQuant',
             mediaOnly: false,
-            skipEvaluation: false,
-            promptSpecific: false,
+            skipEvaluation: true,
+            promptSpecific: true,
             priority: 7,
-            processLinksForShortTweets: true, // Enable link processing
-            shortTweetThreshold: 50, // Custom threshold: process links if tweet is under 50 chars
+            processLinksForShortTweets: true,
+            shortTweetThreshold: null,
+            imageAttachments: { enabled: true, maxImagesPerItem: 1 },
         },
         // RSS Sources
         {
@@ -213,6 +206,8 @@ const NEWS_MONITOR_CONFIG = {
         RETRY_DELAY: 1000, // Delay between retries in milliseconds
     },
 
+    // (deprecated) IMAGE_ATTACHMENTS: per-account settings now live under each twitter source
+
     // AI model configurations (tier tokens resolved at runtime)
     AI_MODELS: {
         // HIGH tier: complex evaluation tasks
@@ -220,31 +215,24 @@ const NEWS_MONITOR_CONFIG = {
         EVALUATE_CONSEQUENCE_IMPORTANCE: TIER.HIGH,
 
         // MEDIUM tier: standard processing tasks
-        EVALUATE_CONTENT: TIER.MEDIUM,
+        EVALUATE_CONTENT: TIER.HIGH,
         DETECT_DUPLICATE: TIER.MEDIUM,
-        DETECT_STORY_DEVELOPMENT: TIER.MEDIUM,
-        DETECT_TOPIC_REDUNDANCY: TIER.MEDIUM,
+        DETECT_STORY_DEVELOPMENT: TIER.HIGH,
+        DETECT_TOPIC_REDUNDANCY: TIER.HIGH,
 
         // LOW tier: simpler tasks and fallbacks
         SUMMARIZE_CONTENT: TIER.LOW,
         SITREP_artorias_PROMPT: TIER.LOW,
+        QuiverQuant_PROMPT: TIER.MEDIUM,
+        // DETECT_IMAGE_PROMPT intentionally left undefined for now (generic prompt blank)
+        QuiverQuant_IMAGE_PROMPT: TIER.MEDIUM,
         PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: TIER.LOW,
         TRANSLATION: TIER.LOW,
         DEFAULT: TIER.LOW,
     },
 
     // Prompts for content evaluation and summarization
-    PROMPTS: {
-        EVALUATE_CONTENT,
-        BATCH_EVALUATE_TITLES,
-        SUMMARIZE_CONTENT,
-        SITREP_artorias_PROMPT,
-        PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT,
-        DETECT_DUPLICATE,
-        DETECT_TOPIC_REDUNDANCY,
-        DETECT_STORY_DEVELOPMENT,
-        EVALUATE_CONSEQUENCE_IMPORTANCE,
-    },
+    PROMPTS: PROMPTS,
 
     CREDENTIALS: {
         TWITTER_API_KEYS: getDynamicTwitterKeys(),
