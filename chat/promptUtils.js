@@ -44,9 +44,10 @@ function getGroupPersonality(groupName) {
  * @param {string} question - User question
  * @param {string|null} quotedContext - Optional quoted message context
  * @param {string|null} linkContext - Optional link content context
+ * @param {string|null} attachmentContext - Optional attachment context
  * @returns {string} Formatted user message
  */
-function formatUserMessage(userName, question, quotedContext = null, linkContext = null) {
+function formatUserMessage(userName, question, quotedContext = null, linkContext = null, attachmentContext = null) {
     const timestamp = new Date().toLocaleString('pt-BR', {
         timeZone: 'America/Sao_Paulo',
         day: '2-digit',
@@ -78,6 +79,17 @@ ${quotedContext}`;
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${linkContext}`;
+    }
+
+    // Add attachment context if available - with clear separation
+    if (attachmentContext && attachmentContext.trim()) {
+        message += `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📎 ANEXOS PROCESSADOS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${attachmentContext}`;
     }
 
     return message;

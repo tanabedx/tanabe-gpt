@@ -8,17 +8,20 @@ const { formatUserMessage, getPromptTypeFromPrefix } = require('./promptUtils');
 const conversationManager = require('./conversationManager');
 const { 
     handleContextRequest, 
-    validateContextRequest, 
-    formatContextResponse,
-    shouldAutoRequestContext
+    validateContextRequest
 } = require('./contextRequestHandler');
 
-// Manual search request system imports
+
+
+
+// Image generation removed - ChatGPT now only supports vision capabilities
+
+// Attachment processing imports
 const {
-    handleSearchRequest,
-    validateSearchRequest,
-    formatSearchResponse
-} = require('./searchRequestHandler');
+    processAttachments,
+    createAttachmentContext,
+    generateAttachmentSummary
+} = require('./attachmentHandler');
 
 // Temporary flag to reset conversations once after prompt update
 let conversationsReset = false;
@@ -96,28 +99,81 @@ async function handleChat(message, command, commandPrefix) {
             }
         }
 
-        // Format user message with any available context
-        const userMessage = formatUserMessage(name, question, quotedContext, linkContext);
+        // Process any attachments first (from main message)
+        let attachmentData = await processAttachments(message, config);
+        
+        // Also check quoted message for attachments
+        if (message.hasQuotedMsg) {
+            const quotedMessage = await message.getQuotedMessage();
+            if (quotedMessage.hasMedia) {
+                logger.debug('Processing quoted message attachments');
+                const quotedAttachmentData = await processAttachments(quotedMessage, config);
+                
+                // Merge attachment data from quoted message
+                if (quotedAttachmentData.hasAttachments) {
+                    attachmentData.hasAttachments = true;
+                    attachmentData.images.push(...quotedAttachmentData.images);
+                    attachmentData.pdfs.push(...quotedAttachmentData.pdfs);
+                    attachmentData.audio.push(...quotedAttachmentData.audio);
+                    attachmentData.other.push(...quotedAttachmentData.other);
+                    
+                    if (quotedAttachmentData.textContent) {
+                        attachmentData.textContent += `\n[Da mensagem citada]: ${quotedAttachmentData.textContent}`;
+                    }
+                    
+                    // Update summary
+                    attachmentData.summary = generateAttachmentSummary(attachmentData);
+                }
+            }
+        }
+        
+        const attachmentContext = createAttachmentContext(attachmentData);
+        
+        // Format user message with any available context (including attachments)
+        const userMessage = formatUserMessage(name, question, quotedContext, linkContext, attachmentContext);
         
         // Store the original question for context prompts
         const originalQuestion = question;
         
-        // Add user message to conversation
-        await conversationManager.addUserMessage(groupName, adminNumber, name, userMessage, config);
+        // Check if we have images to include directly in the message
+        const hasImages = attachmentData.images && attachmentData.images.length > 0;
         
-        logger.debug('User message added to conversation', {
-            name,
-            groupName,
-            messageLength: userMessage.length,
-            model: conversation.model
-        });
+        if (hasImages) {
+            // For gpt-5 models, include images directly in the conversation
+            const imageContent = attachmentData.images.map(img => ({
+                type: "input_image",
+                image_url: `data:${img.mimeType};base64,${img.imageData}`
+            }));
+            
+            await conversationManager.addUserMessageWithImages(groupName, adminNumber, name, userMessage, imageContent, config);
+            
+            logger.debug('User message with images added to conversation', {
+                name,
+                groupName,
+                messageLength: userMessage.length,
+                imageCount: imageContent.length
+            });
+        } else {
+            // Add regular text-only user message to conversation
+            await conversationManager.addUserMessage(groupName, adminNumber, name, userMessage, config);
+            
+            logger.debug('User message added to conversation', {
+                name,
+                groupName,
+                messageLength: userMessage.length,
+                model: 'text-only'
+            });
+        }
 
-        // Process conversation with a loop for handling tool requests (context, search)
+        // Process conversation with a loop for handling tool requests (context)
         let contextRequestCount = 0;
-        let searchRequestCount = 0;
+
+        let loopCount = 0;
+        const maxLoops = 10; // Safety limit to prevent infinite loops
         let finalResponse = null;
 
-        while (true) {
+        while (loopCount < maxLoops) {
+            loopCount++;
             try {
                 // Get the full AI response without streaming inside the loop
                 const aiResponseObject = await conversationManager.getAIResponse(groupName, adminNumber, config);
@@ -141,24 +197,9 @@ async function handleChat(message, command, commandPrefix) {
                     }
                 }
 
-                // Handle search requests
-                const searchResult = await handleSearchRequest(aiResponse, config);
-                if (searchResult.hasSearchRequest) {
-                    const searchValidation = validateSearchRequest(searchRequestCount, config);
-                    if (searchValidation.isValid && searchResult.searchResults?.summary) {
-                        searchRequestCount++;
-                        const searchResultsMessage = {
-                            role: 'system',
-                            content: `Manual search results for "${searchResult.query}":\n${searchResult.searchResults.summary}`
-                        };
-                        conversationManager.addRawMessageToConversation(
-                            conversationManager.getConversationGroupName(groupName, adminNumber),
-                            searchResultsMessage,
-                            config
-                        );
-                        continue; // Re-run AI with new search context
-                    }
-                }
+
+
+                // Image generation removed - ChatGPT now only supports vision analysis
 
                 // If no tool requests are handled, this is the final response
                 finalResponse = aiResponse;
@@ -169,6 +210,18 @@ async function handleChat(message, command, commandPrefix) {
                 finalResponse = command.errorMessages.conversationError || 'Erro ao processar a conversa. Tente novamente.';
                 break;
             }
+        }
+
+        // Check if we hit the loop limit
+        if (loopCount >= maxLoops) {
+            logger.warn('Conversation loop hit maximum iterations, preventing infinite loop', {
+                loopCount: loopCount,
+                contextRequestCount: contextRequestCount,
+
+                imageRequestCount: imageRequestCount,
+                failedImageRequestCount: failedImageRequestCount
+            });
+            finalResponse = finalResponse || 'A conversa ficou muito complexa. Posso ajudar de forma mais direta?';
         }
         
         // --- Send final response honoring STREAMING_ENABLED flag ---

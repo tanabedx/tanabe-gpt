@@ -27,19 +27,19 @@ const CHAT_CONFIG = {
 
     // Streaming behavior moved back to SYSTEM.STREAMING_ENABLED
     
-    // Model selection based on context size
+    // Model selection based on context size (using MEDIUM as default for better context handling)
     modelSelection: {
         get rules() {
             const config = getConfig();
             return [
-                { maxMessages: 100, model: config.SYSTEM.AI_MODELS.LOW },
-                { maxMessages: 500, model: config.SYSTEM.AI_MODELS.MEDIUM },
-                { maxMessages: 1000, model: config.SYSTEM.AI_MODELS.HIGH }
+                { maxMessages: 50, model: config.SYSTEM.AI_MODELS.MEDIUM },   // Use MEDIUM for small conversations (better context handling)
+                { maxMessages: 500, model: config.SYSTEM.AI_MODELS.MEDIUM },  // Continue with MEDIUM for medium conversations  
+                { maxMessages: 1000, model: config.SYSTEM.AI_MODELS.HIGH }    // Use HIGH only for very large conversations
             ];
         },
         get default() {
             const config = getConfig();
-            return config.SYSTEM.AI_MODELS.LOW;
+            return config.SYSTEM.AI_MODELS.MEDIUM;  // Default to MEDIUM instead of LOW for better instruction following
         }
     },
     
@@ -72,7 +72,6 @@ const CHAT_CONFIG = {
         country: 'br',
         locale: 'pt_BR',
         enforceCitations: true, // Append a FONTES block at the end
-        fallbackToLegacy: false, // Keep disabled while testing
         get model() {
             const config = getConfig();
             return config.SYSTEM.AI_MODELS.MEDIUM; // Model to use when processing web search results
@@ -84,41 +83,25 @@ const CHAT_CONFIG = {
             fallbackOnError: true,  // Extract partial content even if page is too large
             minLength: 50          // Minimum characters required for content to be considered valid
         },
-        activationKeywords: [   // Keywords that trigger automatic web search
-            'pesquisar',
-            'buscar',
-            'procurar',
-            'search',
-            'find',
-            'what is',
-            'what are',
-            'como fazer',           // More specific than just 'como'
-            'como funciona',        // More specific than just 'como'
-            'onde encontrar',       // More specific than just 'onde'
-            'onde fica',           // More specific than just 'onde'
-            'quando aconteceu',     // More specific than just 'quando'
-            'quando será',         // More specific than just 'quando'
-            'por que aconteceu',   // More specific than just 'por que'
-            'porque aconteceu',    // More specific than just 'porque'
-            'how to',
-            'where is',
-            'where can',
-            'when did',
-            'when will',
-            'why did',
-            'latest',
-            'recent',
-            'current',
-            'hoje aconteceu',      // More specific than just 'hoje'
-            'notícias de hoje',    // More specific for news
-            'now happening',
-            'atualmente',
-            'recente',
-            'informações sobre',   // Explicit search intent
-            'me fale sobre',       // Explicit search intent
-            'quero saber sobre'    // Explicit search intent
-        ],
+
         timeout: 10000          // Timeout for web search requests (ms)
+    },
+
+    // Image generation settings - DISABLED (use #desenho and #desenhoedit commands instead)
+    imageGeneration: {
+        enabled: false,                     // Image generation disabled for ChatGPT
+        maxImageRequests: 0,                // No image generation allowed
+        timeout: 30000,                     // Keep for potential future use
+        conversationMemory: {
+            enabled: false,                 // No image memory needed
+            maxImages: 0,                   // No images to remember
+            includeInPrompt: false          // Don't include image memory in prompts
+        },
+        useExistingRouting: false,          // Not used since generation is disabled
+        get defaultModel() {
+            const config = getConfig();
+            return config.SYSTEM.AI_MODELS.MEDIUM; // Standard model for vision-only conversations
+        }
     },
 
     // Reasoning stays centralized under SYSTEM in configs/config.js

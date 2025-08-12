@@ -3,6 +3,7 @@
 const config = require('../configs/config');
 const logger = require('../utils/logger');
 const commandManager = require('./CommandManager');
+const typingManager = require('../utils/typingManager');
 const { registerCommands } = require('./CommandRegistry');
 const { processLinkSummary } = require('../news/news');
 const { initialize } = require('../newsMonitor/newsMonitor.js');
@@ -73,12 +74,21 @@ async function handleStickerMessage(message) {
             commandMessage.body = `#${commandName.toLowerCase()}`;
         }
 
-        // Process the command
+        // Process the command with persistent typing
         const chat = await message.getChat();
-        await chat.sendStateTyping();
-        const result = await commandManager.processCommand(commandMessage);
-
-        return result;
+        const chatId = chat.id._serialized;
+        
+        try {
+            // Start persistent typing indicator
+            await typingManager.startTyping(chat, chatId);
+            
+            const result = await commandManager.processCommand(commandMessage);
+            
+            return result;
+        } finally {
+            // Always stop typing when command completes
+            typingManager.stopTyping(chatId);
+        }
     } catch (error) {
         logger.error('Error processing sticker message:', error);
         return false;
@@ -287,10 +297,18 @@ function setupListeners(client) {
                             prefix: message.body[0],
                             command: message.body,
                         });
-                        await chat.sendStateTyping();
-                        const result = await commandManager.processCommand(message);
-                        if (!result) {
-                            logger.debug('Command processing failed or command not found');
+                        const chatId = chat.id._serialized;
+                        try {
+                            // Start persistent typing indicator
+                            await typingManager.startTyping(chat, chatId);
+                            
+                            const result = await commandManager.processCommand(message);
+                            if (!result) {
+                                logger.debug('Command processing failed or command not found');
+                            }
+                        } finally {
+                            // Always stop typing when command completes
+                            typingManager.stopTyping(chatId);
                         }
                         return;
                     }
@@ -317,13 +335,21 @@ function setupListeners(client) {
                                     tag: validTag,
                                     command: message.body,
                                 });
-                                await chat.sendStateTyping();
-                                const result = await commandManager.processCommand(
-                                    message,
-                                    validTag
-                                );
-                                if (!result) {
-                                    logger.debug('Tag command processing failed');
+                                const chatId = chat.id._serialized;
+                                try {
+                                    // Start persistent typing indicator
+                                    await typingManager.startTyping(chat, chatId);
+                                    
+                                    const result = await commandManager.processCommand(
+                                        message,
+                                        validTag
+                                    );
+                                    if (!result) {
+                                        logger.debug('Tag command processing failed');
+                                    }
+                                } finally {
+                                    // Always stop typing when command completes
+                                    typingManager.stopTyping(chatId);
                                 }
                                 return;
                             } else {
@@ -386,8 +412,17 @@ function setupListeners(client) {
                                 nlpCommand: nlpResult,
                             });
 
-                            await commandManager.processCommand(nlpMessage);
-                            return;
+                            const chatId = chat.id._serialized;
+                            try {
+                                // Start persistent typing indicator for NLP commands
+                                await typingManager.startTyping(chat, chatId);
+                                
+                                await commandManager.processCommand(nlpMessage);
+                                return;
+                            } finally {
+                                // Always stop typing when command completes
+                                typingManager.stopTyping(chatId);
+                            }
                         } else {
                             logger.debug('NLP processing skipped or produced no result');
                         }

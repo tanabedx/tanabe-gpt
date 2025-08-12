@@ -1,6 +1,7 @@
 const config = require('../configs/config');
 const { performCacheClearing } = require('./cacheManagement');
 const logger = require('../utils/logger');
+const typingManager = require('../utils/typingManager');
 const { getNextSummaryInfo, scheduleNextSummary } = require('../periodicSummary/periodicSummaryUtils');
 const { runPeriodicSummary } = require('../periodicSummary/periodicSummary');
 const {
@@ -372,35 +373,42 @@ async function handleNewsDebug(message) {
 
     try {
         const chat = await message.getChat();
-        const chatId = chat.name || chat.id._serialized;
+        const chatName = chat.name || chat.id._serialized;
+        const chatId = chat.id._serialized;
         const userId = message.author || message.from;
 
-        if (!(await hasPermission('NEWS_DEBUG', chatId, userId))) {
+        if (!(await hasPermission('NEWS_DEBUG', chatName, userId))) {
             // Assuming NEWS_DEBUG will be the permission key
-            logger.debug(`News debug command rejected: unauthorized in ${chatId}`);
+            logger.debug(`News debug command rejected: unauthorized in ${chatName}`);
             // Optionally send a message, or just return if no reply on unauthorized is desired
             // await message.reply('Você não tem permissão para usar este comando.');
             return;
         }
 
-        await chat.sendStateTyping();
-        // Add a small delay to allow typing state to be sent before long operation
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            // Start persistent typing indicator
+            await typingManager.startTyping(chat, chatId);
+            
+            logger.info('Generating news cycle debug report. This may take a moment...');
 
-        logger.info('Generating news cycle debug report. This may take a moment...');
+            const report = await generateNewsCycleDebugReport(); // This function will be in newsMonitor/newsMonitor.js
 
-        const report = await generateNewsCycleDebugReport(); // This function will be in newsMonitor/newsMonitor.js
-
-        if (report) {
-            await message.reply(report);
-        } else {
-            await message.reply('Falha ao gerar o relatório de debug. Verifique os logs.');
+            if (report) {
+                await message.reply(report);
+            } else {
+                await message.reply('Falha ao gerar o relatório de debug. Verifique os logs.');
+            }
+        } catch (error) {
+            logger.error('Error in news debug command (newsMonitor.js pipeline):', error);
+            await message.reply(
+                `Erro ao gerar relatório de debug do ciclo de notícias: ${error.message}`
+            );
+        } finally {
+            // Always stop typing when command completes
+            typingManager.stopTyping(chatId);
         }
     } catch (error) {
-        logger.error('Error in news debug command (newsMonitor.js pipeline):', error);
-        await message.reply(
-            `Erro ao gerar relatório de debug do ciclo de notícias: ${error.message}`
-        );
+        logger.error('Error in handleNewsDebug:', error);
     }
 }
 

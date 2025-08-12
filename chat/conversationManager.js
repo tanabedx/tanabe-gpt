@@ -2,11 +2,7 @@ const logger = require('../utils/logger');
 const { runConversationCompletion, runResponsesWithWebSearch } = require('../utils/openaiUtils');
 const CHAT_CONFIG = require('./chat.config');
 const GROUP_PERSONALITIES = require('./personalities.prompt');
-const {
-    shouldPerformWebSearch,
-    extractSearchQuery,
-    searchWithContent
-} = require('./legacy_webSearchUtils');
+
 const { fetchInitialHistory } = require('./contextManager');
 
 // Conversation state management
@@ -95,22 +91,27 @@ function selectModel(contextMessageCount, config) {
  * @param {Object} config - Configuration object
  * @param {string} groupName - Group name
  * @param {string} promptType - Type of prompt (initial, withContext, humor)
+ * @param {Object} conversation - Conversation object (optional, for image memory)
  * @returns {string} System prompt string
  */
-function getSystemPrompt(config, groupName, promptType = 'initial') {
+function getSystemPrompt(config, groupName, promptType = 'initial', conversation = null) {
     const chatConfig = config.COMMANDS?.CHAT || {};
     const basePrompt = chatConfig.systemPrompts?.[promptType] || chatConfig.systemPrompts?.initial || '';
+    
+    let finalPrompt = basePrompt;
     
     // Add group personality if enabled
     if (chatConfig.useGroupPersonality) {
         const personality = GROUP_PERSONALITIES[groupName];
         if (personality) {
             // Append personality to the base prompt
-            return `${basePrompt}\\n\\nPersonalidade do grupo:\\n${personality}`;
+            finalPrompt = `${basePrompt}\\n\\nPersonalidade do grupo:\\n${personality}`;
         }
     }
     
-    return basePrompt;
+    // Image generation removed - ChatGPT now only supports vision analysis
+    
+    return finalPrompt;
 }
 
 /**
@@ -133,7 +134,7 @@ async function initializeConversation(groupName, adminNumber, config, promptType
             initialHistory = await fetchInitialHistory(groupName, historyConfig.messageCount);
         }
 
-        const systemPrompt = getSystemPrompt(config, conversationGroupName, promptType);
+        const systemPrompt = getSystemPrompt(config, conversationGroupName, promptType, null); // null for new conversations
         
         let finalSystemPrompt = systemPrompt;
 
@@ -155,7 +156,8 @@ ${initialHistory}`;
             messageCount: 0,
             totalContextMessages: 0, // Track total context messages provided
             lastActivity: new Date(),
-            model: selectModel(0, config) // Start with 0 context messages
+            model: selectModel(0, config), // Start with 0 context messages
+// Image generation removed - ChatGPT now only supports vision analysis
         });
         
         logger.debug(`Initialized new conversation for ${conversationGroupName}`, {
@@ -201,6 +203,51 @@ async function addUserMessage(groupName, adminNumber, userName, userMessage, con
         totalMessages: conversation.messages.length,
         totalContextMessages: conversation.totalContextMessages,
         model: conversation.model
+    });
+    
+    return conversation;
+}
+
+/**
+ * Add a user message with images to the conversation (for gpt-5 models)
+ * @param {string} groupName - Name of the group
+ * @param {string} adminNumber - Admin phone number
+ * @param {string} userName - Name of the user
+ * @param {string} userMessage - User's message
+ * @param {Array} imageContent - Array of image content objects
+ * @param {Object} config - Configuration object
+ * @returns {Object} Conversation object
+ */
+async function addUserMessageWithImages(groupName, adminNumber, userName, userMessage, imageContent, config) {
+    const conversation = await initializeConversation(groupName, adminNumber, config);
+    
+    // For gpt-5 models, use the correct content type format
+    const messageContent = [
+        {
+            type: "input_text",
+            text: userMessage
+        },
+        ...imageContent
+    ];
+    
+    conversation.messages.push({
+        role: 'user',
+        content: messageContent
+    });
+    
+    conversation.messageCount += 1;
+    conversation.lastActivity = new Date();
+    
+    // Update model based on total context messages provided (not conversation message count)
+    conversation.model = selectModel(conversation.totalContextMessages, config);
+    
+    logger.debug('Added user message with images to conversation', {
+        groupName,
+        messageCount: conversation.messageCount,
+        totalMessages: conversation.messages.length,
+        totalContextMessages: conversation.totalContextMessages,
+        model: conversation.model,
+        imageCount: imageContent.length
     });
     
     return conversation;
@@ -331,83 +378,26 @@ async function getAIResponse(groupName, adminNumber, config) {
             model: conversation.model
         });
         
-        // Check if the last user message requires web search
-        const lastUserMessage = conversation.messages
-            .slice()
-            .reverse()
-            .find(msg => msg.role === 'user');
-            
-        let searchResults = null;
-        let modelToUse = conversation.model;
-        
-        // Use chat-level config for web search tool
+        // Use web search tool when enabled
         const useOpenAITool = CHAT_CONFIG?.webSearch?.useOpenAITool === true;
-        if (lastUserMessage) {
-            if (useOpenAITool) {
-                // Delegate to Responses API with web_search tool and let it decide; do NOT extract/log explicit queries here
-                try {
-                    const assistantMsg = await runResponsesWithWebSearch(conversation.messages, {
-                        temperature: 1,
-                        model: modelToUse,
-                    });
-                    // Short-circuit: return this as the AI response for this turn
-                    return assistantMsg;
-                } catch (e) {
-                    // Honor chat-level fallback setting; default false while testing
-                    const allowFallback = CHAT_CONFIG?.webSearch?.fallbackToLegacy === true;
-                    if (!allowFallback) {
-                        // If fallback disabled during testing, propagate so we see the error
-                        throw e;
-                    }
-                    // Fall through to legacy path if allowed
-                }
-            }
-
-            // Legacy path: only extract and log queries when legacy search is actually used
-            if (shouldPerformWebSearch(lastUserMessage.content, config)) {
-                const query = extractSearchQuery(lastUserMessage.content);
-                if (query && query.length > 2) {
-                    logger.debug(`Performing legacy web search for query: "${query}"`);
-                    try {
-                        const webSearchConfig = config?.COMMANDS?.CHAT?.webSearch || {};
-                        const maxResults = webSearchConfig.maxResults || 3;
-                        searchResults = await searchWithContent(query, maxResults, true, config);
-                        if (searchResults && searchResults.results && searchResults.results.length > 0) {
-                            if (webSearchConfig.model) {
-                                modelToUse = webSearchConfig.model;
-                                logger.debug(`Using web search model: ${modelToUse}`);
-                            }
-                            const searchResultsMessage = {
-                                role: 'system',
-                                content: `RESULTADOS DE PESQUISA NA INTERNET:
-Consulta: "${query}"
-Timestamp: ${new Date().toLocaleString('pt-BR')}
-
-${searchResults.summary}
-
-INSTRUÇÕES: Use essas informações atualizadas da internet para responder à pergunta do usuário. Cite as fontes quando relevante. Se as informações estiverem desatualizadas ou incompletas, mencione isso ao usuário.`
-                            };
-                            conversation.messages.push(searchResultsMessage);
-                            logger.debug(`Added web search results to conversation`, {
-                                groupName: conversationGroupName,
-                                query,
-                                resultsCount: searchResults.results.length,
-                                totalConversationMessages: conversation.messages.length,
-                                usingWebSearchModel: webSearchConfig.model ? true : false
-                            });
-                        }
-                    } catch (searchError) {
-                        logger.error('Error performing legacy web search:', searchError);
-                        // Continue without search results
-                    }
-                }
+        if (useOpenAITool) {
+            // Use OpenAI web_search tool - it automatically determines when search is needed
+            try {
+                const assistantMsg = await runResponsesWithWebSearch(conversation.messages, {
+                    temperature: 1,
+                    model: conversation.model,
+                });
+                return assistantMsg;
+            } catch (e) {
+                logger.error('Web search failed, falling back to regular completion:', e.message);
+                // Fall through to regular completion
             }
         }
         
         const response = await runConversationCompletion(
             conversation.messages,
             1, // temperature
-            modelToUse, // Use the determined model (either conversation.model or webSearch.model)
+            conversation.model,
             null // promptType
         );
         
@@ -503,6 +493,7 @@ module.exports = {
     initializeConversationManager,
     initializeConversation,
     addUserMessage,
+    addUserMessageWithImages,
     addContextToConversation,
     addRawMessageToConversation,
     updateModelForConversation,

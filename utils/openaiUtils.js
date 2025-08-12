@@ -10,6 +10,7 @@ function ensureConfigLoaded() {
             config = require('../configs/config');
         } catch (e) {
             // Keep config undefined; callers will handle when still unavailable
+            console.error('Failed to load config in openaiUtils:', e.message);
         }
     }
 }
@@ -60,7 +61,7 @@ function getWebSearchConfig() {
             COUNTRY: w.country || 'br',
             LOCALE: w.locale || 'pt_BR',
             ENFORCE_CITATIONS: w.enforceCitations !== false,
-            FALLBACK_TO_LEGACY: w.fallbackToLegacy !== false,
+
         };
     }
     // Fallback to SYSTEM if present
@@ -72,7 +73,7 @@ function getWebSearchConfig() {
         COUNTRY: sys.COUNTRY || 'br',
         LOCALE: sys.LOCALE || 'pt_BR',
         ENFORCE_CITATIONS: sys.ENFORCE_CITATIONS !== false,
-        FALLBACK_TO_LEGACY: sys.FALLBACK_TO_LEGACY !== false,
+
     };
 }
 
@@ -310,6 +311,15 @@ function normalizeWebSearchResponseText(text, resp, cfg) {
         // Remove any existing Fontes/FONTES blocks entirely to avoid duplication
         cleaned = cleaned.replace(/(?:^|\n)\s*F[OÓ]NTES?:[\s\S]*$/i, '').trim();
 
+        // Remove inline citations in parentheses like ([site.com](url), [site2.com](url2))
+        cleaned = cleaned.replace(/\.\s*\(\[([^\]]+)\]\([^)]+\)(?:,\s*\[([^\]]+)\]\([^)]+\))*\)/g, '.');
+        
+        // Remove any remaining parenthetical markdown links at end of sentences
+        cleaned = cleaned.replace(/\s*\(\[[^\]]+\]\([^)]+\)\)/g, '');
+        
+        // Remove numbered inline citations like [1], [2]
+        cleaned = cleaned.replace(/\s*\[\d+\]/g, '');
+
         if (merged.length > 0 && webCfg.ENFORCE_CITATIONS) {
             const fontes = ['\n\nFONTES:'];
             merged.forEach((u) => fontes.push(`- ${u}`));
@@ -364,9 +374,17 @@ function maybeAppendFontesSection(content, cfg) {
  * @param {Array<{role:string,content:string}>} messages
  * @param {object} options
  */
+
+
 async function runResponsesWithWebSearch(messages, options = {}) {
+    ensureConfigLoaded();
     if (!config) {
-        throw new Error('Configuration not yet loaded for runResponsesWithWebSearch');
+        // Try one more time with a direct require as fallback
+        try {
+            config = require('../configs/config');
+        } catch (e) {
+            throw new Error(`Configuration not yet loaded for runResponsesWithWebSearch: ${e.message}`);
+        }
     }
     const openai = getOpenAIClient();
     const webCfg = getWebSearchConfig();
@@ -374,12 +392,18 @@ async function runResponsesWithWebSearch(messages, options = {}) {
     const temperature = typeof options?.temperature === 'number' ? options.temperature : 1;
     const toolChoice = webCfg.TOOL_CHOICE === 'required' ? { type: 'web_search' } : 'auto';
 
-    // Add a concise citation instruction without disrupting existing system prompt
-    const citationHint = {
-        role: 'system',
-        content: 'Ao usar pesquisa na web: cite no máximo 1-2 referências inline usando [1],[2] ao lado de afirmações-chave. Evite colar URLs completos no corpo. Sempre finalize com uma única seção "FONTES:" contendo até 5 URLs limpos (sem parâmetros). Não duplique a seção de fontes.'
-    };
-    const inputMessages = Array.isArray(messages) ? [...messages, citationHint] : [citationHint];
+    // Only add citation hint if web search is required
+    const shouldAddCitationHint = toolChoice?.type === 'web_search';
+    
+    let inputMessages = Array.isArray(messages) ? [...messages] : [];
+    
+    if (shouldAddCitationHint) {
+        const citationHint = {
+            role: 'system',
+            content: 'INSTRUÇÕES DE CITAÇÃO: NÃO inclua NENHUMA citação inline no texto da resposta. NÃO use [1],[2] ou links entre parênteses como ([site.com](url)). Escreva a resposta em texto limpo, depois adicione apenas uma seção "FONTES:" no final com URLs limpos. REMOVA qualquer citação inline que o sistema tenha adicionado automaticamente.'
+        };
+        inputMessages.push(citationHint);
+    }
 
     // Per docs, tool settings belong under top-level tool_config; tool list only specifies type
     const tools = [
@@ -430,17 +454,10 @@ async function runResponsesWithWebSearch(messages, options = {}) {
         logger.prompt('OpenAI Web Search Response', text);
         return { role: 'assistant', content: text };
     } catch (error) {
-        const fallback = webCfg.FALLBACK_TO_LEGACY !== false;
-        logger.warn('OpenAI web_search tool path failed', {
+
+        logger.error('OpenAI web_search tool failed', {
             message: error?.message,
-            fallbackEnabled: fallback,
         });
-        if (fallback) {
-            // As a fallback, degrade to regular chat completion over the same messages
-            const conv = await runConversationCompletion(inputMessages, temperature, modelToUse, null);
-            const content = conv?.content || '';
-            return { role: 'assistant', content };
-        }
         throw error;
     }
 }
@@ -975,14 +992,15 @@ const runConversationCompletion = async (messages, temperature = 1, model = null
     }
 };
 
-// Legacy function for backward compatibility - returns just the content
+// Backward compatibility function - returns just the content
 const runConversationCompletionLegacy = async (messages, temperature = 1, model = null, promptType = null) => {
     const result = await runConversationCompletion(messages, temperature, model, promptType, null);
     return result.content;
 };
 
-async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = null) {
+async function extractTextFromImageWithOpenAI(imageInput, options = {}, model = null) {
     try {
+        ensureConfigLoaded();
         if (!config) {
             throw new Error('Configuration not yet loaded for extractTextFromImageWithOpenAI');
         }
@@ -1070,13 +1088,48 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
             }
         }
 
+        // Extract options with defaults
+        const {
+            includeDescription = false,
+            includeTextExtraction = true,
+            customPrompt = null
+        } = options;
+
+        // Determine if input is URL or base64
+        const isBase64 = typeof imageInput === 'string' && !imageInput.startsWith('http');
+        const imageUrl = isBase64 ? `data:image/jpeg;base64,${imageInput}` : imageInput;
+
+        // Create dynamic prompt based on requested analysis
+        let visionPrompt = customPrompt;
+        if (!visionPrompt) {
+            const tasks = [];
+            if (includeTextExtraction) {
+                tasks.push('extrair todo o texto visível');
+            }
+            if (includeDescription) {
+                tasks.push('descrever o conteúdo da imagem detalhadamente');
+            }
+            
+            if (tasks.length === 0) {
+                visionPrompt = 'Analise esta imagem e forneça informações relevantes.';
+            } else {
+                visionPrompt = `Por favor, analise esta imagem e ${tasks.join(' e ')}. Responda em português.`;
+            }
+        }
+
         logger.prompt('OpenAI Vision Prompt', visionPrompt);
-        logger.prompt('OpenAI Vision Image URL', imageUrl);
+        if (!isBase64) {
+            logger.prompt('OpenAI Vision Image URL', imageUrl);
+        } else {
+            logger.debug('Processing base64 image for vision analysis');
+        }
 
         if (config?.SYSTEM?.CONSOLE_LOG_LEVELS?.DEBUG) {
-            logger.debug('Sending image URL directly to OpenAI Vision', {
+            logger.debug('Sending image to OpenAI Vision', {
                 model: effectiveModel,
-                imageUrl,
+                isBase64: isBase64,
+                includeDescription: includeDescription,
+                includeTextExtraction: includeTextExtraction
             });
         }
 
@@ -1097,13 +1150,31 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
                     ],
                 },
             ],
-            // max_tokens: 1500 // Max tokens can be adjusted if needed
+            max_completion_tokens: 2000
         });
 
         const result = completion.choices[0].message.content;
 
+        logger.debug('OpenAI Vision API response structure', {
+            hasChoices: !!completion.choices,
+            choicesLength: completion.choices?.length,
+            hasMessage: !!completion.choices?.[0]?.message,
+            hasContent: !!completion.choices?.[0]?.message?.content,
+            contentLength: completion.choices?.[0]?.message?.content?.length || 0
+        });
+
         if (result) {
             logger.prompt('OpenAI Vision Response', result);
+        } else {
+            logger.warn('OpenAI Vision API returned empty/null content', {
+                fullCompletion: completion,
+                message: completion.choices?.[0]?.message
+            });
+        }
+
+        // Parse response if multiple tasks were requested
+        if (includeTextExtraction && includeDescription && !customPrompt) {
+            return parseVisionResponse(result);
         }
 
         return result;
@@ -1115,6 +1186,56 @@ async function extractTextFromImageWithOpenAI(imageUrl, visionPrompt, model = nu
             ...(error.response?.data && { apiErrorData: error.response.data }),
         });
         throw error;
+    }
+}
+
+/**
+ * Parse vision response when multiple tasks are requested
+ * @param {string} response - OpenAI vision response
+ * @returns {Object} Parsed response with extractedText and description
+ */
+function parseVisionResponse(response) {
+    try {
+        // Try to split the response into text extraction and description parts
+        const lines = response.split('\n').filter(line => line.trim());
+        
+        let extractedText = '';
+        let description = '';
+        let currentSection = 'description';
+        
+        for (const line of lines) {
+            const lowerLine = line.toLowerCase();
+            
+            // Detect section transitions based on common phrases
+            if (lowerLine.includes('texto') && (lowerLine.includes('extraído') || lowerLine.includes('visível'))) {
+                currentSection = 'text';
+                continue;
+            } else if (lowerLine.includes('descrição') || lowerLine.includes('imagem') || lowerLine.includes('conteúdo')) {
+                currentSection = 'description';
+                continue;
+            }
+            
+            // Add content to appropriate section
+            if (currentSection === 'text') {
+                extractedText += line + '\n';
+            } else {
+                description += line + '\n';
+            }
+        }
+        
+        return {
+            extractedText: extractedText.trim(),
+            description: description.trim(),
+            rawResponse: response
+        };
+        
+    } catch (error) {
+        logger.warn('Failed to parse vision response, returning raw text:', error.message);
+        return {
+            extractedText: response,
+            description: '',
+            rawResponse: response
+        };
     }
 }
 
