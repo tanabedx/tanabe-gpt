@@ -81,44 +81,43 @@ async function classifyPublicFigureRequest(promptText) {
 }
 
 /**
- * Generate an image using OpenAI Images API (gpt-image-1).
- * @param {string} prompt
- * @param {object} options
- * @returns {Promise<string|null>} Base64 PNG
+ * Generate an image using OpenAI gpt-5 with responses API.
+ * @param {string} prompt - The image generation prompt
+ * @param {object} options - Options like size (currently unused for gpt-5)
+ * @returns {Promise<string|null>} Base64 image data or null on failure
  */
 async function generateImageWithOpenAI(prompt, options = {}) {
     try {
         const openai = getOpenAIClient();
-        const size = options.size || '1024x1024';
-        const resp = await openai.images.generate({
-            model: 'dall-e-3',
-            prompt,
-            size,
-            quality: 'standard',
-            response_format: 'b64_json',
+        
+        logger.debug('Generating image with gpt-5 using responses API');
+        const response = await openai.responses.create({
+            model: "gpt-5",
+            input: prompt,
+            tools: [{type: "image_generation"}],
         });
         
-        logger.debug('OpenAI images.generate response structure:', {
-            hasData: !!resp?.data,
-            dataLength: resp?.data?.length,
-            firstItem: resp?.data?.[0] ? Object.keys(resp.data[0]) : 'no first item'
+        logger.debug('OpenAI responses.create response structure:', {
+            hasOutput: !!response?.output,
+            outputLength: response?.output?.length,
+            outputTypes: response?.output?.map(o => o.type)
         });
         
-        const b64 = resp?.data?.[0]?.b64_json;
-        if (b64) return b64;
+        // Extract image data from the response
+        const imageData = response.output
+            .filter((output) => output.type === "image_generation_call")
+            .map((output) => output.result);
         
-        // Fallback: try URL format and convert to base64
-        const url = resp?.data?.[0]?.url;
-        if (url) {
-            logger.debug('Got URL instead of base64, downloading and converting');
-            const imgResp = await axios.get(url, { responseType: 'arraybuffer' });
-            return Buffer.from(imgResp.data, 'binary').toString('base64');
+        if (imageData.length > 0) {
+            const imageBase64 = imageData[0];
+            logger.debug('Successfully generated image with gpt-5');
+            return imageBase64;
         }
         
-        logger.error('No base64 image or URL in OpenAI images.generate response', resp?.data);
+        logger.error('No image_generation_call found in gpt-5 response', response?.output);
         return null;
     } catch (error) {
-        logger.error('Error generating image with OpenAI:', error);
+        logger.error('Error generating image with OpenAI gpt-5:', error);
         return null;
     }
 }
@@ -142,7 +141,7 @@ async function editImageWithOpenAI(imageBase64, prompt, options = {}) {
         fs.writeFileSync(tempPath, buffer);
 
         const form = new FormData();
-        form.append('model', 'gpt-image-1');
+        form.append('model', 'gpt-image-1'); // Use gpt-image-1 for image editing
         form.append('prompt', prompt);
         // Note: OpenAI Images edits API may not support size/style parameters
         form.append('image', fs.createReadStream(tempPath), {
@@ -168,10 +167,17 @@ async function editImageWithOpenAI(imageBase64, prompt, options = {}) {
             message: error.message,
             status: error.response?.status,
             statusText: error.response?.statusText,
-            data: error.response?.data,
+            errorData: error.response?.data,
             url: error.config?.url,
-            method: error.config?.method
+            method: error.config?.method,
+            headers: error.config?.headers
         });
+        
+        // Log the specific OpenAI error message if available
+        if (error.response?.data?.error) {
+            logger.error('OpenAI API error details:', error.response.data.error);
+        }
+        
         return null;
     } finally {
         try { fs.unlinkSync(tempPath); } catch (_) {}

@@ -4,20 +4,20 @@
 
 AI-powered image generation and editing system with routing logic:
 - Public figure requests → GetImg.ai (text-to-image)
-- Non-public figure requests → OpenAI Images API (`dall-e-3`)
+- Non-public figure requests → OpenAI Images API (`gpt-5`)
 - All edits → OpenAI Images API (images/edits)
 
 The system uses gpt-5-nano to classify whether a request is about a public figure, then routes accordingly. Image generation (`#desenho`) uses prompt enhancement, while editing (`#desenhoedit`) uses raw user input. User-facing replies are in Portuguese; code comments and documentation are in English.
 
 ## Core Features
 
-- **AI Image Generation (Routed)**: Public figure→GetImg.ai; others→OpenAI `dall-e-3`
+- **AI Image Generation (Routed)**: Public figure→GetImg.ai; others→OpenAI `gpt-5`
 - **Selective Enhancement**: Generation uses prompt enhancement; editing uses raw input
 - **Portuguese UX**: User-facing texts in Portuguese; code/docs in English
 - **Auto-Deletion**: Configurable automatic deletion of error messages and responses
 - **Error Handling**: Comprehensive error management with defensive fallbacks
 - **Media Integration**: Delivery via WhatsApp Web.js `MessageMedia`
-- **Image Editing**: All edits handled by OpenAI Images API
+- **Image Editing**: All edits handled by OpenAI Images API (`gpt-image-1`)
 
 ## Usage Examples
 
