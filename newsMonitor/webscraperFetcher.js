@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const logger = require('../utils/logger');
+const { getFirstSeen, recordFirstSeen } = require('./persistentCache');
 
 class WebscraperFetcher {
     constructor(config) {
@@ -9,6 +10,8 @@ class WebscraperFetcher {
         this.sources = config.sources?.filter(source => 
             source.type === 'webscraper' && source.enabled
         ) || [];
+        this.enrichmentConfig = (config.WEBSCRAPER && config.WEBSCRAPER.ENRICHMENT) || {};
+        this.enrichmentCounter = 0;
     }
 
     async fetchAllSources() {
@@ -116,7 +119,33 @@ class WebscraperFetcher {
                 try {
                     const article = this.extractArticleData($, $(element), source);
                     if (article && article.title && article.link) {
-                        articles.push(article);
+                        // Try enrichment when pubDate is missing
+                        if (!article.pubDate) {
+                            await this.maybeEnrichTimestamp(article);
+                        }
+
+                        if (!article.pubDate) {
+                            // Use firstSeen + headline heuristic
+                            const topN = this.enrichmentConfig.HEADLINE_FALLBACK_TOP_N || 5;
+                            let firstSeenTs = getFirstSeen(article.link);
+                            if (!firstSeenTs) {
+                                firstSeenTs = recordFirstSeen(article.link) || Date.now();
+                            }
+
+                            if (i < topN) {
+                                // Promote headline with firstSeen timestamp
+                                article.pubDate = new Date(firstSeenTs).toISOString();
+                                article.dateTime = article.pubDate;
+                                article.timeText = article.timeText || 'headline-firstSeen';
+                                logger.debug(`Promoting headline without timestamp using firstSeen: ${article.title.substring(0, 60)}...`);
+                                articles.push(article);
+                            } else {
+                                logger.debug(`Skipping non-headline without timestamp: ${article.title.substring(0, 60)}...`);
+                            }
+                        } else {
+                            // Normal flow
+                            articles.push(article);
+                        }
                     }
                 } catch (error) {
                     logger.debug(`Error extracting article ${i}:`, error.message);
@@ -178,46 +207,86 @@ class WebscraperFetcher {
     }
 
     parseRelativeTime(timeText) {
-        if (!timeText) {
-            return new Date().toISOString();
+        if (!timeText || typeof timeText !== 'string') {
+            return null; // do not default to now; avoid marking old items as new
         }
 
         const now = new Date();
         const lowerText = timeText.toLowerCase();
 
-        // Brazilian Portuguese time patterns
+        // Absolute date formats commonly used (e.g., 17/06/2024 às 15h30)
+        const absMatch = lowerText.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s*(?:às|as)?\s*(\d{1,2})h(?:(\d{1,2}))?)?/i);
+        if (absMatch) {
+            const d = parseInt(absMatch[1], 10);
+            const m = parseInt(absMatch[2], 10) - 1;
+            let y = parseInt(absMatch[3], 10);
+            if (y < 100) y += 2000;
+            const hh = absMatch[4] ? parseInt(absMatch[4], 10) : 0;
+            const mm = absMatch[5] ? parseInt(absMatch[5], 10) : 0;
+            const dt = new Date(Date.UTC(y, m, d, hh, mm, 0));
+            return dt.toISOString();
+        }
+
+        // Brazilian Portuguese relative patterns (expanded)
         const patterns = [
-            { regex: /há (\d+) minutos?/i, unit: 'minutes' },
-            { regex: /há (\d+) horas?/i, unit: 'hours' },
-            { regex: /há (\d+) dias?/i, unit: 'days' },
+            { regex: /atualizado\s+há\s+(\d+)\s+minutos?/i, unit: 'minutes' },
+            { regex: /atualizado\s+há\s+(\d+)\s+horas?/i, unit: 'hours' },
+            { regex: /atualizado\s+há\s+(\d+)\s+dias?/i, unit: 'days' },
+            { regex: /há\s+(\d+)\s+minutos?/i, unit: 'minutes' },
+            { regex: /há\s+(\d+)\s+horas?/i, unit: 'hours' },
+            { regex: /há\s+(\d+)\s+dias?/i, unit: 'days' },
+            { regex: /(\d+)\s*min\s*(?:atrás)?/i, unit: 'minutes' },
+            { regex: /(\d+)\s*h\s*(?:atrás)?/i, unit: 'hours' },
             { regex: /(\d+)h(\d+)?/i, unit: 'time' }, // Format like "2h30"
+            { regex: /ontem/i, unit: 'yesterday' },
+            { regex: /hoje/i, unit: 'today' },
         ];
 
         for (const pattern of patterns) {
             const match = lowerText.match(pattern.regex);
             if (match) {
-                const value = parseInt(match[1]);
-                
-                if (pattern.unit === 'minutes') {
-                    now.setMinutes(now.getMinutes() - value);
-                } else if (pattern.unit === 'hours') {
-                    now.setHours(now.getHours() - value);
-                } else if (pattern.unit === 'days') {
-                    now.setDate(now.getDate() - value);
-                } else if (pattern.unit === 'time') {
-                    // Handle format like "2h30" (2 hours 30 minutes ago)
-                    now.setHours(now.getHours() - value);
-                    if (match[2]) {
-                        now.setMinutes(now.getMinutes() - parseInt(match[2]));
-                    }
+                const value = match[1] ? parseInt(match[1], 10) : null;
+
+                if (pattern.unit === 'minutes' && Number.isFinite(value)) {
+                    const dt = new Date(now.getTime());
+                    dt.setMinutes(dt.getMinutes() - value);
+                    return dt.toISOString();
                 }
-                
-                return now.toISOString();
+                if (pattern.unit === 'hours' && Number.isFinite(value)) {
+                    const dt = new Date(now.getTime());
+                    dt.setHours(dt.getHours() - value);
+                    return dt.toISOString();
+                }
+                if (pattern.unit === 'days' && Number.isFinite(value)) {
+                    const dt = new Date(now.getTime());
+                    dt.setDate(dt.getDate() - value);
+                    return dt.toISOString();
+                }
+                if (pattern.unit === 'time') {
+                    const dt = new Date(now.getTime());
+                    const h = Number.isFinite(value) ? value : 0;
+                    dt.setHours(dt.getHours() - h);
+                    if (match[2]) {
+                        const mins = parseInt(match[2], 10);
+                        if (Number.isFinite(mins)) dt.setMinutes(dt.getMinutes() - mins);
+                    }
+                    return dt.toISOString();
+                }
+                if (pattern.unit === 'yesterday') {
+                    const dt = new Date(now.getTime());
+                    dt.setDate(dt.getDate() - 1);
+                    return dt.toISOString();
+                }
+                if (pattern.unit === 'today') {
+                    // ambiguous; avoid claiming exact 'now'. Return start of today to be conservative
+                    const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    return dt.toISOString();
+                }
             }
         }
 
-        // If no pattern matches, return current time
-        return new Date().toISOString();
+        // If no pattern matches, return null to force downstream filters to treat it conservatively
+        return null;
     }
 
     normalizeScrapedItem(item) {
@@ -235,6 +304,110 @@ class WebscraperFetcher {
             scrapeMethod: 'pagination',
             timeText: item.timeText
         };
+    }
+
+    async maybeEnrichTimestamp(article) {
+        try {
+            const enabled = this.enrichmentConfig.ENABLED === true;
+            const maxPerCycle = this.enrichmentConfig.MAX_PER_CYCLE || 0;
+            if (!enabled) return;
+            if (maxPerCycle > 0 && this.enrichmentCounter >= maxPerCycle) return;
+
+            // Perform enrichment
+            const timeout = this.enrichmentConfig.TIMEOUT || 8000;
+            const retries = this.enrichmentConfig.RETRY_ATTEMPTS || 0;
+            const retryDelay = this.enrichmentConfig.RETRY_DELAY || 500;
+
+            logger.debug(`WS: Enrichment attempt for article without timestamp: ${article.link}`);
+
+            let attempt = 0;
+            let html = null;
+            while (attempt <= retries && !html) {
+                try {
+                    const resp = await axios.get(article.link, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (compatible; WebscraperFetcher/1.0)'
+                        },
+                        timeout
+                    });
+                    html = resp.data;
+                } catch (e) {
+                    attempt++;
+                    if (attempt <= retries) {
+                        await new Promise(r => setTimeout(r, retryDelay));
+                    }
+                }
+            }
+            if (!html) return;
+            this.enrichmentCounter++;
+
+            const $ = cheerio.load(html);
+
+            // Meta tags
+            const metaCandidates = [
+                'meta[property="article:published_time"]',
+                'meta[name="article:published_time"]',
+                'meta[property="og:published_time"]',
+                'meta[name="og:published_time"]',
+                'meta[property="og:updated_time"]',
+                'meta[name="og:updated_time"]',
+                'meta[itemprop="datePublished"]',
+                'meta[name="date"]'
+            ];
+            for (const sel of metaCandidates) {
+                const content = $(sel).attr('content');
+                if (content) {
+                    const d = new Date(content);
+                    if (!isNaN(d.getTime())) {
+                        article.pubDate = d.toISOString();
+                        article.dateTime = article.pubDate;
+                        logger.debug(`WS: Enriched timestamp via meta (${sel}) -> ${article.pubDate}`);
+                        return;
+                    }
+                }
+            }
+
+            // time[datetime]
+            const timeDt = $('time[datetime]').attr('datetime');
+            if (timeDt) {
+                const d = new Date(timeDt);
+                if (!isNaN(d.getTime())) {
+                    article.pubDate = d.toISOString();
+                    article.dateTime = article.pubDate;
+                    logger.debug(`WS: Enriched timestamp via <time datetime> -> ${article.pubDate}`);
+                    return;
+                }
+            }
+
+            // JSON-LD
+            const scripts = $('script[type="application/ld+json"]').toArray();
+            for (const s of scripts) {
+                try {
+                    const text = $(s).contents().text();
+                    if (!text) continue;
+                    const json = JSON.parse(text);
+                    const nodes = Array.isArray(json) ? json : [json];
+                    for (const node of nodes) {
+                        if (node && typeof node === 'object') {
+                            const dateStr = node.datePublished || node.dateCreated || node.dateModified;
+                            if (dateStr) {
+                                const d = new Date(dateStr);
+                                if (!isNaN(d.getTime())) {
+                                    article.pubDate = d.toISOString();
+                                    article.dateTime = article.pubDate;
+                                    logger.debug(`WS: Enriched timestamp via JSON-LD -> ${article.pubDate}`);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                } catch (_) {
+                    // ignore JSON parse errors
+                }
+            }
+        } catch (e) {
+            logger.debug(`Enrichment failed for ${article.link}: ${e.message}`);
+        }
     }
 }
 

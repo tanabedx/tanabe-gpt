@@ -93,7 +93,7 @@ const NEWS_MONITOR_CONFIG = {
         // Example: Account with custom threshold for link processing
         {
             type: 'twitter',
-            enabled: true,
+            enabled: false,
             username: 'QuiverQuant',
             mediaOnly: false,
             skipEvaluation: true,
@@ -194,6 +194,14 @@ const NEWS_MONITOR_CONFIG = {
         MAX_ITEMS_PER_SOURCE: 50,
         DEFAULT_TIMEOUT: 15000,
         DEFAULT_RETRY_ATTEMPTS: 2,
+        ENRICHMENT: {
+            ENABLED: true,
+            MAX_PER_CYCLE: 5,
+            TIMEOUT: 8000,
+            RETRY_ATTEMPTS: 1,
+            RETRY_DELAY: 500,
+            HEADLINE_FALLBACK_TOP_N: 5,
+        },
     },
 
     // Link processing configuration for short tweets
@@ -229,6 +237,11 @@ const NEWS_MONITOR_CONFIG = {
         PROCESS_IMAGE_TEXT_EXTRACTION_PROMPT: TIER.LOW,
         TRANSLATION: TIER.LOW,
         DEFAULT: TIER.LOW,
+    },
+
+    // AI temperatures (per operation) - allows slight tuning without code changes
+    AI_TEMPERATURES: {
+        BATCH_EVALUATE_TITLES: 0.4, // slightly higher than previous 0.3 to reduce over-rejection
     },
 
     // Prompts for content evaluation and summarization

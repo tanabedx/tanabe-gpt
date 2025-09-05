@@ -1166,6 +1166,32 @@ function getActiveTopicsStats() {
 // Initialize cache file on module load
 initializeCacheFile();
 
+// In-memory firstSeen store (clears on process restart)
+const firstSeenMemory = new Map();
+
+function getFirstSeen(link) {
+    try {
+        if (!link) return null;
+        return firstSeenMemory.has(link) ? firstSeenMemory.get(link) : null;
+    } catch (e) {
+        logger.error(`Failed to get firstSeen (memory): ${e.message}`);
+        return null;
+    }
+}
+
+function recordFirstSeen(link, timestamp = Date.now()) {
+    try {
+        if (!link) return null;
+        if (!firstSeenMemory.has(link)) {
+            firstSeenMemory.set(link, timestamp);
+        }
+        return firstSeenMemory.get(link);
+    } catch (e) {
+        logger.error(`Failed to record firstSeen (memory): ${e.message}`);
+        return null;
+    }
+}
+
 module.exports = {
     readCache,
     writeCache,
@@ -1195,6 +1221,9 @@ module.exports = {
     getActiveTopicsStats,
     extractTopicSignature,
     findRelatedActiveTopic,
+    // First-seen (in-memory; reset on restart)
+    getFirstSeen,
+    recordFirstSeen,
     // In-memory cache functions (kept for backward compatibility)
     recordSentTweet,
     recordSentArticle,

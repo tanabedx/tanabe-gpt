@@ -76,8 +76,11 @@ async function fetchAndFormatTweets(/* accounts no longer a parameter */) {
         const currentActiveKey = twitterApiHandler.getCurrentKey();
 
         if (!currentActiveKey || !currentActiveKey.bearer_token) {
-            logger.error(
-                'No active Twitter API key available from twitterApiHandler for fetchAndFormatTweets.'
+            // Downgrade to warn and do NOT notify admin every cycle; the News Monitor will handle one-time admin notification
+            logger.warn(
+                'No active Twitter API key available (fetchAndFormatTweets). Skipping this cycle.',
+                null,
+                false
             );
             return formattedTweets;
         }

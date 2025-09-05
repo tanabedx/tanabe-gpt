@@ -331,9 +331,10 @@ async function generateNewsCycleDebugReport_core(
                 utilities.logger.debug(
                     `NM_DEBUG: Performing batch title evaluation for ${rssItemsForBatchEval.length} RSS items using model ${modelName}.`
                 );
+                const batchTemp = (config.AI_TEMPERATURES && config.AI_TEMPERATURES.BATCH_EVALUATE_TITLES) || 0.3;
                 const result = await utilities.openaiUtils.runCompletion(
                     formattedPrompt,
-                    0.3,
+                    batchTemp,
                     modelName,
                     'BATCH_EVALUATE_TITLES'
                 );

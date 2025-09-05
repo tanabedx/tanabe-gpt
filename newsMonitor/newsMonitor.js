@@ -31,6 +31,43 @@ const { encodeBufferToBase64 } = require('./workerBase64');
 
 let newsMonitorIntervalId = null;
 let targetGroup = null; // To store the WhatsApp target group
+// Runtime flags for Twitter auto-disable when all API keys hit monthly cap
+let twitterDisabledDueToCap = false;
+let twitterCapAdminNotified = false;
+
+function formatKeysUsageSummary() {
+    try {
+        return twitterApiHandler.getKeysUsageSummary ? twitterApiHandler.getKeysUsageSummary() : 'Unavailable';
+    } catch (_) {
+        return 'Unavailable';
+    }
+}
+
+async function maybeDisableTwitterDueToCap() {
+    try {
+        if (twitterDisabledDueToCap) return; // Already disabled
+        if (typeof twitterApiHandler.areAllKeysCappedByMonthlyLimit === 'function') {
+            const allCapped = twitterApiHandler.areAllKeysCappedByMonthlyLimit();
+            if (allCapped) {
+                twitterDisabledDueToCap = true;
+                const summary = formatKeysUsageSummary();
+                const note = 'NM: All Twitter API keys reached monthly usage cap. Disabling Twitter pulls until restart. Keys: ' + summary;
+                logger.warn('NM: Disabling Twitter due to monthly usage cap.');
+                if (!twitterCapAdminNotified) {
+                    twitterCapAdminNotified = true;
+                    try {
+                        await logger.notifyAdmin('*News Monitor*: todas as chaves do Twitter atingiram o limite mensal. Desativando coletas do Twitter até reinício.\n' + summary);
+                    } catch (e) {
+                        // Fallback to error log if notifyAdmin fails
+                        logger.error('NM: Failed to notify admin about Twitter cap disable: ' + (e?.message || e));
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        logger.error('NM: Error checking Twitter cap status: ' + (e?.message || e));
+    }
+}
 
 /**
  * Checks if the news monitor is currently in a quiet hours period.
@@ -55,16 +92,23 @@ function isQuietHours() {
 async function processNewsCycle(skipPeriodicCheck = false) {
     logger.debug('NM: Starting new processing cycle.');
 
-    if (!skipPeriodicCheck) {
+    // Before any Twitter activity, check if we should auto-disable due to monthly cap
+    await maybeDisableTwitterDueToCap();
+
+    if (!skipPeriodicCheck && !twitterDisabledDueToCap) {
         try {
             await twitterApiHandler.periodicCheck();
         } catch (e) {
             logger.error('NM: Error twitterApiHandler.periodicCheck():', e);
         }
     } else {
-        logger.debug(
-            'NM: Skipping twitterApiHandler.periodicCheck() for this cycle (initial run).'
-        );
+        if (skipPeriodicCheck) {
+            logger.debug(
+                'NM: Skipping twitterApiHandler.periodicCheck() for this cycle (initial run).'
+            );
+        } else if (twitterDisabledDueToCap) {
+            logger.debug('NM: Twitter periodic check skipped (Twitter disabled due to cap).');
+        }
     }
 
     if (isQuietHours()) {
@@ -74,13 +118,17 @@ async function processNewsCycle(skipPeriodicCheck = false) {
     logger.debug('NM: Not in quiet hours, proceeding with fetching and filtering.');
     let allFetchedItems = [];
     try {
-        logger.debug('NM: Attempting to fetch Twitter posts...');
-        const twitterPosts = await twitterFetcher.fetchAndFormatTweets();
-        logger.debug(
-            `NM: twitterFetcher.fetchAndFormatTweets returned ${twitterPosts?.length || 0} items.`
-        );
-        if (twitterPosts?.length) {
-            allFetchedItems = allFetchedItems.concat(twitterPosts);
+        if (!twitterDisabledDueToCap) {
+            logger.debug('NM: Attempting to fetch Twitter posts...');
+            const twitterPosts = await twitterFetcher.fetchAndFormatTweets();
+            logger.debug(
+                `NM: twitterFetcher.fetchAndFormatTweets returned ${twitterPosts?.length || 0} items.`
+            );
+            if (twitterPosts?.length) {
+                allFetchedItems = allFetchedItems.concat(twitterPosts);
+            }
+        } else {
+            logger.debug('NM: Skipping Twitter fetch (disabled due to monthly cap).');
         }
 
         logger.debug('NM: Attempting to fetch RSS items...');
@@ -584,9 +632,10 @@ async function processNewsCycle(skipPeriodicCheck = false) {
                 logger.debug(
                     `NM: Performing batch title evaluation for ${rssItemsForBatchEval.length} RSS items using model ${modelName}.`
                 );
+                const batchTemp = (NEWS_MONITOR_CONFIG.AI_TEMPERATURES && NEWS_MONITOR_CONFIG.AI_TEMPERATURES.BATCH_EVALUATE_TITLES) || 0.3;
                 const result = await runCompletion(
                     formattedPrompt,
-                    0.3,
+                    batchTemp,
                     modelName, // Pass the derived modelName here
                     'BATCH_EVALUATE_TITLES'
                 );

@@ -373,8 +373,10 @@ paginationPattern: 'https://ge.globo.com/futebol/index/feed/pagina-{page}.ghtml'
 1. **Page Fetching**: Start with base URL, then paginate through numbered pages
 2. **Content Extraction**: Use CSS selectors to extract article data (title, link, time, content)
 3. **Time Normalization**: Parse relative timestamps into absolute ISO dates
-4. **Duplicate Detection**: Prevent duplicate articles across pagination pages
-5. **Limit Enforcement**: Stop when reaching configured article limit (default: 50)
+4. **Timestamp Enrichment (fallback)**: If no timestamp is found inline, perform a lightweight GET on the article and try meta (`article:published_time`, `og:updated_time`), `<time datetime>`, and JSON‑LD (`datePublished`, etc.). Capped per cycle via `WEBSCRAPER.ENRICHMENT.MAX_PER_CYCLE`.
+5. **Headline FirstSeen Fallback**: If enrichment fails and the item is among the first N items (`HEADLINE_FALLBACK_TOP_N`, default 5), record/use `firstSeen` (in-memory, cleared on restart) as `pubDate` so it passes interval filtering once.
+6. **Duplicate Detection**: Prevent duplicate articles across pagination pages
+7. **Limit Enforcement**: Stop when reaching configured article limit (default: 50)
 
 ### Configuration
 
@@ -388,15 +390,15 @@ sources: [
         url: 'https://ge.globo.com/futebol/',
         paginationPattern: 'https://ge.globo.com/futebol/index/feed/pagina-{page}.ghtml',
         scrapeMethod: 'pagination',
-        priority: 4,                        // Lower than Twitter/RSS sources
+        priority: 4, // Lower priority than main news sources
         selectors: {
-            container: '.feed-post',         // Article container
-            title: '.feed-post-body h2 a',   // Article title
-            link: '.feed-post-body h2 a',    // Article link
-            time: '.feed-post-metadata',     // Relative time element
-            content: '.feed-post-body p'     // Article summary
+            container: '.feed-post',
+            title: '.feed-post-body h2 a',
+            link: '.feed-post-body h2 a',
+            time: '.feed-post-metadata',
+            content: '.feed-post-body p'
         },
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36'
     }
 ]
 ```
@@ -405,8 +407,16 @@ sources: [
 ```javascript
 WEBSCRAPER: {
     MAX_ITEMS_PER_SOURCE: 50,        // Maximum articles per source
-    DEFAULT_TIMEOUT: 15000,          // Request timeout in milliseconds
+    DEFAULT_TIMEOUT: 15000,          // HTTP request timeout in milliseconds
     DEFAULT_RETRY_ATTEMPTS: 2,       // Number of retry attempts
+    ENRICHMENT: {
+        ENABLED: true,               // Enable enrichment GET for missing timestamps
+        MAX_PER_CYCLE: 5,            // Cap number of enrichment fetches per cycle
+        TIMEOUT: 8000,               // Enrichment GET timeout (ms)
+        RETRY_ATTEMPTS: 1,           // Enrichment retry attempts
+        RETRY_DELAY: 500,            // Delay between retries (ms)
+        HEADLINE_FALLBACK_TOP_N: 5   // Promote only top-N items using firstSeen
+    }
 }
 ```
 
@@ -421,7 +431,8 @@ scrapeWithPagination(source)         // Handle pagination URL patterns
 normalizeScrapedItem(item, source)   // Convert to standard format
 
 // Time processing utilities
-parseRelativeTime(timeText)          // Convert "Há 5 minutos" to timestamp
+parseRelativeTime(timeText)          // Convert "Há 5 minutos" to timestamp (or null if unparseable)
+maybeEnrichTimestamp(article)        // Enrich timestamp via meta/JSON‑LD/time if missing (capped per cycle)
 ```
 
 ### Performance Benefits
@@ -441,7 +452,7 @@ scrapedArticle = {
     title: 'Article headline',
     content: 'Article summary',
     link: 'https://absolute-url',   // Converted to absolute URLs
-    pubDate: '2024-06-17T15:30:00.000Z', // Real publication time
+    pubDate: '2024-06-17T15:30:00.000Z', // Real publication time or enriched/firstSeen for headline fallback
     dateTime: '2024-06-17T15:30:00.000Z', // Duplicate for compatibility
     timeText: 'Há 5 minutos',       // Original relative time for reference
     scrapedAt: 1718639400000,       // When article was scraped
@@ -451,7 +462,7 @@ scrapedArticle = {
 
 ### Integration with Filtering Pipeline
 Webscraper output is fully compatible with all 10 filtering stages:
-- **Interval Filtering**: Uses real `pubDate` timestamps for time-based filtering
+- **Interval Filtering**: Uses real/enriched/firstSeen `pubDate` timestamps for time-based filtering; firstSeen ensures a timestamp-less headline passes only once
 - **Whitelist Filtering**: Subject to domain/path-based whitelist filtering like RSS content
 - **Content Evaluation**: AI processes `title` and `content` fields normally
 - **Duplicate Detection**: `link` URLs enable proper deduplication
@@ -566,6 +577,8 @@ Initialize → Load Key States → Check Usage → Select Active Key →
 Set Cooldown → Switch to Next Key → Continue Processing
   ↓ (periodic maintenance)
 Update All Key Usage → Refresh Limits → Clear Expired Cooldowns
+  ↓ (if all keys capped)
+One-Time Admin Notify → Disable Twitter Fetches Until Restart
 ```
 
 ### Content Evaluation Pipeline

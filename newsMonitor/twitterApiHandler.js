@@ -761,4 +761,30 @@ module.exports = {
     checkUsageAndFetchContent,
     getApiKeysStatus,
     getCooldownInfo,
+    // Helper: determine if all configured keys are capped by monthly usage
+    areAllKeysCappedByMonthlyLimit: () => {
+        const states = Object.values(apiKeyStates);
+        if (states.length === 0) return false;
+        // All keys must have valid numeric usage/limit and usage >= limit
+        for (const s of states) {
+            const usageNum = Number(s.usage);
+            const limitNum = Number(s.limit);
+            if (!Number.isFinite(usageNum) || !Number.isFinite(limitNum) || limitNum <= 0) {
+                return false;
+            }
+            if (usageNum < limitNum) {
+                return false;
+            }
+        }
+        return true;
+    },
+    // Helper: concise usage summary for admin messages
+    getKeysUsageSummary: () => {
+        const parts = [];
+        for (const name in apiKeyStates) {
+            const s = apiKeyStates[name];
+            parts.push(`${name}: ${s.usage || 0}/${s.limit || 0} (status ${s.status || 'unknown'})`);
+        }
+        return parts.join(', ');
+    }
 };
