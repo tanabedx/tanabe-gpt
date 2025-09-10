@@ -1088,12 +1088,18 @@ async function extractTextFromImageWithOpenAI(imageInput, options = {}, model = 
             }
         }
 
+        // Normalize options: support passing a string as shorthand for customPrompt
+        let normalizedOptions = options;
+        if (typeof normalizedOptions === 'string') {
+            normalizedOptions = { customPrompt: normalizedOptions };
+        }
+
         // Extract options with defaults
         const {
             includeDescription = false,
             includeTextExtraction = true,
             customPrompt = null
-        } = options;
+        } = normalizedOptions || {};
 
         // Determine if input is URL or base64
         const isBase64 = typeof imageInput === 'string' && !imageInput.startsWith('http');
@@ -1134,7 +1140,7 @@ async function extractTextFromImageWithOpenAI(imageInput, options = {}, model = 
         }
 
         const openai = getOpenAIClient();
-        const completion = await openai.chat.completions.create({
+        const baseVisionPayload = {
             model: effectiveModel,
             messages: [
                 {
@@ -1150,8 +1156,11 @@ async function extractTextFromImageWithOpenAI(imageInput, options = {}, model = 
                     ],
                 },
             ],
-            max_completion_tokens: 2000
-        });
+            // The Chat Completions API uses max_tokens
+            max_tokens: 2000,
+        };
+
+        const completion = await openai.chat.completions.create(baseVisionPayload);
 
         const result = completion.choices[0].message.content;
 
@@ -1166,10 +1175,43 @@ async function extractTextFromImageWithOpenAI(imageInput, options = {}, model = 
         if (result) {
             logger.prompt('OpenAI Vision Response', result);
         } else {
-            logger.warn('OpenAI Vision API returned empty/null content', {
-                fullCompletion: completion,
-                message: completion.choices?.[0]?.message
+            // Log additional diagnostics at debug level to avoid noisy warns with large objects
+            logger.debug('OpenAI Vision returned empty content - diagnostics', {
+                model: effectiveModel,
+                usage: completion?.usage,
+                finish_reason: completion?.choices?.[0]?.finish_reason,
             });
+            logger.warn('OpenAI Vision API returned empty/null content');
+
+            // Optional: one-time retry with a higher-tier model if configured
+            const higherTierModel = config?.SYSTEM?.AI_MODELS?.MEDIUM || config?.SYSTEM?.OPENAI_MODELS?.DEFAULT;
+            if (higherTierModel && higherTierModel !== effectiveModel) {
+                try {
+                    logger.debug('Retrying OpenAI Vision with higher tier model due to empty content', {
+                        previousModel: effectiveModel,
+                        retryModel: higherTierModel,
+                    });
+                    const retryPayload = { ...baseVisionPayload, model: higherTierModel };
+                    const retryCompletion = await openai.chat.completions.create(retryPayload);
+                    const retryResult = retryCompletion?.choices?.[0]?.message?.content || null;
+                    logger.debug('Retry Vision API response structure', {
+                        hasChoices: !!retryCompletion.choices,
+                        choicesLength: retryCompletion.choices?.length,
+                        hasMessage: !!retryCompletion.choices?.[0]?.message,
+                        hasContent: !!retryCompletion.choices?.[0]?.message?.content,
+                        contentLength: retryCompletion.choices?.[0]?.message?.content?.length || 0
+                    });
+                    if (retryResult) {
+                        logger.prompt('OpenAI Vision Response (retry)', retryResult);
+                        if (includeTextExtraction && includeDescription && !customPrompt) {
+                            return parseVisionResponse(retryResult);
+                        }
+                        return retryResult;
+                    }
+                } catch (retryErr) {
+                    logger.debug('Retry with higher-tier model failed', { error: retryErr?.message });
+                }
+            }
         }
 
         // Parse response if multiple tasks were requested

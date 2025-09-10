@@ -372,6 +372,9 @@ eventConfig = {
 - **Media Handling**: Sticker processing, audio transcription triggers, and file operations
 - **Chat Management**: Group membership validation, message history, and participant management
 
+### Compatibility Notes
+- In some recent WhatsApp Web versions, `window.Store.WidFactory.toUserWidOrThrow` is not exposed. This causes `sendMessage` to fail inside the injected script of `whatsapp-web.js` when sending to groups. We install a small runtime shim during `client.on('ready')` in `app.js` that defines `toUserWidOrThrow` if missing by delegating to `WidFactory.createUserWid`/`createWid`. This preserves compatibility without changing library code.
+
 ### Cryptographic Operations
 - **`crypto`**: SHA-256 hash generation for sticker identification and unique file naming
 - **Hash Matching**: Sticker command mapping based on cryptographic fingerprints

@@ -47,8 +47,6 @@ Faça sua análise internamente e silenciosamente (sem mostrar raciocínio). Res
 Resposta obrigatória:
 1. Se genuinamente novo e urgente: "relevant::Justificativa específica explicando a novidade"
 2. Se não urgente ou repetitivo: "null::Motivo específico da exclusão"
-
-Seja IMPLACAVELMENTE seletivo. O presidente prefere dormir do que receber informações repetidas ou irrelevantes.
     `,
 
     SITREP_artorias_PROMPT: `

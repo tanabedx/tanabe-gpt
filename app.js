@@ -234,6 +234,53 @@ async function initializeBot(gitResults) {
 
                 logger.debug('Browser cleanup scheduled every 30 minutes');
 
+                // Apply compatibility shim for WhatsApp Web API changes
+                // Some WhatsApp Web versions do not expose WidFactory.toUserWidOrThrow,
+                // which breaks group chat sendMessage in whatsapp-web.js >=1.31.
+                // This shim provides a best-effort implementation using available factories.
+                try {
+                    await client.pupPage.evaluate(() => {
+                        try {
+                            const Store = window?.Store;
+                            if (!Store?.WidFactory) return;
+
+                            if (typeof Store.WidFactory.toUserWidOrThrow !== 'function') {
+                                Store.WidFactory.toUserWidOrThrow = function (from) {
+                                    const WF = Store.WidFactory;
+                                    try {
+                                        // If it's already a Wid-like object, return as-is
+                                        if (from && typeof from === 'object' && (from.user || from._serialized)) {
+                                            return from;
+                                        }
+                                        // If it's a string id, prefer createUserWid when available
+                                        if (typeof from === 'string') {
+                                            if (typeof WF.createUserWid === 'function') return WF.createUserWid(from);
+                                            return WF.createWid(from);
+                                        }
+                                        // If it looks like an object with id, use that
+                                        if (from && typeof from === 'object' && typeof from.id === 'string') {
+                                            return WF.createWid(from.id);
+                                        }
+                                        // Fallback
+                                        return WF.createWid(from);
+                                    } catch (e) {
+                                        try {
+                                            return WF.createWid(from?.id || from);
+                                        } catch (_) {
+                                            return null;
+                                        }
+                                    }
+                                };
+                            }
+                        } catch (_) {
+                            // Silently ignore evaluation issues; sendMessage will attempt anyway
+                        }
+                    });
+                    logger.debug('Applied WhatsApp WidFactory shim for toUserWidOrThrow');
+                } catch (err) {
+                    logger.warn('Failed to apply WidFactory shim', err);
+                }
+
                 // Start memory monitoring and capture status
                 try {
                     startMemoryMonitoring();
