@@ -1156,11 +1156,30 @@ async function extractTextFromImageWithOpenAI(imageInput, options = {}, model = 
                     ],
                 },
             ],
-            // The Chat Completions API uses max_tokens
-            max_tokens: 2000,
         };
 
-        const completion = await openai.chat.completions.create(baseVisionPayload);
+        let completion;
+        try {
+            // Prefer max_completion_tokens for current Chat Completions API models
+            completion = await openai.chat.completions.create({
+                ...baseVisionPayload,
+                max_completion_tokens: 2000,
+            });
+        } catch (e) {
+            const dataStr = (e?.response?.data && JSON.stringify(e.response.data)) || '';
+            const combined = `${e?.message || ''} ${dataStr}`.toLowerCase();
+            const complainsAboutMaxCompletion = combined.includes('unsupported parameter') && combined.includes('max_completion_tokens');
+            // If model complains about max_completion_tokens, retry with legacy max_tokens
+            if (complainsAboutMaxCompletion) {
+                logger.debug('Vision: model rejected max_completion_tokens, retrying with max_tokens', { model: effectiveModel });
+                completion = await openai.chat.completions.create({
+                    ...baseVisionPayload,
+                    max_tokens: 2000,
+                });
+            } else {
+                throw e;
+            }
+        }
 
         const result = completion.choices[0].message.content;
 
